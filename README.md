@@ -1,5 +1,9 @@
 # Blast Arena
 
+<img src="./screenshots/1.png" alt="Screenshot 1">
+<img src="./screenshots/2.png" alt="Screenshot 1">
+<img src="./screenshots/3.png" alt="Screenshot 1">
+
 A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
 
 - **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
