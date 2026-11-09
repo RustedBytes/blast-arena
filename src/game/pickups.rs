@@ -1,0 +1,56 @@
+//! Power-ups and the secret box.
+
+use super::*;
+
+impl World {
+    /// Gives a power-up's effect to a player.
+    pub(super) fn grant(p: &mut Player, item: Item, tick: u64) {
+        match item {
+            Item::ExtraBomb => p.max_bombs = (p.max_bombs + 1).min(MAX_BOMBS),
+            Item::Range => p.range = (p.range + 1).min(MAX_RANGE),
+            Item::Speed => p.speed_lvl = (p.speed_lvl + 1).min(MAX_SPEED_LVL),
+            Item::Kick => p.kick = true,
+            Item::Shield => p.invulnerable_until = p.invulnerable_until.max(tick + items::SHIELD_TICKS),
+            Item::Pierce => p.pierce = true,
+            Item::FullFire => p.range = MAX_RANGE,
+            Item::Remote => p.remote = true,
+            Item::LineBomb => p.line = true,
+            Item::Punch => p.punch = true,
+            Item::Ghost => p.ghost_until = p.ghost_until.max(tick + items::GHOST_TICKS),
+            Item::Mystery => {}
+        }
+    }
+
+    /// Applies a picked-up item and tells the player what they got.
+    pub(super) fn pick_up(&mut self, id: u32, item: Item) {
+        self.stats.items_picked += 1;
+        let tick = self.tick;
+        let (code, mystery) = if item == Item::Mystery {
+            self.stats.mysteries_opened += 1;
+            let outcome = Mystery::open(&mut self.rng);
+            let p = self.players.get_mut(&id).unwrap();
+            match outcome {
+                Mystery::Item(i) => Self::grant(p, i, tick),
+                Mystery::Jackpot => {
+                    Self::grant(p, Item::ExtraBomb, tick);
+                    Self::grant(p, Item::Range, tick);
+                    Self::grant(p, Item::Speed, tick);
+                }
+                Mystery::Slow => p.slow_until = tick + items::SLOW_CURSE_TICKS,
+                Mystery::NoBomb => p.nobomb_until = tick + items::NOBOMB_CURSE_TICKS,
+                Mystery::Reversed => p.reversed_until = tick + items::REVERSE_CURSE_TICKS,
+                Mystery::BombRain => {
+                    let (x, y) = p.cell();
+                    self.bomb_rain(x, y);
+                }
+            }
+            (outcome.code(), true)
+        } else {
+            Self::grant(self.players.get_mut(&id).unwrap(), item, tick);
+            (item as u8, false)
+        };
+        if let Some(link) = &self.players[&id].link {
+            let _ = link.events.try_send(protocol::encode_fx(self.event_arenas.current(), code, mystery));
+        }
+    }
+}

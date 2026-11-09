@@ -229,7 +229,10 @@ src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /
 src/db.rs             SQLite profiles, levels and cosmetic unlocks
 src/metrics.rs        lock-free per-arena live stats
 src/protocol.rs       MessagePack wire format, hand-rolled encoder, arena ring
-src/game/             simulation: map and biomes, movement, bombs, items, rounds, AOI
+src/game/mod.rs       World state, config and constants
+src/game/             tick (loop), roster (join/leave/spawn), movement, input, combat,
+                      pickups, terrain, rounds, profiles, snapshot (AOI, encoding),
+                      delta (delta snapshots), map, bomb, items, player, testing, tests
 src/game/link.rs      lock-free input slot and snapshot mailbox per client
 src/game/ai.rs        server-side AI bots
 src/bin/bots.rs       network load tester
