@@ -5,6 +5,7 @@
 
 import { ITEM_SPRITES, playerColors } from './assets.js';
 import { P_CURSE, P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from './particles.js';
+import { FRINGE_RANK } from './pixelart.js';
 
 export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9;
 const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
@@ -24,6 +25,13 @@ const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08
   '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff'];
 export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
 const TRAIL_COLORS = [0, 10, 8, 9];
+
+/** Picks one of `n` tile variants from a coordinate hash; the first is the most common. */
+function variant(h, n) {
+  if (n >= 3 && h % 7 === 0) return 2;
+  if (n >= 2 && h % 3 === 0) return 1;
+  return 0;
+}
 
 // Biome regions, mirroring the server's map generator.
 const BIOME_SEEDS = [[0.5, 0.5, 0], [0.2, 0.2, 1], [0.8, 0.2, 2], [0.2, 0.8, 3], [0.8, 0.8, 0]];
@@ -133,7 +141,13 @@ export class Renderer {
   // ------------------------------------------------------------- tiles
 
   invalidateTile(map, x, y) {
-    this.dirty.add(Math.floor(y / CHUNK) * Math.ceil(map.w / CHUNK) + Math.floor(x / CHUNK));
+    // A tile's shadow falls on its east and south neighbours, which may be
+    // in another chunk.
+    const cols = Math.ceil(map.w / CHUNK);
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const nx = Math.min(x + dx, map.w - 1), ny = Math.min(y + dy, map.h - 1);
+      this.dirty.add(Math.floor(ny / CHUNK) * cols + Math.floor(nx / CHUNK));
+    }
   }
 
   invalidateAll() {
@@ -187,8 +201,16 @@ export class Renderer {
     const sprite = (name) => a.tile(name, style);
     // Pixel art is scaled up with hard edges; vector art smoothly.
     g.imageSmoothingEnabled = style !== 'pixel';
+    // Pixel art has variants per biome, block shadows and blended borders.
+    const pix = style === 'pixel' ? a.pixel : null;
     const grass = [sprite('floor'), sprite('floor_b'), sprite('floor_c')];
-    const biomeFloor = [null, sprite('floor_snow'), sprite('floor_sand'), sprite('floor_ash')];
+    const biomeFloor = [grass, [sprite('floor_snow')], [sprite('floor_sand')], [sprite('floor_ash')]];
+    const floors = pix ? pix.floors : biomeFloor;
+    const tileAt = (x, y) => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
+    const raised = (x, y) => {
+      const t = tileAt(x, y);
+      return t === T_WALL || t === T_CRATE || t === T_ARMORED;
+    };
     const P = CHUNK_PX;
     g.fillStyle = '#1b2a17';
     g.fillRect(0, 0, c.width, c.height);
@@ -200,15 +222,23 @@ export class Renderer {
         if (x >= map.w) break;
         const t = map.tiles[y * map.w + x];
         const px = tx * P, py = ty * P;
+        const b = biome(map, x, y);
+        // Variants come from a coordinate hash, so they stay stable.
+        const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
         if (t !== T_WALL) {
-          const b = biome(map, x, y);
-          // Floor variant from a coordinate hash, so it stays stable.
-          const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-          const floor = b ? biomeFloor[b] : grass[h % 7 === 0 ? 2 : h % 3 === 0 ? 1 : 0];
-          g.drawImage(floor, px, py, P, P);
+          g.drawImage(floors[b][variant(h, floors[b].length)], px, py, P, P);
+          // A higher-ranked neighbouring biome spills over the border.
+          if (pix) {
+            for (let d = 0; d < 4; d++) {
+              const nx = x + ARM_DIRS[d][0], ny = y + ARM_DIRS[d][1];
+              if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+              const nb = biome(map, nx, ny);
+              if (FRINGE_RANK[nb] > FRINGE_RANK[b]) g.drawImage(pix.edges[nb][d], px, py, P, P);
+            }
+          }
         }
         let s = null;
-        if (t === T_WALL) s = sprite('pillar');
+        if (t === T_WALL) s = pix ? pix.pillars[b][variant(h, pix.pillars[b].length)] : sprite('pillar');
         else if (t === T_CRATE) s = sprite('crate');
         else if (t === T_ARMORED) s = sprite('crate_armored');
         else if (t === T_ICE) s = sprite('ice');
@@ -221,6 +251,18 @@ export class Renderer {
           g.rotate(ARM_ANGLES[belt - 1]);
           g.drawImage(sprite('conveyor'), -P / 2, -P / 2, P, P);
           g.restore();
+        }
+        if (pix && !raised(x, y)) {
+          // Ice gets a soft shoreline of the surrounding ground.
+          if (t === T_ICE) {
+            for (let d = 0; d < 4; d++) {
+              const nt = tileAt(x + ARM_DIRS[d][0], y + ARM_DIRS[d][1]);
+              if (nt !== T_ICE && nt !== T_WALL) g.drawImage(pix.edges[b][d], px, py, P, P);
+            }
+          }
+          // Raised neighbours cast shadows down and to the right.
+          const mask = (raised(x, y - 1) ? 1 : 0) | (raised(x - 1, y) ? 2 : 0) | (raised(x - 1, y - 1) ? 4 : 0);
+          if (mask) g.drawImage(pix.shadows[mask], px, py, P, P);
         }
         if (this.highContrast && (t === T_CRATE || t === T_ARMORED || t === T_WALL)) {
           g.strokeStyle = t === T_WALL ? '#000' : '#fff';

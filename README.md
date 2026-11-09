@@ -29,7 +29,15 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Gamepad | Stick or d-pad moves, A bomb, X action, shoulder buttons zoom |
 | Touch | Drag on the left to steer (floating joystick), bomb and action buttons, pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, **tile style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Tile style is **Pixel art** by default: crisp 16×16 tiles drawn in code (`static/js/pixelart.js`). **Classic** brings back the original vector tiles. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **tile style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Tile style is **Pixel art** by default: crisp 16×16 tiles generated in code (`static/js/pixelart.js`). **Classic** brings back the original vector tiles. A short interactive tutorial runs on your first game.
+
+The pixel tiles follow a few rules:
+- **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).
+- **Floors:** quiet and seamless, with variants per region, so players and items stand out.
+- **Walls and crates:** raised blocks in 3/4 view, casting soft shadows onto the floor.
+- **Regions:** each has its own walls (mossy stone, snow-capped blocks with icicles, limestone with gold inlays, obsidian with lava veins), and neighbouring regions blend along a wavy border.
+
+The **Tile Lab** at http://localhost:3000/tiles.html previews the whole set on a sample map using the real renderer. You can reroll the generator seed there and compare with the classic tiles.
 
 ## Configuration
 
@@ -237,7 +245,8 @@ src/game/link.rs      lock-free input slot and snapshot mailbox per client
 src/game/ai.rs        server-side AI bots
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
-static/index.html     lobby and game page; dashboard.html is the server monitor
+static/index.html     lobby and game page; dashboard.html is the server monitor;
+                      tiles.html is the Tile Lab
 static/js/            main, render, prediction, particles, input, audio, i18n,
                       tutorial, settings, net, msgpack, dashboard
 static/assets/        SVG art

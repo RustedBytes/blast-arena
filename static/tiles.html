@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blast Arena Tile Lab</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #0f1520; --panel: #182131; --line: #2a3650; --text: #e8edf5; --muted: #8e9bb0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+    header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 22px; color: #ffb02e; }
+    h2 { margin: 18px 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+    input, select, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+    input { width: 110px; }
+    button { cursor: pointer; }
+    button:hover { border-color: #ffb02e; }
+    .sheet { display: flex; flex-wrap: wrap; gap: 10px; }
+    figure { margin: 0; background: var(--panel); border-radius: 8px; padding: 8px; text-align: center; }
+    figure canvas { width: 64px; height: 64px; image-rendering: pixelated; display: block; }
+    figcaption { margin-top: 6px; font-size: 11px; color: var(--muted); max-width: 64px; overflow-wrap: anywhere; }
+    .map { background: var(--panel); border-radius: 10px; padding: 10px; overflow: auto; }
+    #map { display: block; width: 100%; max-width: 1100px; image-rendering: pixelated; }
+    #map.actual { width: auto; max-width: none; }
+    a { color: #ffb02e; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tile Lab</h1>
+    <label>Seed <input id="seed" type="number" value="1" min="1"></label>
+    <button id="reroll">Reroll</button>
+    <label>Style <select id="style"><option value="pixel">Pixel art</option><option value="classic">Classic</option></select></label>
+    <label><input id="actual" type="checkbox" style="width:auto"> Actual size</label>
+    <a href="./">Back to the game</a>
+  </header>
+  <h2>Map preview (49×49, all four regions)</h2>
+  <div class="map"><canvas id="map"></canvas></div>
+  <div id="sheet"></div>
+  <script type="module" src="js/tilelab.js"></script>
+</body>
+</html>
