@@ -25,6 +25,7 @@ pub const AOI_MAX: (i32, i32) = (26, 18);
 /// How far off a lane the player must be before corner assist kicks in.
 const CORNER_ASSIST_MIN: f32 = 0.12;
 
+#[allow(clippy::struct_excessive_bools, reason = "independent power-up and state flags")]
 pub struct Player {
     pub id: u32,
     pub name: String,
@@ -93,6 +94,7 @@ pub struct Player {
 }
 
 impl Player {
+    #[must_use]
     pub fn new(id: u32, name: String, link: Option<ClientLink>) -> Self {
         Player {
             id,
@@ -147,33 +149,39 @@ impl Player {
         }
     }
 
+    #[must_use]
     pub fn cell(&self) -> (i32, i32) {
         (self.x.floor() as i32, self.y.floor() as i32)
     }
 
+    #[must_use]
     pub fn is_bot(&self) -> bool {
         self.link.is_none()
     }
 
     /// Tiles per second at game tick `tick`, accounting for the slow curse.
+    #[must_use]
     pub fn speed(&self, tick: u64) -> f32 {
         if self.slow_until > tick {
             CURSED_SPEED
         } else {
-            BASE_SPEED + SPEED_STEP * self.speed_lvl as f32
+            BASE_SPEED + SPEED_STEP * f32::from(self.speed_lvl)
         }
     }
 
+    #[must_use]
     pub fn can_bomb(&self, tick: u64) -> bool {
         self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick
     }
 
+    #[must_use]
     pub fn ghost(&self, tick: u64) -> bool {
         self.ghost_until > tick
     }
 
     /// Curse shown to clients: 0 none, 1 slow, 2 no bombs, 3 reversed
     /// controls; plus ticks left.
+    #[must_use]
     pub fn curse(&self, tick: u64) -> (u8, u64) {
         if self.slow_until > tick {
             (1, self.slow_until - tick)
@@ -208,6 +216,7 @@ impl Player {
 
     /// Whether this player's blasts can hurt `other` (no friendly fire,
     /// but your own bombs always can).
+    #[must_use]
     pub fn can_hurt(&self, other: &Player) -> bool {
         self.id == other.id || self.team == 0 || self.team != other.team
     }
@@ -237,20 +246,19 @@ pub fn step_move(x: &mut f32, y: &mut f32, dir: u8, dist: f32, blocked: impl Fn(
     let mut rem = dist;
 
     if off.abs() > 1e-4 {
-        if !cell_at(cm + step, cs) {
-            // Ease onto the lane first; leftover distance goes forward.
-            let a = rem.min(off.abs());
-            *side -= a * off.signum();
-            rem -= a;
-            if rem <= 0.0 {
-                return;
-            }
-        } else {
+        if cell_at(cm + step, cs) {
             let ns = cs + off.signum() as i32;
             if off.abs() >= CORNER_ASSIST_MIN && !cell_at(cm + step, ns) && !cell_at(cm, ns) {
                 let to_lane = 1.0 - off.abs();
                 *side += rem.min(to_lane) * off.signum();
             }
+            return;
+        }
+        // Ease onto the lane first; leftover distance goes forward.
+        let a = rem.min(off.abs());
+        *side -= a * off.signum();
+        rem -= a;
+        if rem <= 0.0 {
             return;
         }
     }

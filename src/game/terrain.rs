@@ -1,6 +1,8 @@
 //! Tiles and items: changes are recorded for the reliable world-delta stream, and crates slowly regrow.
 
-use super::*;
+use super::items::Item;
+use super::map::Tile;
+use super::{REGROW_MYSTERY_CHANCE, TICK_RATE, World};
 
 impl World {
     pub fn set_tile(&mut self, x: i32, y: i32, t: Tile) {
@@ -31,7 +33,7 @@ impl World {
     /// Slowly regrows crates in quiet areas so the big map never runs dry,
     /// occasionally leaving a lone secret box instead.
     pub(super) fn regrow_crates(&mut self) {
-        if !self.tick.is_multiple_of(TICK_RATE as u64) || self.crate_count >= self.crate_target {
+        if !self.tick.is_multiple_of(u64::from(TICK_RATE)) || self.crate_count >= self.crate_target {
             return;
         }
         let attempts = ((self.map.w * self.map.h) / 300).max(4);

@@ -1,7 +1,7 @@
 //! Load tester: connects N headless bots that wander, drop bombs and measure
 //! round-trip latency, to check the server copes with 100+ players.
 //!
-//! Usage: cargo run --release --bin bots -- [--count 150] [--url ws://127.0.0.1:3000/ws] [--secs 0]
+//! Usage: cargo run --release --bin bots -- [--count 150] [--url <ws://127.0.0.1:3000/ws>] [--secs 0]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -32,7 +32,7 @@ struct Pong {
     c: f64,
 }
 
-/// MessagePack prefix of `{"t": "pong", ...}`: a 2-entry map whose first key
+/// `MessagePack` prefix of `{"t": "pong", ...}`: a 2-entry map whose first key
 /// is "t" with value "pong". Lets bots skip decoding every snapshot.
 const PONG_PREFIX: &[u8] = &[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g'];
 
@@ -41,9 +41,9 @@ const PONG_PREFIX: &[u8] = &[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g'];
 fn snapshot_tick(data: &[u8]) -> Option<u32> {
     const PREFIX: &[u8] = &[0x89, 0xa1, b't', 0xa1, b's', 0xa1, b'k'];
     let rest = data.strip_prefix(PREFIX)?;
-    let be = |n: usize| rest.get(1..1 + n).map(|b| b.iter().fold(0u64, |a, &x| a << 8 | x as u64));
+    let be = |n: usize| rest.get(1..1 + n).map(|b| b.iter().fold(0u64, |a, &x| a << 8 | u64::from(x)));
     let v = match *rest.first()? {
-        b @ 0..=0x7f => b as u64,
+        b @ 0..=0x7f => u64::from(b),
         0xcc => be(1)?,
         0xcd => be(2)?,
         0xce => be(4)?,
@@ -87,6 +87,7 @@ fn next_rand(state: &mut u64) -> u64 {
     *state
 }
 
+#[allow(clippy::many_single_char_names, reason = "d, s, q and k are the input message's wire keys")]
 async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
     let Ok((ws, _)) = connect_async(&url).await else {
         stats.disconnects.fetch_add(1, Relaxed);
@@ -103,8 +104,8 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
         return;
     }
 
-    let mut seed = 0x2545_F491_4F6C_DD1Du64 ^ (n as u64 + 1).wrapping_mul(0x9E37_79B9);
-    let mut next_action = tokio::time::interval(Duration::from_millis(250 + n as u64 % 100));
+    let mut seed = 0x2545_F491_4F6C_DD1Du64 ^ (u64::from(n) + 1).wrapping_mul(0x9E37_79B9);
+    let mut next_action = tokio::time::interval(Duration::from_millis(250 + u64::from(n) % 100));
     // Like the browser: send the held input (and the newest snapshot tick,
     // which lets the server send deltas) at the 20 Hz input rate.
     let mut input_tick = tokio::time::interval(Duration::from_millis(50));
@@ -120,12 +121,13 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                     if let Some(k) = snapshot_tick(&data) {
                         last_k = k;
                     } else if data.starts_with(PONG_PREFIX)
-                        && let Ok(pong) = rmp_serde::from_slice::<Pong>(&data) {
-                            let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
-                            stats.rtt_us_sum.fetch_add(rtt, Relaxed);
-                            stats.rtt_count.fetch_add(1, Relaxed);
-                            stats.rtt_us_max.fetch_max(rtt, Relaxed);
-                        }
+                        && let Ok(pong) = rmp_serde::from_slice::<Pong>(&data)
+                    {
+                        let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
+                        stats.rtt_us_sum.fetch_add(rtt, Relaxed);
+                        stats.rtt_count.fetch_add(1, Relaxed);
+                        stats.rtt_us_max.fetch_max(rtt, Relaxed);
+                    }
                 }
             }
             _ = input_tick.tick() => {

@@ -20,6 +20,7 @@ pub enum Tile {
 }
 
 impl Tile {
+    #[must_use]
     pub fn from_u8(v: u8) -> Tile {
         match v {
             1 => Tile::Wall,
@@ -36,6 +37,7 @@ impl Tile {
     }
 
     /// Direction code (1 up .. 4 left) a conveyor pushes in, or 0.
+    #[must_use]
     pub fn conveyor_dir(self) -> u8 {
         match self {
             Tile::ConveyorUp => 1,
@@ -46,6 +48,7 @@ impl Tile {
         }
     }
 
+    #[must_use]
     pub fn is_breakable(self) -> bool {
         matches!(self, Tile::Crate | Tile::Armored)
     }
@@ -85,6 +88,7 @@ pub struct Map {
 }
 
 impl Map {
+    #[must_use]
     pub fn empty(w: i32, h: i32) -> Self {
         let mut map = Map { w, h, tiles: vec![Tile::Floor; (w * h) as usize], teleports: Vec::new() };
         for y in 0..h {
@@ -179,6 +183,7 @@ impl Map {
         }
     }
 
+    #[must_use]
     pub fn teleport_partner(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         self.teleports.iter().find_map(|&(a, b)| {
             if a == (x, y) {
@@ -191,6 +196,7 @@ impl Map {
         })
     }
 
+    #[must_use]
     pub fn biome(&self, x: i32, y: i32) -> Biome {
         if self.w < MIN_BIOME_SIZE || self.h < MIN_BIOME_SIZE {
             return Biome::Grass;
@@ -207,18 +213,22 @@ impl Map {
     }
 
     /// Border walls plus the classic grid of pillars on even coordinates.
+    #[must_use]
     pub fn is_pillar_pos(&self, x: i32, y: i32) -> bool {
         x == 0 || y == 0 || x == self.w - 1 || y == self.h - 1 || (x % 2 == 0 && y % 2 == 0)
     }
 
+    #[must_use]
     pub fn in_bounds(&self, x: i32, y: i32) -> bool {
         x >= 0 && y >= 0 && x < self.w && y < self.h
     }
 
+    #[must_use]
     pub fn idx(&self, x: i32, y: i32) -> usize {
         (y * self.w + x) as usize
     }
 
+    #[must_use]
     pub fn get(&self, x: i32, y: i32) -> Tile {
         if self.in_bounds(x, y) { self.tiles[self.idx(x, y)] } else { Tile::Wall }
     }
@@ -229,15 +239,18 @@ impl Map {
     }
 
     /// Walls and crates of either kind block movement and blasts.
+    #[must_use]
     pub fn is_solid(&self, x: i32, y: i32) -> bool {
         matches!(self.get(x, y), Tile::Wall | Tile::Crate | Tile::Armored)
     }
 
+    #[must_use]
     pub fn count(&self, t: Tile) -> usize {
         self.tiles.iter().filter(|&&v| v == t).count()
     }
 
     /// Run-length encoding of the tile grid as `(tile, run)` pairs, row-major.
+    #[must_use]
     pub fn encode_rle(&self) -> Vec<(u8, u32)> {
         let mut out: Vec<(u8, u32)> = Vec::new();
         for &t in &self.tiles {
@@ -283,7 +296,7 @@ mod tests {
         assert!(m.count(Tile::Armored) > 20, "volcano region has armored crates");
         let conveyors = (4..=7).map(|t| m.count(Tile::from_u8(t))).sum::<usize>();
         assert!(conveyors > 10, "desert region has conveyors");
-        assert!(!m.teleports.is_empty());
+        assert_ne!(m.teleports.len(), 0, "the map has teleporter pairs");
         for &(a, b) in &m.teleports {
             assert_eq!(m.get(a.0, a.1), Tile::Teleport);
             assert_eq!(m.teleport_partner(a.0, a.1), Some(b));

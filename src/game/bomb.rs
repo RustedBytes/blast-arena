@@ -1,7 +1,7 @@
 use super::World;
 use super::items::Item;
 use super::map::Tile;
-use super::player::DIRS;
+use super::player::{DIRS, Player};
 
 pub const FUSE_TICKS: u64 = 50; // 2.5 s at 20 Hz
 pub const FLAME_TICKS: u64 = 10; // 0.5 s
@@ -34,6 +34,24 @@ pub struct Bomb {
     pub next_slide: u64,
 }
 
+/// What a newly placed bomb is like.
+#[derive(Clone, Copy)]
+pub struct BombKind {
+    pub range: u8,
+    pub pierce: bool,
+    pub remote: bool,
+    /// Ticks until it explodes (remote bombs use their safety timer instead).
+    pub fuse: u64,
+}
+
+impl BombKind {
+    /// A bomb as `p` would drop it, with the normal fuse.
+    #[must_use]
+    pub fn of(p: &Player) -> Self {
+        Self { range: p.range, pierce: p.pierce, remote: p.remote, fuse: FUSE_TICKS }
+    }
+}
+
 pub struct Explosion {
     pub x: i32,
     pub y: i32,
@@ -43,6 +61,7 @@ pub struct Explosion {
 }
 
 impl World {
+    #[must_use]
     pub fn bomb_at(&self, x: i32, y: i32) -> Option<u32> {
         if !self.map.in_bounds(x, y) {
             return None;
@@ -53,6 +72,7 @@ impl World {
         }
     }
 
+    #[must_use]
     pub fn flame_active(&self, x: i32, y: i32) -> bool {
         self.map.in_bounds(x, y) && self.flame_until[self.map.idx(x, y)] > self.tick
     }
@@ -66,23 +86,24 @@ impl World {
             return false;
         }
         let (x, y) = p.cell();
-        let (range, pierce, remote, line, facing) = (p.range, p.pierce, p.remote, p.line, p.facing);
+        let (kind, line, facing) = (BombKind::of(p), p.line, p.facing);
         if let Some(b) = self.bomb_at(x, y) {
             if line && self.bombs[&b].owner == owner {
                 return self.line_bombs(owner, x, y, facing);
             }
             return false;
         }
-        self.place_bomb_at(owner, x, y, range, pierce, remote, FUSE_TICKS)
+        self.place_bomb_at(owner, (x, y), kind)
     }
 
     /// Places a bomb at a free cell. `owner` 0 means nobody (bomb rain).
-    pub fn place_bomb_at(&mut self, owner: u32, x: i32, y: i32, range: u8, pierce: bool, remote: bool, fuse: u64) -> bool {
+    pub fn place_bomb_at(&mut self, owner: u32, (x, y): (i32, i32), kind: BombKind) -> bool {
         if self.map.is_solid(x, y) || self.bomb_at(x, y).is_some() {
             return false;
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
+        let BombKind { range, pierce, remote, fuse } = kind;
         let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
         self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, remote, explode_at, slide_dir: 0, next_slide: 0 });
         let i = self.map.idx(x, y);
@@ -102,9 +123,8 @@ impl World {
             if !p.can_bomb(self.tick) {
                 break;
             }
-            let (cx, cy) = (x + dx * k, y + dy * k);
-            let (range, pierce, remote) = (p.range, p.pierce, p.remote);
-            if !self.place_bomb_at(owner, cx, cy, range, pierce, remote, FUSE_TICKS) {
+            let kind = BombKind::of(p);
+            if !self.place_bomb_at(owner, (x + dx * k, y + dy * k), kind) {
                 break;
             }
             placed = true;
@@ -140,6 +160,9 @@ impl World {
 
     /// Throws a bomb over obstacles: it lands `PUNCH_DISTANCE` cells away, or
     /// further on if that cell is taken. Bombs can't leave the map.
+    ///
+    /// # Panics
+    /// If `id` is not a live bomb.
     pub fn punch_bomb(&mut self, id: u32, dir: u8) -> bool {
         let (x, y) = {
             let b = &self.bombs[&id];
@@ -174,8 +197,8 @@ impl World {
             if (bx, by) == (x, y) || !self.map.in_bounds(bx, by) {
                 continue;
             }
-            let fuse = RAIN_FUSE_TICKS + self.rng.below(20) as u64;
-            if self.place_bomb_at(0, bx, by, 2, false, false, fuse) {
+            let fuse = RAIN_FUSE_TICKS + u64::from(self.rng.below(20));
+            if self.place_bomb_at(0, (bx, by), BombKind { range: 2, pierce: false, remote: false, fuse }) {
                 placed += 1;
             }
         }
@@ -197,6 +220,9 @@ impl World {
     }
 
     /// Moves kicked bombs, and resting bombs that sit on conveyor belts.
+    ///
+    /// # Panics
+    /// Never: it only touches bombs it has just collected from the map.
     pub fn update_sliding_bombs(&mut self) {
         let mut sliding = std::mem::take(&mut self.scratch.bomb_ids);
         sliding.clear();
@@ -309,7 +335,7 @@ impl World {
     pub fn trace_blast(&self, x: i32, y: i32, range: u8, items_block: bool, pierce: bool, mut f: impl FnMut(usize, u8, i32, i32)) {
         for arm in 0..4 {
             let (dx, dy) = DIRS[arm + 1];
-            for r in 1..=range as i32 {
+            for r in 1..=i32::from(range) {
                 let (cx, cy) = (x + dx * r, y + dy * r);
                 match self.map.get(cx, cy) {
                     Tile::Wall => break,
@@ -526,7 +552,7 @@ mod tests {
         let id = w.spawn_test_player(1.5, 1.5);
         w.place_bomb(id);
         w.players.get_mut(&id).unwrap().y = 3.5;
-        for _ in 0..CONVEYOR_TICKS * 2 + 1 {
+        for _ in 0..=CONVEYOR_TICKS * 2 {
             w.tick += 1;
             w.update_sliding_bombs();
         }

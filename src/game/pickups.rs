@@ -1,6 +1,10 @@
 //! Power-ups and the secret box.
 
-use super::*;
+use crate::protocol;
+
+use super::World;
+use super::items::{self, Item, Mystery};
+use super::player::{MAX_BOMBS, MAX_RANGE, MAX_SPEED_LVL, Player};
 
 impl World {
     /// Gives a power-up's effect to a player.

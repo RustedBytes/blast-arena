@@ -1,47 +1,53 @@
 //! Deaths, scoring for kills, and flame damage.
 
-use super::*;
+use std::sync::atomic::Ordering::Relaxed;
+
+use crate::protocol;
+
+use super::items::Item;
+use super::player;
+use super::{BOUNTY_BONUS, EMOTE_COOL, ITEMS_DROPPED_ON_DEATH, RESPAWN_TICKS, STREAKS, World, XP_BOUNTY, XP_KILL};
 
 impl World {
     pub(super) fn kill(&mut self, victim: u32, killer: Option<u32>) {
-        let Some(v) = self.players.get_mut(&victim) else { return };
-        v.alive = false;
-        v.moving = false;
-        v.deaths += 1;
-        v.streak = 0;
-        v.respawn_at = self.tick + RESPAWN_TICKS;
-        v.killed_by = killer;
-        let had_bounty = std::mem::take(&mut v.bounty);
-        if let Some(prof) = &mut v.profile {
+        let Some(dead) = self.players.get_mut(&victim) else { return };
+        dead.alive = false;
+        dead.moving = false;
+        dead.deaths += 1;
+        dead.streak = 0;
+        dead.respawn_at = self.tick + RESPAWN_TICKS;
+        dead.killed_by = killer;
+        let had_bounty = std::mem::take(&mut dead.bounty);
+        if let Some(prof) = &mut dead.profile {
             prof.deaths += 1;
-            v.profile_dirty = true;
+            dead.profile_dirty = true;
         }
-        let (vx, vy) = (v.x, v.y);
-        let (cx, cy) = v.cell();
+        let (vx, vy) = (dead.x, dead.y);
+        let (cx, cy) = dead.cell();
 
         // Lose upgrades; a few of them are scattered for others to grab.
-        let mut lost = [Item::ExtraBomb; 40];
-        let mut n = 0;
-        let mut lose = |item: Item, count: u8| {
-            for _ in 0..count {
-                lost[n] = item;
-                n += 1;
+        let mut upgrades = [Item::ExtraBomb; 40];
+        let mut count = 0;
+        let mut lose = |item: Item, levels: u8| {
+            for _ in 0..levels {
+                upgrades[count] = item;
+                count += 1;
             }
         };
-        lose(Item::ExtraBomb, v.max_bombs - player::BASE_BOMBS);
-        lose(Item::Range, v.range - player::BASE_RANGE);
-        lose(Item::Speed, v.speed_lvl);
-        lose(Item::Kick, v.kick as u8);
-        lose(Item::Pierce, v.pierce as u8);
-        lose(Item::Remote, v.remote as u8);
-        lose(Item::LineBomb, v.line as u8);
-        lose(Item::Punch, v.punch as u8);
-        v.reset_stats();
-        for _ in 0..ITEMS_DROPPED_ON_DEATH.min(n) {
-            let k = self.rng.below(n as u32) as usize;
-            let item = lost[k];
-            lost[k] = lost[n - 1];
-            n -= 1;
+        lose(Item::ExtraBomb, dead.max_bombs - player::BASE_BOMBS);
+        lose(Item::Range, dead.range - player::BASE_RANGE);
+        lose(Item::Speed, dead.speed_lvl);
+        lose(Item::Kick, u8::from(dead.kick));
+        lose(Item::Pierce, u8::from(dead.pierce));
+        lose(Item::Remote, u8::from(dead.remote));
+        lose(Item::LineBomb, u8::from(dead.line));
+        lose(Item::Punch, u8::from(dead.punch));
+        dead.reset_stats();
+        for _ in 0..ITEMS_DROPPED_ON_DEATH.min(count) {
+            let pick = self.rng.below(count as u32) as usize;
+            let item = upgrades[pick];
+            upgrades[pick] = upgrades[count - 1];
+            count -= 1;
             for _ in 0..20 {
                 let x = cx + self.rng.between(-3, 3);
                 let y = cy + self.rng.between(-3, 3);
@@ -72,7 +78,7 @@ impl World {
                 if let Some(prof) = &mut kp.profile {
                     prof.kills += 1;
                     prof.xp += XP_KILL + if had_bounty { XP_BOUNTY } else { 0 };
-                    prof.best_streak = prof.best_streak.max(streak as u64);
+                    prof.best_streak = prof.best_streak.max(u64::from(streak));
                     kp.profile_dirty = true;
                 }
                 if STREAKS.contains(&streak) {

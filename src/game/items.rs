@@ -51,6 +51,7 @@ pub enum Mystery {
 
 impl Mystery {
     /// Code sent to the client in `fx` messages: item codes as-is.
+    #[must_use]
     pub fn code(self) -> u8 {
         match self {
             Mystery::Item(i) => i as u8,
@@ -91,6 +92,7 @@ impl Mystery {
 }
 
 impl Item {
+    #[must_use]
     pub fn from_u8(v: u8) -> Option<Item> {
         Some(match v {
             1 => Item::ExtraBomb,

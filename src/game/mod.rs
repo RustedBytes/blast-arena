@@ -28,22 +28,19 @@ mod tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering::Relaxed;
-use std::time::{Duration, Instant};
 
-use bytes::{Bytes, BytesMut};
-use tokio::sync::{mpsc, oneshot};
+use bytes::Bytes;
+use tokio::sync::oneshot;
 
-use crate::db::{self, Db, Profile};
+use crate::db::{Db, Profile};
 use crate::metrics::ArenaStats;
-use crate::protocol::{self, ArenaRing, ProfileView, ServerMsg, TileChange, Wire};
+use crate::protocol::{ArenaRing, TileChange};
 use bomb::{Bomb, Explosion};
-use delta::{BombEntry, DeltaScratch, PlayerEntry, write_delta};
-use items::{Item, Mystery};
+use delta::DeltaScratch;
+use items::Item;
 use link::ClientLink;
 use map::{Map, Tile};
-use player::{AOI_DEFAULT, AOI_MAX, DIRS, MAX_BOMBS, MAX_RANGE, MAX_SPEED_LVL, OPPOSITE, Player, step_move};
-use profiles::profile_view;
+use player::Player;
 use rng::Rng;
 
 pub use delta::SnapHistory;
@@ -98,6 +95,7 @@ pub enum Mode {
 }
 
 impl Mode {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::Ffa => "ffa",
@@ -105,6 +103,7 @@ impl Mode {
         }
     }
 
+    #[must_use]
     pub fn parse(s: &str) -> Option<Mode> {
         match s {
             "ffa" => Some(Mode::Ffa),
@@ -245,23 +244,24 @@ impl World {
         let mut rng = Rng::from_time();
         let map = Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut rng);
         let mut world = Self::with_map(map, rng, cfg.max_players);
-        world.name = cfg.name.clone();
+        world.name.clone_from(&cfg.name);
         world.mode = cfg.mode;
         world.live = live;
         world.db = db;
-        world.round_ticks = cfg.round_secs as u64 * TICK_RATE as u64;
+        world.round_ticks = u64::from(cfg.round_secs) * u64::from(TICK_RATE);
         world.round_end = world.round_ticks;
         world.place_hills();
         world.set_target_bots(cfg.bots);
         world
     }
 
+    #[must_use]
     pub fn with_map(map: Map, rng: Rng, max_players: usize) -> Self {
         let n = (map.w * map.h) as usize;
         let crate_count = map.count(Tile::Crate) + map.count(Tile::Armored);
         let buckets_w = (map.w + BUCKET - 1) / BUCKET;
         let buckets_h = (map.h + BUCKET - 1) / BUCKET;
-        let round_ticks = Config::default().round_secs as u64 * TICK_RATE as u64;
+        let round_ticks = u64::from(Config::default().round_secs) * u64::from(TICK_RATE);
         World {
             name: "Test".into(),
             mode: Mode::Ffa,

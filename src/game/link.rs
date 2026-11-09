@@ -8,7 +8,7 @@
 //! skips stale snapshots instead of building up a queue of them.
 
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
 use tokio::sync::{Notify, mpsc};
@@ -30,10 +30,12 @@ pub struct InputSlot {
     ack: AtomicU32,
 }
 
+#[must_use]
 pub fn pack_dirs(dir: u8, alt: u8, seq: u16) -> u32 {
-    dir.min(4) as u32 | (alt.min(4) as u32) << 3 | (seq as u32) << 16
+    u32::from(dir.min(4)) | u32::from(alt.min(4)) << 3 | u32::from(seq) << 16
 }
 
+#[must_use]
 pub fn unpack_dirs(v: u32) -> (u8, u8, u16) {
     ((v & 7) as u8, (v >> 3 & 7) as u8, (v >> 16) as u16)
 }
@@ -73,7 +75,7 @@ impl InputSlot {
 
     pub fn emote(&self, e: u8) {
         let count = (self.emote.load(Relaxed) >> 8).wrapping_add(1);
-        self.emote.store(count << 8 | e as u32, Relaxed);
+        self.emote.store(count << 8 | u32::from(e), Relaxed);
     }
 
     /// (emote count, latest emote).
@@ -83,7 +85,7 @@ impl InputSlot {
     }
 
     pub fn set_view(&self, w: u16, h: u16) {
-        self.view.store((w as u32) << 16 | h as u32, Relaxed);
+        self.view.store(u32::from(w) << 16 | u32::from(h), Relaxed);
     }
 
     pub fn view(&self) -> Option<(i32, i32)> {
@@ -104,19 +106,19 @@ pub struct SnapshotSlot {
 impl SnapshotSlot {
     /// Replaces any snapshot the client hasn't sent yet.
     pub fn publish(&self, snapshot: Bytes) {
-        *self.latest.lock().unwrap() = Some(snapshot);
+        *self.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(snapshot);
         self.notify.notify_one();
     }
 
     /// Takes the pending snapshot, if any, without waiting.
     pub fn take(&self) -> Option<Bytes> {
-        self.latest.lock().unwrap().take()
+        self.latest.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     /// Waits for the next snapshot.
     pub async fn next(&self) -> Bytes {
         loop {
-            let taken = self.latest.lock().unwrap().take();
+            let taken = self.latest.lock().unwrap_or_else(PoisonError::into_inner).take();
             if let Some(snapshot) = taken {
                 return snapshot;
             }

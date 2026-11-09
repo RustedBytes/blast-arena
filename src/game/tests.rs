@@ -1,3 +1,8 @@
+use tokio::sync::mpsc;
+
+use crate::protocol;
+
+use super::player::{AOI_DEFAULT, AOI_MAX};
 use super::*;
 
 #[test]
@@ -13,8 +18,8 @@ fn aoi_only_includes_nearby_players() {
     let snap: serde_json::Value = w.full_snapshot(me);
     assert_eq!(snap["t"], "s");
     let seen: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
-    assert!(seen.contains(&(me as u64)) && seen.contains(&(near as u64)));
-    assert!(!seen.contains(&(far as u64)));
+    assert!(seen.contains(&u64::from(me)) && seen.contains(&u64::from(near)));
+    assert!(!seen.contains(&u64::from(far)));
 }
 
 #[test]
@@ -156,13 +161,13 @@ fn flames_kill_and_credit_owner() {
     w.place_bomb(a);
     w.players.get_mut(&a).unwrap().x = 3.5;
     w.players.get_mut(&a).unwrap().y = 3.5; // hide around the corner
-    for _ in 0..bomb::FUSE_TICKS + 1 {
+    for _ in 0..=bomb::FUSE_TICKS {
         w.step();
     }
     assert!(!w.players[&b].alive);
     assert!(w.players[&a].alive);
     assert_eq!(w.players[&a].score, 1);
-    for _ in 0..RESPAWN_TICKS + 1 {
+    for _ in 0..=RESPAWN_TICKS {
         w.step();
     }
     assert!(w.players[&b].alive, "respawned");
@@ -250,7 +255,7 @@ fn slow_clients_skip_snapshots_instead_of_dropping() {
         w.step();
         w.send_updates();
     }
-    assert!(w.dropped_clients().is_empty());
+    assert_eq!(w.dropped_clients().len(), 0, "nobody is dropped");
     assert!(w.players.contains_key(&id));
 }
 
@@ -308,7 +313,7 @@ fn teams_have_no_friendly_fire() {
     w.place_bomb(a);
     w.players.get_mut(&a).unwrap().x = 5.5;
     w.players.get_mut(&a).unwrap().y = 5.5;
-    for _ in 0..bomb::FUSE_TICKS + 1 {
+    for _ in 0..=bomb::FUSE_TICKS {
         w.step();
     }
     assert!(w.players[&mate].alive, "teammate survives");
@@ -463,7 +468,7 @@ fn dead_players_watch_their_killer() {
     let snap: serde_json::Value = w.full_snapshot(me);
     assert_eq!(me_obj(&snap)["spec"], killer);
     let ids: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
-    assert!(ids.contains(&(killer as u64)), "the killer is in view");
+    assert!(ids.contains(&u64::from(killer)), "the killer is in view");
 }
 
 #[test]
@@ -502,6 +507,8 @@ fn apply_delta(state: &mut std::collections::BTreeMap<u64, serde_json::Value>, c
 
 #[test]
 fn delta_snapshots_rebuild_the_full_picture() {
+    // Client-side state, keyed by tick: (players, bombs).
+    type View = std::collections::BTreeMap<u64, serde_json::Value>;
     let mut rng = Rng::new(21);
     let map = Map::generate(41, 41, 0.45, &mut rng);
     let mut w = World::with_map(map, rng, 64);
@@ -510,8 +517,6 @@ fn delta_snapshots_rebuild_the_full_picture() {
     w.players.get_mut(&me).unwrap().set_aoi(26, 18); // see most of the map
     let input = w.players[&me].link.as_ref().unwrap().input.clone();
     let snapshot = w.players[&me].link.as_ref().unwrap().snapshot.clone();
-    // Client-side state, keyed by tick: (players, bombs).
-    type View = std::collections::BTreeMap<u64, serde_json::Value>;
     let mut decoded: HashMap<u64, (View, View)> = HashMap::new();
     let (mut delta_bytes, mut full_bytes, mut deltas) = (0usize, 0usize, 0);
     for t in 0..400 {
@@ -575,10 +580,10 @@ fn invite_links_spawn_you_next_to_your_friend() {
 fn teams_are_balanced_on_join() {
     let mut w = test_world(Map::empty(41, 41));
     w.mode = Mode::Teams;
-    let teams: Vec<u8> = (0..6).map(|i| {
+    let mut teams: Vec<u8> = (0..6).map(|i| {
         let (id, _rx) = joined(&mut w, &format!("p{i}"));
         w.players[&id].team
     }).collect();
-    assert_eq!(teams.iter().filter(|&&t| t == 1).count(), 3);
-    assert_eq!(teams.iter().filter(|&&t| t == 2).count(), 3);
+    teams.sort_unstable();
+    assert_eq!(teams, [1, 1, 1, 2, 2, 2]);
 }

@@ -12,6 +12,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, Query, State};
 use axum::response::Response;
 use bytes::{Bytes, BytesMut};
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
@@ -52,6 +53,7 @@ pub struct WsQuery {
     arena: Option<usize>,
 }
 
+#[allow(clippy::unused_async, reason = "axum handlers must be async")]
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -68,6 +70,7 @@ pub async fn ws_handler(
         .on_upgrade(move |socket| session(socket, handle, state.db).instrument(span))
 }
 
+#[must_use]
 pub fn sanitize_name(raw: &str) -> String {
     let name: String = raw
         .chars()
@@ -78,57 +81,23 @@ pub fn sanitize_name(raw: &str) -> String {
     if name.is_empty() { "Blaster".to_string() } else { name.to_string() }
 }
 
+/// Message counters for one connection, for the disconnect log line.
+#[derive(Default)]
+struct Traffic {
+    msgs_in: AtomicU64,
+    msgs_out: AtomicU64,
+    bytes_out: AtomicU64,
+}
+
 async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
     let (mut sink, mut stream) = socket.split();
-
-    // Handshake: the first message must be a join.
     tracing::debug!("connection opened");
-    let mut req = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
-        Ok(Some(Ok(Message::Binary(data)))) => match ClientMsg::decode(&data) {
-            Some(ClientMsg::Join { name, token, hat, trail, near }) => JoinRequest {
-                name: sanitize_name(name),
-                token: db::valid_token(token).then(|| token.to_string()),
-                hat,
-                trail,
-                near,
-                profile: None,
-            },
-            _ => {
-                tracing::info!(bytes = data.len(), "handshake rejected: first message is not a valid join");
-                return;
-            }
-        },
-        Ok(Some(Ok(_))) => {
-            tracing::info!("handshake rejected: first message is not binary");
-            return;
-        }
-        Ok(Some(Err(e))) => {
-            tracing::debug!(error = %e, "connection failed during handshake");
-            return;
-        }
-        Ok(None) => {
-            tracing::debug!("connection closed before joining");
-            return;
-        }
-        Err(_) => {
-            tracing::info!(timeout_secs = JOIN_TIMEOUT.as_secs(), "handshake timed out");
-            return;
-        }
-    };
-    // Load (or start) the player's profile before joining.
-    if let (Some(db), Some(token)) = (&db, &req.token) {
-        let mut profile = db.load(token).await.unwrap_or_else(|| db::Profile { token: token.clone(), ..Default::default() });
-        profile.name.clone_from(&req.name);
-        profile.hat = profile.allowed_hat(req.hat);
-        profile.trail = profile.allowed_trail(req.trail);
-        tracing::debug!(level = profile.level(), kills = profile.kills, "profile loaded");
-        req.profile = Some(profile);
-    }
+    let Some(req) = handshake(&mut stream, db.as_ref()).await else { return };
     let name = req.name.clone();
     let has_profile = req.profile.is_some();
     let near = req.near;
 
-    let (events_tx, mut events_rx) = mpsc::channel::<Bytes>(EVENT_QUEUE);
+    let (events_tx, events_rx) = mpsc::channel::<Bytes>(EVENT_QUEUE);
     let pong_tx = events_tx.downgrade();
     let snapshot = Arc::new(SnapshotSlot::default());
     let input = Arc::new(InputSlot::default());
@@ -154,106 +123,10 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
     tracing::Span::current().record("id", id);
     tracing::info!(%name, profile = has_profile, ?near, "player joined");
     let started = Instant::now();
-    let msgs_in = Arc::new(AtomicU64::new(0));
-    let msgs_out = Arc::new(AtomicU64::new(0));
-    let bytes_out = Arc::new(AtomicU64::new(0));
+    let traffic = Arc::new(Traffic::default());
 
-    // Events go first so the welcome always precedes snapshots. The writer
-    // ends when the game drops the client's event sender (on leave, or when
-    // the client can't keep up), which closes the socket.
-    let live = arena.live.clone();
-    let (sent, sent_bytes) = (msgs_out.clone(), bytes_out.clone());
-    let mut writer = tokio::spawn(
-        async move {
-            loop {
-                let msg = tokio::select! {
-                    biased;
-                    ev = events_rx.recv() => match ev {
-                        Some(ev) => ev,
-                        None => break,
-                    },
-                    snap = snapshot.next() => snap,
-                };
-                let len = msg.len() as u64;
-                live.bytes_out.fetch_add(len, Relaxed);
-                sent.fetch_add(1, Relaxed);
-                sent_bytes.fetch_add(len, Relaxed);
-                if let Err(e) = sink.send(Message::Binary(msg)).await {
-                    tracing::debug!(error = %e, "socket write failed");
-                    return "write failed";
-                }
-            }
-            let _ = sink.close().await;
-            "closed by server"
-        }
-        .in_current_span(),
-    );
-
-    let received = msgs_in.clone();
-    let mut reader = tokio::spawn(
-        async move {
-            let mut window = Instant::now();
-            let mut count = 0u32;
-            let mut unknown = 0u32;
-            // Pongs are encoded into a small per-connection arena.
-            let mut arena = BytesMut::with_capacity(256);
-            loop {
-                let msg = match stream.next().await {
-                    Some(Ok(msg)) => msg,
-                    Some(Err(e)) => {
-                        tracing::debug!(error = %e, "socket read failed");
-                        return "read failed";
-                    }
-                    None => return "connection lost",
-                };
-                let Message::Binary(data) = msg else {
-                    if let Message::Close(frame) = msg {
-                        tracing::debug!(code = frame.as_ref().map(|f| f.code), "client sent close");
-                        return "closed by client";
-                    }
-                    continue;
-                };
-                received.fetch_add(1, Relaxed);
-                if window.elapsed() >= Duration::from_secs(1) {
-                    window = Instant::now();
-                    count = 0;
-                }
-                count += 1;
-                if count > MAX_MSGS_PER_SEC {
-                    tracing::warn!(limit = MAX_MSGS_PER_SEC, "client exceeded message rate, disconnecting");
-                    return "rate limited";
-                }
-                match ClientMsg::decode(&data) {
-                    Some(ClientMsg::In { d, s, q, k }) => {
-                        input.set_dirs(d, s, q);
-                        input.set_ack(k);
-                    }
-                    Some(ClientMsg::Bomb) => input.press_bomb(),
-                    Some(ClientMsg::Act) => input.press_act(),
-                    Some(ClientMsg::Emote { e }) => input.emote(e),
-                    Some(ClientMsg::View { w, h }) => {
-                        tracing::trace!(w, h, "view requested");
-                        input.set_view(w, h);
-                    }
-                    Some(ClientMsg::Ping { c }) => {
-                        // Answer directly so latency doesn't include tick wait.
-                        if let Some(tx) = pong_tx.upgrade() {
-                            let _ = tx.try_send(protocol::encode_pong(&mut arena, c));
-                        }
-                    }
-                    _ => {
-                        // Log the first few only, so a broken client can't flood the log.
-                        unknown += 1;
-                        if unknown <= 3 {
-                            tracing::debug!(bytes = data.len(), "ignored unknown or malformed message");
-                        }
-                    }
-                }
-            }
-        }
-        .in_current_span(),
-    );
-
+    let mut writer = tokio::spawn(write_loop(sink, events_rx, snapshot, arena.live.clone(), traffic.clone()).in_current_span());
+    let mut reader = tokio::spawn(read_loop(stream, input, pong_tx, traffic.clone()).in_current_span());
     let reason = tokio::select! {
         r = &mut writer => {
             reader.abort();
@@ -269,12 +142,158 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
         %name,
         reason,
         secs = started.elapsed().as_secs(),
-        msgs_in = msgs_in.load(Relaxed),
-        msgs_out = msgs_out.load(Relaxed),
-        kb_out = bytes_out.load(Relaxed) / 1024,
+        msgs_in = traffic.msgs_in.load(Relaxed),
+        msgs_out = traffic.msgs_out.load(Relaxed),
+        kb_out = traffic.bytes_out.load(Relaxed) / 1024,
         "player disconnected"
     );
 }
+
+/// Waits for the join message (the first message must be one) and loads,
+/// or starts, the player's profile. `None` if the client didn't join.
+async fn handshake(stream: &mut SplitStream<WebSocket>, db: Option<&Db>) -> Option<JoinRequest> {
+    let data = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
+        Ok(Some(Ok(Message::Binary(data)))) => data,
+        Ok(Some(Ok(_))) => {
+            tracing::info!("handshake rejected: first message is not binary");
+            return None;
+        }
+        Ok(Some(Err(e))) => {
+            tracing::debug!(error = %e, "connection failed during handshake");
+            return None;
+        }
+        Ok(None) => {
+            tracing::debug!("connection closed before joining");
+            return None;
+        }
+        Err(_) => {
+            tracing::info!(timeout_secs = JOIN_TIMEOUT.as_secs(), "handshake timed out");
+            return None;
+        }
+    };
+    let Some(ClientMsg::Join { name, token, hat, trail, near }) = ClientMsg::decode(&data) else {
+        tracing::info!(bytes = data.len(), "handshake rejected: first message is not a valid join");
+        return None;
+    };
+    let mut req = JoinRequest {
+        name: sanitize_name(name),
+        token: db::valid_token(token).then(|| token.to_string()),
+        hat,
+        trail,
+        near,
+        profile: None,
+    };
+    if let (Some(db), Some(token)) = (db, &req.token) {
+        let mut profile = db.load(token).await.unwrap_or_else(|| db::Profile { token: token.clone(), ..Default::default() });
+        profile.name.clone_from(&req.name);
+        profile.hat = profile.allowed_hat(req.hat);
+        profile.trail = profile.allowed_trail(req.trail);
+        tracing::debug!(level = profile.level(), kills = profile.kills, "profile loaded");
+        req.profile = Some(profile);
+    }
+    Some(req)
+}
+
+/// Sends events first, so the welcome always precedes snapshots, then the
+/// newest snapshot. Ends when the game drops the client's event sender (on
+/// leave, or when the client can't keep up), which closes the socket.
+async fn write_loop(
+    mut sink: SplitSink<WebSocket, Message>,
+    mut events: mpsc::Receiver<Bytes>,
+    snapshot: Arc<SnapshotSlot>,
+    live: Arc<ArenaStats>,
+    traffic: Arc<Traffic>,
+) -> &'static str {
+    loop {
+        let msg = tokio::select! {
+            biased;
+            ev = events.recv() => match ev {
+                Some(ev) => ev,
+                None => break,
+            },
+            snap = snapshot.next() => snap,
+        };
+        let len = msg.len() as u64;
+        live.bytes_out.fetch_add(len, Relaxed);
+        traffic.msgs_out.fetch_add(1, Relaxed);
+        traffic.bytes_out.fetch_add(len, Relaxed);
+        if let Err(e) = sink.send(Message::Binary(msg)).await {
+            tracing::debug!(error = %e, "socket write failed");
+            return "write failed";
+        }
+    }
+    let _ = sink.close().await;
+    "closed by server"
+}
+
+/// Feeds client messages into the input slot, answers pings, and enforces
+/// the message rate limit. Returns why the connection ended.
+async fn read_loop(
+    mut stream: SplitStream<WebSocket>,
+    input: Arc<InputSlot>,
+    pong_tx: mpsc::WeakSender<Bytes>,
+    traffic: Arc<Traffic>,
+) -> &'static str {
+    let mut window = Instant::now();
+    let mut count = 0u32;
+    let mut unknown = 0u32;
+    // Pongs are encoded into a small per-connection arena.
+    let mut arena = BytesMut::with_capacity(256);
+    loop {
+        let msg = match stream.next().await {
+            Some(Ok(msg)) => msg,
+            Some(Err(e)) => {
+                tracing::debug!(error = %e, "socket read failed");
+                return "read failed";
+            }
+            None => return "connection lost",
+        };
+        let Message::Binary(data) = msg else {
+            if let Message::Close(frame) = msg {
+                tracing::debug!(code = frame.as_ref().map(|f| f.code), "client sent close");
+                return "closed by client";
+            }
+            continue;
+        };
+        traffic.msgs_in.fetch_add(1, Relaxed);
+        if window.elapsed() >= Duration::from_secs(1) {
+            window = Instant::now();
+            count = 0;
+        }
+        count += 1;
+        if count > MAX_MSGS_PER_SEC {
+            tracing::warn!(limit = MAX_MSGS_PER_SEC, "client exceeded message rate, disconnecting");
+            return "rate limited";
+        }
+        match ClientMsg::decode(&data) {
+            Some(ClientMsg::In { d, s, q, k }) => {
+                input.set_dirs(d, s, q);
+                input.set_ack(k);
+            }
+            Some(ClientMsg::Bomb) => input.press_bomb(),
+            Some(ClientMsg::Act) => input.press_act(),
+            Some(ClientMsg::Emote { e }) => input.emote(e),
+            Some(ClientMsg::View { w, h }) => {
+                tracing::trace!(w, h, "view requested");
+                input.set_view(w, h);
+            }
+            Some(ClientMsg::Ping { c }) => {
+                // Answer directly so latency doesn't include tick wait.
+                if let Some(tx) = pong_tx.upgrade() {
+                    let _ = tx.try_send(protocol::encode_pong(&mut arena, c));
+                }
+            }
+            _ => {
+                // Log the first few only, so a broken client can't flood the log.
+                unknown += 1;
+                if unknown <= 3 {
+                    tracing::debug!(bytes = data.len(), "ignored unknown or malformed message");
+                }
+            }
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

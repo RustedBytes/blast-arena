@@ -39,6 +39,7 @@ const NAMES: &[&str] = &[
 ];
 
 /// Display name for the n-th bot created, e.g. "Sparky [bot]", "Sparky2 [bot]".
+#[must_use]
 pub fn bot_name(n: usize) -> String {
     let base = NAMES[n % NAMES.len()];
     match n / NAMES.len() {
@@ -155,6 +156,7 @@ pub struct AiScratch {
 }
 
 impl AiScratch {
+    #[must_use]
     pub fn new(cells: usize) -> Self {
         AiScratch {
             danger: vec![SAFE; cells],
@@ -169,6 +171,7 @@ impl AiScratch {
 }
 
 /// What a bot knows about itself while deciding.
+#[allow(clippy::struct_excessive_bools, reason = "independent facts a bot weighs")]
 struct Me {
     cur: (i32, i32),
     /// Tiles travelled per tick.
@@ -237,6 +240,7 @@ impl World {
     /// Ticks until fire reaches each cell (0 = burning now, `SAFE` = never),
     /// accounting for bombs setting each other off. Allocates; for tests and
     /// tools. The bots use the shared, reused map.
+    #[must_use]
     pub fn danger_map(&self) -> Vec<u16> {
         let mut danger = vec![SAFE; (self.map.w * self.map.h) as usize];
         self.fill_danger(&mut danger, &mut Vec::new(), &mut HashMap::new());
@@ -250,7 +254,7 @@ impl World {
         bombs.clear();
         index.clear();
         for b in self.bombs.values() {
-            let t = b.explode_at.saturating_sub(self.tick).min(SAFE as u64 - 1) as u16;
+            let t = b.explode_at.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
             let t = if danger[self.map.idx(b.x, b.y)] == 0 { 0 } else { t };
             // A remote bomb can go off whenever its owner likes; treat it like
             // a freshly lit one.
@@ -398,7 +402,7 @@ impl World {
     fn escape_path(&self, search: &mut Search, start: (i32, i32), danger: &[u16], spt: f32, path: &mut Vec<(i32, i32)>) -> bool {
         search.explore(self, start, |c, dist| {
             let d = danger[self.map.idx(c.0, c.1)];
-            d == SAFE || d as f32 > (dist as f32 + 1.0) / spt + ESCAPE_MARGIN
+            d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN
         });
         match search.nodes.iter().position(|n| danger[self.map.idx(n.cell.0, n.cell.1)] == SAFE && self.rest_ok(n.cell)) {
             Some(k) => {
@@ -429,7 +433,7 @@ impl World {
         sc.search.explore(self, cur, |c, dist| {
             let i = self.map.idx(c.0, c.1);
             let d = hyp[i];
-            occupied[i] == 0 && (d == SAFE || d as f32 > (dist as f32 + 1.0) / spt + ESCAPE_MARGIN)
+            occupied[i] == 0 && (d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN)
         });
         // Insist on a robust way out: either two separate exits, or a roomy
         // safe area, so another player can't seal the only escape cell.
@@ -479,13 +483,13 @@ impl World {
     /// (crates destroyed, enemies hit) by the bot's bomb placed at `c`.
     fn blast_value(&self, c: (i32, i32), targets: &[u8], me: &Me) -> (u32, u32) {
         let mut crates = 0;
-        let mut hit = targets[self.map.idx(c.0, c.1)] as u32;
+        let mut hit = u32::from(targets[self.map.idx(c.0, c.1)]);
         let mut hits_self = c == me.cur;
         self.trace_blast(c.0, c.1, me.range, true, me.pierce, |_, _, x, y| {
             if self.map.get(x, y).is_breakable() {
                 crates += 1;
             }
-            hit += targets[self.map.idx(x, y)] as u32;
+            hit += u32::from(targets[self.map.idx(x, y)]);
             hits_self |= (x, y) == me.cur;
         });
         if hits_self && me.vulnerable {
@@ -494,7 +498,7 @@ impl World {
         (crates, hit)
     }
 
-    fn item_value(&self, item: Item, me: &Me) -> f32 {
+    fn item_value(item: Item, me: &Me) -> f32 {
         match item {
             Item::ExtraBomb if me.max_bombs < MAX_BOMBS => 6.0,
             Item::Range if me.range < MAX_RANGE => 6.0,
@@ -519,7 +523,7 @@ impl World {
         let mut best: Option<(f32, usize, bool)> = None;
         for (k, n) in nodes.iter().enumerate() {
             let i = self.map.idx(n.cell.0, n.cell.1);
-            let reach = n.dist as f32 + 1.0;
+            let reach = f32::from(n.dist) + 1.0;
             let jitter = 1.0 + self.rng.below(100) as f32 / 1000.0;
             let mut consider = |value: f32, bomb: bool| {
                 let score = value / reach * jitter;
@@ -529,7 +533,7 @@ impl World {
             };
             if k > 0
                 && let Some(item) = Item::from_u8(self.items[i]) {
-                    consider(self.item_value(item, me), false);
+                    consider(Self::item_value(item, me), false);
                 }
             if me.can_bomb && n.dist <= BOMB_SPOT_RANGE && self.rest_ok(n.cell) {
                 let (crates, enemies) = self.blast_value(n.cell, &sc.targets[me.team], me);

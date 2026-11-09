@@ -1,6 +1,9 @@
 //! Reading client input from the lock-free slots, and emotes.
 
-use super::*;
+use crate::protocol;
+
+use super::player::{AOI_MAX, OPPOSITE};
+use super::{EMOTE_COOLDOWN_TICKS, World};
 
 impl World {
     /// Copies each client's latest input from its lock-free slot.

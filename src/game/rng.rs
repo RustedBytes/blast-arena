@@ -4,15 +4,16 @@
 pub struct Rng(u64);
 
 impl Rng {
+    #[must_use]
     pub fn new(seed: u64) -> Self {
         Rng(seed ^ 0x9E37_79B9_7F4A_7C15 | 1)
     }
 
+    #[must_use]
     pub fn from_time() -> Self {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(42);
+            .map_or(42, |d| d.as_nanos() as u64);
         Self::new(nanos)
     }
 
@@ -27,7 +28,7 @@ impl Rng {
 
     /// Uniform integer in `0..n` (n must be > 0).
     pub fn below(&mut self, n: u32) -> u32 {
-        (((self.next_u64() >> 32) * n as u64) >> 32) as u32
+        (((self.next_u64() >> 32) * u64::from(n)) >> 32) as u32
     }
 
     /// Uniform integer in `lo..=hi`.

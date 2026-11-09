@@ -1,8 +1,23 @@
 //! Joining, leaving, bots and finding safe spawn points.
 
-use super::*;
+use crate::protocol::{self, ServerMsg};
+
+use super::ai;
+use super::link::ClientLink;
+use super::map::Tile;
+use super::player::{AOI_DEFAULT, AOI_MAX, DIRS, Player};
+use super::profiles::profile_view;
+use super::{JoinRequest, Mode, PARK_TICKS, Parked, SPAWN_SHIELD_TICKS, TICK_RATE, World};
 
 impl World {
+    /// Adds a human player (making room by removing a bot if the arena is
+    /// full) and sends them the welcome. Returns the new player id.
+    ///
+    /// # Errors
+    /// A reason to show the player when the arena is full of humans.
+    ///
+    /// # Panics
+    /// Never: the player looked up after spawning was just inserted.
     pub fn join(&mut self, req: JoinRequest, link: ClientLink) -> Result<u32, &'static str> {
         if self.players.len() >= self.max_players {
             // Humans take priority: a bot steps out to make room.
@@ -13,12 +28,12 @@ impl World {
             self.leave(bot);
         }
         let parked = req.token.as_ref().and_then(|t| self.parked.remove(t)).filter(|p| p.expires > self.tick);
-        let team = parked.as_ref().map(|p| p.team).unwrap_or_else(|| self.team_for_new());
+        let team = parked.as_ref().map_or_else(|| self.team_for_new(), |p| p.team);
         let (hat, trail) = match &req.profile {
             Some(p) => (p.allowed_hat(req.hat), p.allowed_trail(req.trail)),
             None => (0, 0),
         };
-        let near = self.players.get(&req.near).filter(|p| p.alive).map(|p| p.cell());
+        let near = self.players.get(&req.near).filter(|p| p.alive).map(super::player::Player::cell);
         let id = self.spawn_player(req.name, Some(link), team, hat, trail, near);
         let resumed = parked.is_some();
         let p = self.players.get_mut(&id).unwrap();

@@ -1,6 +1,9 @@
 //! Saving player profiles.
 
-use super::*;
+use crate::db::{self, Profile};
+use crate::protocol::ProfileView;
+
+use super::World;
 
 impl World {
     /// Saves changed profiles now and then (and forgets stale parked players).

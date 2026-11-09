@@ -29,31 +29,37 @@ pub const HAT_LEVELS: [u32; 7] = [1, 2, 3, 5, 7, 9, 12];
 /// Trails; 0 is "none".
 pub const TRAIL_LEVELS: [u32; 4] = [1, 4, 8, 11];
 
+#[must_use]
 pub fn level(xp: u64) -> u32 {
     ((xp as f64 / 50.0).sqrt()) as u32 + 1
 }
 
 /// XP needed to reach `level`.
+#[must_use]
 pub fn xp_for_level(level: u32) -> u64 {
-    let l = level.saturating_sub(1) as u64;
+    let l = u64::from(level.saturating_sub(1));
     l * l * 50
 }
 
 impl Profile {
+    #[must_use]
     pub fn level(&self) -> u32 {
         level(self.xp)
     }
 
     /// The cosmetic choice if unlocked, otherwise none.
+    #[must_use]
     pub fn allowed_hat(&self, hat: u8) -> u8 {
         if HAT_LEVELS.get(hat as usize).is_some_and(|&l| self.level() >= l) { hat } else { 0 }
     }
 
+    #[must_use]
     pub fn allowed_trail(&self, trail: u8) -> u8 {
         if TRAIL_LEVELS.get(trail as usize).is_some_and(|&l| self.level() >= l) { trail } else { 0 }
     }
 }
 
+#[must_use]
 pub fn valid_token(token: &str) -> bool {
     (8..=64).contains(&token.len()) && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
@@ -82,6 +88,12 @@ pub struct Db {
 
 impl Db {
     /// Opens (or creates) the database and starts its worker thread.
+    ///
+    /// # Errors
+    /// If the file can't be opened or the schema can't be created.
+    ///
+    /// # Panics
+    /// If the operating system refuses to start the worker thread.
     pub fn open(path: &str) -> rusqlite::Result<Db> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
@@ -142,18 +154,26 @@ impl Db {
 }
 
 fn row_to_profile(r: &rusqlite::Row) -> rusqlite::Result<Profile> {
+    // SQLite integers are signed. A negative count (a corrupted or
+    // hand-edited row) reads as 0 instead of wrapping to a huge number.
+    let count = |i| r.get::<_, i64>(i).map(|v| u64::try_from(v).unwrap_or(0));
     Ok(Profile {
         token: r.get(0)?,
         name: r.get(1)?,
-        kills: r.get::<_, i64>(2)? as u64,
-        deaths: r.get::<_, i64>(3)? as u64,
-        wins: r.get::<_, i64>(4)? as u64,
-        xp: r.get::<_, i64>(5)? as u64,
-        best_streak: r.get::<_, i64>(6)? as u64,
-        games: r.get::<_, i64>(7)? as u64,
+        kills: count(2)?,
+        deaths: count(3)?,
+        wins: count(4)?,
+        xp: count(5)?,
+        best_streak: count(6)?,
+        games: count(7)?,
         hat: r.get(8)?,
         trail: r.get(9)?,
     })
+}
+
+/// A count as a SQLite integer, saturating rather than wrapping.
+fn sql_count(v: u64) -> i64 {
+    i64::try_from(v).unwrap_or(i64::MAX)
 }
 
 const COLUMNS: &str = "token, name, kills, deaths, wins, xp, best_streak, games, hat, trail";
@@ -176,12 +196,12 @@ fn run(conn: &Connection, op: Op) -> rusqlite::Result<()> {
                 params![
                     p.token,
                     p.name,
-                    p.kills as i64,
-                    p.deaths as i64,
-                    p.wins as i64,
-                    p.xp as i64,
-                    p.best_streak as i64,
-                    p.games as i64,
+                    sql_count(p.kills),
+                    sql_count(p.deaths),
+                    sql_count(p.wins),
+                    sql_count(p.xp),
+                    sql_count(p.best_streak),
+                    sql_count(p.games),
                     p.hat,
                     p.trail
                 ],

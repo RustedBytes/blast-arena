@@ -41,6 +41,7 @@ fn arena_infos(state: &AppState) -> Vec<ArenaInfo> {
         .collect()
 }
 
+#[allow(clippy::unused_async, reason = "axum handlers must be async")]
 pub async fn arenas(State(state): State<AppState>) -> Json<Vec<ArenaInfo>> {
     Json(arena_infos(&state))
 }
@@ -134,19 +135,24 @@ fn process_usage(state: &AppState) -> (f32, f64, usize) {
     let mut sys = state.sys.lock().unwrap();
     let Ok(pid) = sysinfo::get_current_pid() else { return (0.0, 0.0, 1) };
     sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::nothing().with_cpu().with_memory());
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     match sys.process(pid) {
         Some(p) => (p.cpu_usage(), p.memory() as f64 / (1024.0 * 1024.0), cores),
         None => (0.0, 0.0, cores),
     }
 }
 
+#[allow(clippy::unused_async, reason = "axum handlers must be async")]
 pub async fn stats(State(state): State<AppState>) -> Json<Stats> {
     let (cpu_percent, memory_mb, cores) = process_usage(&state);
     Json(Stats { uptime_s: state.started.elapsed().as_secs(), cpu_percent, memory_mb, cores, arenas: arena_infos(&state) })
 }
 
+/// A Prometheus metric: name, help text, and how to read it from an arena.
+type Metric<T> = (&'static str, &'static str, fn(&ArenaSnapshot) -> T);
+
 /// Prometheus text exposition format.
+#[allow(clippy::unused_async, reason = "axum handlers must be async")]
 pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     let (cpu, mem, _) = process_usage(&state);
     let mut out = String::new();
@@ -156,14 +162,14 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     let _ = writeln!(out, "blast_process_cpu_percent {cpu}");
     let _ = writeln!(out, "# HELP blast_process_memory_bytes Resident memory.\n# TYPE blast_process_memory_bytes gauge");
     let _ = writeln!(out, "blast_process_memory_bytes {}", (mem * 1024.0 * 1024.0) as u64);
-    let gauges: [(&str, &str, fn(&ArenaSnapshot) -> f64); 7] = [
-        ("blast_players", "Players in the arena, bots included.", |s| s.players as f64),
-        ("blast_humans", "Connected human players.", |s| s.humans as f64),
-        ("blast_bots", "Server-side bots.", |s| s.bots as f64),
-        ("blast_bombs", "Live bombs.", |s| s.bombs as f64),
+    let gauges: [Metric<f64>; 7] = [
+        ("blast_players", "Players in the arena, bots included.", |s| f64::from(s.players)),
+        ("blast_humans", "Connected human players.", |s| f64::from(s.humans)),
+        ("blast_bots", "Server-side bots.", |s| f64::from(s.bots)),
+        ("blast_bombs", "Live bombs.", |s| f64::from(s.bombs)),
         ("blast_tick_seconds", "Average simulation tick time.", |s| s.tick_ms / 1000.0),
         ("blast_tick_max_seconds", "Worst simulation tick time.", |s| s.max_tick_ms / 1000.0),
-        ("blast_round_seconds_left", "Seconds left in the round.", |s| s.round_secs as f64),
+        ("blast_round_seconds_left", "Seconds left in the round.", |s| f64::from(s.round_secs)),
     ];
     let infos = arena_infos(&state);
     for (name, help, get) in gauges {
@@ -172,7 +178,7 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
             let _ = writeln!(out, "{name}{{arena=\"{}\"}} {}", a.name, get(&a.live));
         }
     }
-    let counters: [(&str, &str, fn(&ArenaSnapshot) -> u64); 2] = [
+    let counters: [Metric<u64>; 2] = [
         ("blast_bytes_sent_total", "Bytes written to client sockets.", |s| s.bytes_out),
         ("blast_deaths_total", "Players blasted.", |s| s.deaths),
     ];

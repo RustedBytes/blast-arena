@@ -47,8 +47,8 @@ struct Args {
     /// Directory with the browser client.
     #[arg(long, env = "STATIC_DIR", default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/static"))]
     static_dir: String,
-    /// Log filter, e.g. "info" or "info,blast_arena::net=debug".
-    /// RUST_LOG, when set, takes precedence.
+    /// Log filter, e.g. "info" or "`info,blast_arena::net=debug`".
+    /// `RUST_LOG`, when set, takes precedence.
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
     log_level: String,
     /// Log output format.
@@ -174,7 +174,7 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
     tokio::select! {
-        _ = ctrl_c => tracing::info!("Ctrl+C received, shutting down"),
-        _ = terminate => tracing::info!("SIGTERM received, shutting down"),
+        () = ctrl_c => tracing::info!("Ctrl+C received, shutting down"),
+        () = terminate => tracing::info!("SIGTERM received, shutting down"),
     }
 }

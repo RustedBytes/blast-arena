@@ -1,20 +1,33 @@
 //! Helpers for tests and benchmarks.
 
-use super::*;
+use std::sync::Arc;
+
+use bytes::Bytes;
+#[cfg(test)]
+use bytes::BytesMut;
+use tokio::sync::mpsc;
+
+use super::JoinRequest;
+use super::link::{self, ClientLink};
+#[cfg(test)]
+use super::{World, delta::{DeltaScratch, SnapHistory}, map::Map, player::Player, rng::Rng};
 
 /// A client link plus the receiving ends, for tests and benchmarks.
+#[must_use]
 pub fn test_link() -> (ClientLink, mpsc::Receiver<Bytes>) {
     let (events, rx) = mpsc::channel(link::EVENT_QUEUE);
-    let link = ClientLink { events, snapshot: Default::default(), input: Default::default() };
+    let link = ClientLink { events, snapshot: Arc::default(), input: Arc::default() };
     (link, rx)
 }
 
 /// A join request with just a name (tests, benchmarks).
+#[must_use]
 pub fn plain_join(name: &str) -> JoinRequest {
     JoinRequest { name: name.into(), token: None, hat: 0, trail: 0, near: 0, profile: None }
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn test_world(map: Map) -> World {
     World::with_map(map, Rng::new(3), 64)
 }

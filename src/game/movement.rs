@@ -1,6 +1,9 @@
 //! Player movement: turns, ice, conveyors, teleporters and bomb kicks.
 
-use super::*;
+use super::items::Item;
+use super::map::Tile;
+use super::player::{DIRS, step_move};
+use super::{CONVEYOR_SPEED, DT, SPAWN_SHIELD_TICKS, TELEPORT_COOLDOWN_TICKS, World};
 
 impl World {
     pub(super) fn update_players(&mut self) {

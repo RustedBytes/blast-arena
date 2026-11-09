@@ -22,3 +22,17 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "tr
 
 [dev-dependencies]
 serde_json = "1.0.154"
+
+# `cargo clippy` runs the pedantic group. The four numeric-cast lints are
+# allowed: the simulation converts between tile coordinates (bounded by the
+# map size), f32 positions, tick counters and wire integers on every tick,
+# and those values are range-checked where they enter (the MessagePack
+# decoder clamps client input, the encoder picks the width from the value).
+# Conversions of outside data that can really overflow, such as stored
+# profile counts and durations, use `try_from` instead.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"

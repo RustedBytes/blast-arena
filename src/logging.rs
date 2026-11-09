@@ -36,6 +36,7 @@ impl fmt::Display for LogFormat {
 }
 
 /// The filter to use: `RUST_LOG` if set and valid, otherwise `default`.
+#[must_use]
 pub fn filter(default: &str) -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::try_new(default).unwrap_or_else(|_| EnvFilter::new("info")))
 }

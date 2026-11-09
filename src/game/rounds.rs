@@ -1,12 +1,17 @@
 //! Rounds, hills, the bounty and the end-of-round MVP.
 
-use super::*;
+use crate::protocol;
+
+use super::map::Tile;
+use super::player::Player;
+use super::{BOUNTY_MIN_SCORE, HILL_POINT_TICKS, Mode, TICK_RATE, World, XP_HILL, XP_MVP};
 
 impl World {
     pub(super) fn round_secs_left(&self) -> u32 {
-        (self.round_end.saturating_sub(self.tick) / TICK_RATE as u64) as u32
+        (self.round_end.saturating_sub(self.tick) / u64::from(TICK_RATE)) as u32
     }
 
+    #[must_use]
     pub fn in_hill(&self, x: i32, y: i32) -> bool {
         self.hills.iter().any(|&(hx, hy)| (x - hx).abs() <= 1 && (y - hy).abs() <= 1)
     }
@@ -96,8 +101,8 @@ impl World {
             Mode::Teams if teams.1 > teams.0 => 2,
             _ => 0,
         };
-        match ranked.first().filter(|p| p.score > 0) {
-            Some(mvp) => tracing::info!(
+        if let Some(mvp) = ranked.first().filter(|p| p.score > 0) {
+            tracing::info!(
                 round = self.stats.rounds,
                 mvp = %mvp.name,
                 score = mvp.score,
@@ -107,11 +112,12 @@ impl World {
                 winner,
                 players = ranked.len(),
                 "round ended"
-            ),
-            None => tracing::info!(round = self.stats.rounds, players = ranked.len(), "round ended without a winner"),
+            );
+        } else {
+            tracing::info!(round = self.stats.rounds, players = ranked.len(), "round ended without a winner");
         }
         let top = ranked.iter().take(3).map(|p| (p.id, p.name.as_str(), p.score, p.kills));
-        let round_secs = (self.round_ticks / TICK_RATE as u64) as u32;
+        let round_secs = (self.round_ticks / u64::from(TICK_RATE)) as u32;
         let msg = protocol::encode_round(self.event_arenas.current(), top, teams, winner, round_secs);
         self.broadcasts.push(msg);
 

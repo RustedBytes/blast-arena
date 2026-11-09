@@ -1,4 +1,4 @@
-//! Wire format: MessagePack over binary WebSocket frames. Short keys and
+//! Wire format: `MessagePack` over binary WebSocket frames. Short keys and
 //! tuples-as-arrays keep messages compact.
 //!
 //! Hot messages (snapshots, joins, kills, leaderboard, effects, pongs) are
@@ -42,7 +42,7 @@ pub enum ClientMsg<'a> {
     View { w: u16, h: u16 },
 }
 
-/// Reads one MessagePack value at a time from a byte slice.
+/// Reads one `MessagePack` value at a time from a byte slice.
 struct Reader<'a> {
     buf: &'a [u8],
     pos: usize,
@@ -66,7 +66,7 @@ impl<'a> Reader<'a> {
     }
 
     fn be(&mut self, n: usize) -> Option<u64> {
-        Some(self.take(n)?.iter().fold(0u64, |acc, &b| acc << 8 | b as u64))
+        Some(self.take(n)?.iter().fold(0u64, |acc, &b| acc << 8 | u64::from(b)))
     }
 
     fn map_len(&mut self) -> Option<usize> {
@@ -85,8 +85,8 @@ impl<'a> Reader<'a> {
     fn value(&mut self) -> Option<Value<'a>> {
         let b = self.u8()?;
         Some(match b {
-            0x00..=0x7f => Value::Num(b as f64),
-            0xe0..=0xff => Value::Num((b as i8) as f64),
+            0x00..=0x7f => Value::Num(f64::from(b)),
+            0xe0..=0xff => Value::Num(f64::from(b as i8)),
             0xa0..=0xbf => Value::Str(self.str_body((b & 0x1f) as usize)?),
             0xd9 => {
                 let n = self.be(1)? as usize;
@@ -100,11 +100,11 @@ impl<'a> Reader<'a> {
             0xcd => Value::Num(self.be(2)? as f64),
             0xce => Value::Num(self.be(4)? as f64),
             0xcf => Value::Num(self.be(8)? as f64),
-            0xd0 => Value::Num(self.be(1)? as u8 as i8 as f64),
-            0xd1 => Value::Num(self.be(2)? as u16 as i16 as f64),
-            0xd2 => Value::Num(self.be(4)? as u32 as i32 as f64),
+            0xd0 => Value::Num(f64::from(self.be(1)? as u8 as i8)),
+            0xd1 => Value::Num(f64::from(self.be(2)? as u16 as i16)),
+            0xd2 => Value::Num(f64::from(self.be(4)? as u32 as i32)),
             0xd3 => Value::Num(self.be(8)? as i64 as f64),
-            0xca => Value::Num(f32::from_bits(self.be(4)? as u32) as f64),
+            0xca => Value::Num(f64::from(f32::from_bits(self.be(4)? as u32))),
             0xcb => Value::Num(f64::from_bits(self.be(8)?)),
             0xc0 | 0xc2 | 0xc3 => Value::Other,
             _ => return None,
@@ -114,6 +114,8 @@ impl<'a> Reader<'a> {
 
 impl<'a> ClientMsg<'a> {
     /// Parses a client frame without allocating; `None` if malformed.
+    #[must_use]
+    #[allow(clippy::many_single_char_names, reason = "locals are named after the one-letter wire keys")]
     pub fn decode(bytes: &'a [u8]) -> Option<ClientMsg<'a>> {
         let mut r = Reader { buf: bytes, pos: 0 };
         let n = r.map_len()?;
@@ -147,9 +149,9 @@ impl<'a> ClientMsg<'a> {
                 token,
                 hat: hat.clamp(0.0, 255.0) as u8,
                 trail: trail.clamp(0.0, 255.0) as u8,
-                near: near.clamp(0.0, u32::MAX as f64) as u32,
+                near: near.clamp(0.0, f64::from(u32::MAX)) as u32,
             },
-            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16, k: k.clamp(0.0, u32::MAX as f64) as u32 },
+            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16, k: k.clamp(0.0, f64::from(u32::MAX)) as u32 },
             "bomb" => ClientMsg::Bomb,
             "act" => ClientMsg::Act,
             "emote" => ClientMsg::Emote { e: e.clamp(0.0, 15.0) as u8 },
@@ -162,7 +164,7 @@ impl<'a> ClientMsg<'a> {
 
 // ------------------------------------------------------------ server → client
 
-/// Hand-rolled MessagePack writer appending to a `BytesMut`.
+/// Hand-rolled `MessagePack` writer appending to a `BytesMut`.
 pub struct Wire<'a>(pub &'a mut BytesMut);
 
 impl Wire<'_> {
@@ -239,13 +241,13 @@ impl Wire<'_> {
         }
         if v >= -32 {
             self.0.put_u8(v as i8 as u8);
-        } else if v >= i8::MIN as i64 {
+        } else if v >= i64::from(i8::MIN) {
             self.0.put_u8(0xd0);
             self.0.put_i8(v as i8);
-        } else if v >= i16::MIN as i64 {
+        } else if v >= i64::from(i16::MIN) {
             self.0.put_u8(0xd1);
             self.0.put_i16(v as i16);
-        } else if v >= i32::MIN as i64 {
+        } else if v >= i64::from(i32::MIN) {
             self.0.put_u8(0xd2);
             self.0.put_i32(v as i32);
         } else {
@@ -284,7 +286,7 @@ impl Wire<'_> {
 
     pub fn opt_uint(&mut self, v: Option<u32>) -> &mut Self {
         match v {
-            Some(v) => self.uint(v as u64),
+            Some(v) => self.uint(u64::from(v)),
             None => self.nil(),
         }
     }
@@ -304,6 +306,7 @@ pub struct ArenaRing {
 }
 
 impl ArenaRing {
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         ArenaRing { arenas: std::array::from_fn(|_| BytesMut::with_capacity(capacity)), current: 0, capacity }
     }
@@ -343,21 +346,21 @@ pub fn encode_pj(arena: &mut BytesMut, id: u32, name: &str, team: u8, hat: u8, t
         .key("t")
         .str("pj")
         .key("id")
-        .uint(id as u64)
+        .uint(u64::from(id))
         .key("name")
         .str(name)
         .key("team")
-        .uint(team as u64)
+        .uint(u64::from(team))
         .key("hat")
-        .uint(hat as u64)
+        .uint(u64::from(hat))
         .key("trail")
-        .uint(trail as u64);
+        .uint(u64::from(trail));
     finish(arena)
 }
 
 /// A player left.
 pub fn encode_pl(arena: &mut BytesMut, id: u32) -> Bytes {
-    Wire(arena).map(2).key("t").str("pl").key("id").uint(id as u64);
+    Wire(arena).map(2).key("t").str("pl").key("id").uint(u64::from(id));
     finish(arena)
 }
 
@@ -371,7 +374,7 @@ pub fn encode_kill(arena: &mut BytesMut, k: Option<u32>, v: u32, x: f32, y: f32,
         .key("k")
         .opt_uint(k)
         .key("v")
-        .uint(v as u64)
+        .uint(u64::from(v))
         .key("x")
         .f32(x)
         .key("y")
@@ -393,10 +396,10 @@ pub fn encode_lb<'n>(
     let mut w = Wire(arena);
     w.map(5).key("t").str("lb").key("n").uint(online as u64).key("top").arr(top.len());
     for (id, name, score, kills, deaths) in top {
-        w.arr(5).uint(id as u64).str(name).int(score as i64).uint(kills as u64).uint(deaths as u64);
+        w.arr(5).uint(u64::from(id)).str(name).int(i64::from(score)).uint(u64::from(kills)).uint(u64::from(deaths));
     }
-    w.key("teams").arr(2).int(teams.0 as i64).int(teams.1 as i64);
-    w.key("r").uint(round_secs as u64);
+    w.key("teams").arr(2).int(i64::from(teams.0)).int(i64::from(teams.1));
+    w.key("r").uint(u64::from(round_secs));
     finish(arena)
 }
 
@@ -407,11 +410,11 @@ pub fn encode_world(arena: &mut BytesMut, tiles: &[(i32, i32, u8)], items: &[(i3
     let mut w = Wire(arena);
     w.map(3).key("t").str("w").key("tc").arr(tiles.len());
     for &(x, y, t) in tiles {
-        w.arr(3).int(x as i64).int(y as i64).uint(t as u64);
+        w.arr(3).int(i64::from(x)).int(i64::from(y)).uint(u64::from(t));
     }
     w.key("ic").arr(items.len());
     for &(x, y, k) in items {
-        w.arr(3).int(x as i64).int(y as i64).uint(k as u64);
+        w.arr(3).int(i64::from(x)).int(i64::from(y)).uint(u64::from(k));
     }
     finish(arena)
 }
@@ -419,19 +422,19 @@ pub fn encode_world(arena: &mut BytesMut, tiles: &[(i32, i32, u8)], items: &[(i3
 /// Something happened to this player: a power-up (`f` = item code) or a
 /// secret box outcome (`m` true; see `Mystery::code`).
 pub fn encode_fx(arena: &mut BytesMut, f: u8, mystery: bool) -> Bytes {
-    Wire(arena).map(3).key("t").str("fx").key("f").uint(f as u64).key("m").bool(mystery);
+    Wire(arena).map(3).key("t").str("fx").key("f").uint(u64::from(f)).key("m").bool(mystery);
     finish(arena)
 }
 
 /// A player showed a quick-chat emote.
 pub fn encode_emote(arena: &mut BytesMut, id: u32, e: u8) -> Bytes {
-    Wire(arena).map(3).key("t").str("emote").key("id").uint(id as u64).key("e").uint(e as u64);
+    Wire(arena).map(3).key("t").str("emote").key("id").uint(u64::from(id)).key("e").uint(u64::from(e));
     finish(arena)
 }
 
 /// A player reached a kill streak.
 pub fn encode_streak(arena: &mut BytesMut, id: u32, n: u32) -> Bytes {
-    Wire(arena).map(3).key("t").str("streak").key("id").uint(id as u64).key("n").uint(n as u64);
+    Wire(arena).map(3).key("t").str("streak").key("id").uint(u64::from(id)).key("n").uint(u64::from(n));
     finish(arena)
 }
 
@@ -440,7 +443,7 @@ pub fn encode_hills(arena: &mut BytesMut, hills: &[(i32, i32)]) -> Bytes {
     let mut w = Wire(arena);
     w.map(2).key("t").str("hills").key("h").arr(hills.len());
     for &(x, y) in hills {
-        w.arr(2).int(x as i64).int(y as i64);
+        w.arr(2).int(i64::from(x)).int(i64::from(y));
     }
     finish(arena)
 }
@@ -457,11 +460,11 @@ pub fn encode_round<'n>(
     let mut w = Wire(arena);
     w.map(5).key("t").str("round").key("mvp").arr(mvp.len());
     for (id, name, score, kills) in mvp {
-        w.arr(4).uint(id as u64).str(name).int(score as i64).uint(kills as u64);
+        w.arr(4).uint(u64::from(id)).str(name).int(i64::from(score)).uint(u64::from(kills));
     }
-    w.key("teams").arr(2).int(teams.0 as i64).int(teams.1 as i64);
-    w.key("win").uint(winner as u64);
-    w.key("next").uint(next_secs as u64);
+    w.key("teams").arr(2).int(i64::from(teams.0)).int(i64::from(teams.1));
+    w.key("win").uint(u64::from(winner));
+    w.key("next").uint(u64::from(next_secs));
     finish(arena)
 }
 
@@ -485,6 +488,7 @@ pub struct ProfileView {
 /// Rare, larger messages encoded with serde.
 #[derive(Serialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
+#[allow(clippy::large_enum_variant, reason = "built on the stack and encoded at once; boxing would only add an allocation")]
 pub enum ServerMsg<'a> {
     Welcome {
         id: u32,
@@ -516,6 +520,11 @@ pub enum ServerMsg<'a> {
 }
 
 impl ServerMsg<'_> {
+    /// Encodes the message as `MessagePack`.
+    ///
+    /// # Panics
+    /// Never in practice: these types always serialize.
+    #[must_use]
     pub fn encode(&self) -> Bytes {
         rmp_serde::to_vec_named(self).expect("server messages always serialize").into()
     }
@@ -526,8 +535,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn pack(v: serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(&v).unwrap()
+    fn pack(v: &serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(v).unwrap()
     }
 
     fn unpack(b: &[u8]) -> serde_json::Value {
@@ -536,22 +545,22 @@ mod tests {
 
     #[test]
     fn decodes_client_messages() {
-        let join = pack(json!({"t": "join", "name": "Ann", "token": "tok-123456", "hat": 2, "trail": 1, "near": 9}));
+        let join = pack(&json!({"t": "join", "name": "Ann", "token": "tok-123456", "hat": 2, "trail": 1, "near": 9}));
         assert_eq!(ClientMsg::decode(&join), Some(ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 }));
-        let bare = pack(json!({"t": "join", "name": "Bo"}));
+        let bare = pack(&json!({"t": "join", "name": "Bo"}));
         assert_eq!(ClientMsg::decode(&bare), Some(ClientMsg::Join { name: "Bo", token: "", hat: 0, trail: 0, near: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3, "s": 2, "q": 513, "k": 70000}))), Some(ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0, k: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0, k: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "bomb"}))), Some(ClientMsg::Bomb));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "act"}))), Some(ClientMsg::Act));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "emote", "e": 3}))), Some(ClientMsg::Emote { e: 3 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "view", "w": 20, "h": 14}))), Some(ClientMsg::View { w: 20, h: 14 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 3, "s": 2, "q": 513, "k": 70000}))), Some(ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0, k: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0, k: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "bomb"}))), Some(ClientMsg::Bomb));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "act"}))), Some(ClientMsg::Act));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "emote", "e": 3}))), Some(ClientMsg::Emote { e: 3 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "view", "w": 20, "h": 14}))), Some(ClientMsg::View { w: 20, h: 14 }));
         // JS encodes whole-number timestamps as ints and others as float64.
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "ping", "c": 1234}))), Some(ClientMsg::Ping { c: 1234.0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "ping", "c": 12.5}))), Some(ClientMsg::Ping { c: 12.5 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "ping", "c": 1234}))), Some(ClientMsg::Ping { c: 1234.0 }));
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "ping", "c": 12.5}))), Some(ClientMsg::Ping { c: 12.5 }));
         assert_eq!(ClientMsg::decode(&[0xc1, 0xff]), None);
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "nope"}))), None);
+        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "nope"}))), None);
         assert_eq!(ClientMsg::decode(&[0x82, 0xa1]), None, "truncated input is rejected");
     }
 

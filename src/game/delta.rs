@@ -1,6 +1,6 @@
 //! Delta snapshots: what each client was last sent, and encoding only what changed.
 
-use super::*;
+use crate::protocol::Wire;
 
 /// A player as a client sees it: id, x*100, y*100, facing, flags.
 pub(super) type PlayerEntry = (u32, i32, i32, u8, u8);
@@ -96,7 +96,7 @@ pub(super) fn write_delta<E: Keyed>(w: &mut Wire<'_>, changed: &str, removed: &s
             i += 1;
         }
         if i >= cur.len() || cur[i].key() != b.key() {
-            w.uint(b.key() as u64);
+            w.uint(u64::from(b.key()));
             n += 1;
         }
     }

@@ -1,6 +1,12 @@
 //! Spatial buckets, per-client snapshots, the leaderboard and sending updates.
 
-use super::*;
+use bytes::{Bytes, BytesMut};
+
+use crate::protocol::{self, Wire};
+
+use super::delta::{BombEntry, DeltaScratch, PlayerEntry, SnapHistory, write_delta};
+use super::player::{MAX_RANGE, Player};
+use super::{BUCKET, LEADERBOARD_EVERY, World};
 
 impl World {
     pub(super) fn rebuild_buckets(&mut self) {
@@ -41,17 +47,17 @@ impl World {
         let tick = self.tick;
         // While dead, watch whoever got you.
         let spectating = (!p.alive).then_some(p.killed_by).flatten().and_then(|k| self.players.get(&k)).filter(|k| k.alive && k.id != p.id);
-        let (cx, cy) = spectating.map_or(p.cell(), |k| k.cell());
+        let (cx, cy) = spectating.map_or(p.cell(), super::player::Player::cell);
         let (x0, y0, x1, y1) = aoi_rect(cx, cy, p.aoi);
 
         // What the client should see now, sorted by id for diffing.
         cur.players.clear();
         cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).map(|o| {
-            let flags = o.moving as u8
-                | ((o.invulnerable_until > tick) as u8) << 1
-                | ((o.curse(tick).0 != 0) as u8) << 2
-                | (o.ghost(tick) as u8) << 3
-                | (o.bounty as u8) << 4;
+            let flags = u8::from(o.moving)
+                | u8::from(o.invulnerable_until > tick) << 1
+                | u8::from(o.curse(tick).0 != 0) << 2
+                | u8::from(o.ghost(tick)) << 3
+                | u8::from(o.bounty) << 4;
             (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
         }));
         cur.players.sort_unstable_by_key(|e| e.0);
@@ -65,7 +71,7 @@ impl World {
                     // The absolute detonation tick never changes, so a resting
                     // bomb is identical from one snapshot to the next.
                     let at = if b.remote { 0 } else { b.explode_at };
-                    cur.bombs.push((id, x, y, at, b.pierce as u8 | (b.remote as u8) << 1));
+                    cur.bombs.push((id, x, y, at, u8::from(b.pierce) | u8::from(b.remote) << 1));
                 }
             }
         }
@@ -73,7 +79,7 @@ impl World {
 
         // Delta against the newest snapshot the client confirmed, if we
         // still remember it; otherwise a full snapshot.
-        let base = hist.slot_for(p.snap_ack as u64);
+        let base = hist.slot_for(u64::from(p.snap_ack));
         let mut w = Wire(arena);
         w.map(9).key("t").str("s").key("k").uint(tick).key("bk").uint(base.map_or(0, |s| hist.ticks[s]));
         let (bp, bb): (&[PlayerEntry], &[BombEntry]) = match base {
@@ -81,23 +87,23 @@ impl World {
             None => (&[], &[]),
         };
         write_delta(&mut w, "p", "pr", &cur.players, bp, |w, e| {
-            w.arr(5).uint(e.0 as u64).int(e.1 as i64).int(e.2 as i64).uint(e.3 as u64).uint(e.4 as u64);
+            w.arr(5).uint(u64::from(e.0)).int(i64::from(e.1)).int(i64::from(e.2)).uint(u64::from(e.3)).uint(u64::from(e.4));
         });
         write_delta(&mut w, "b", "br", &cur.bombs, bb, |w, e| {
-            w.arr(5).uint(e.0 as u64).int(e.1 as i64).int(e.2 as i64).uint(e.3).uint(e.4 as u64);
+            w.arr(5).uint(u64::from(e.0)).int(i64::from(e.1)).int(i64::from(e.2)).uint(e.3).uint(u64::from(e.4));
         });
         hist.record(tick, &cur.players, &cur.bombs);
 
-        let reach = MAX_RANGE as i32;
+        let reach = i32::from(MAX_RANGE);
         w.key("e");
         let at = w.open_arr();
         let mut n = 0;
         for e in &self.explosions {
             if e.x >= x0 - reach && e.x <= x1 + reach && e.y >= y0 - reach && e.y <= y1 + reach {
-                w.arr(4).int(e.x as i64).int(e.y as i64);
+                w.arr(4).int(i64::from(e.x)).int(i64::from(e.y));
                 w.arr(4);
                 for a in e.arms {
-                    w.uint(a as u64);
+                    w.uint(u64::from(a));
                 }
                 w.uint(e.until - tick);
                 n += 1;
@@ -110,10 +116,10 @@ impl World {
         // so key names would be most of its size.
         w.key("me").arr(protocol::ME_FIELDS.len());
         w.bool(p.alive);
-        w.uint(p.max_bombs as u64);
-        w.uint(p.active_bombs as u64);
-        w.uint(p.range as u64);
-        w.uint(p.speed_lvl as u64);
+        w.uint(u64::from(p.max_bombs));
+        w.uint(u64::from(p.active_bombs));
+        w.uint(u64::from(p.range));
+        w.uint(u64::from(p.speed_lvl));
         w.bool(p.kick);
         w.bool(p.pierce);
         w.bool(p.remote);
@@ -121,15 +127,15 @@ impl World {
         w.bool(p.punch);
         w.uint(p.ghost_until.saturating_sub(tick));
         w.uint(p.invulnerable_until.saturating_sub(tick));
-        w.uint(curse as u64);
+        w.uint(u64::from(curse));
         w.uint(curse_t);
-        w.int(p.score as i64);
+        w.int(i64::from(p.score));
         w.uint(if p.alive { 0 } else { p.respawn_at.saturating_sub(tick) });
         w.opt_uint(p.killed_by);
-        w.arr(2).int(p.aoi.0 as i64).int(p.aoi.1 as i64);
-        w.uint(p.input_seq as u64);
-        w.uint(p.team as u64);
-        w.uint(p.streak as u64);
+        w.arr(2).int(i64::from(p.aoi.0)).int(i64::from(p.aoi.1));
+        w.uint(u64::from(p.input_seq));
+        w.uint(u64::from(p.team));
+        w.uint(u64::from(p.streak));
         w.opt_uint(spectating.map(|k| k.id));
         protocol::finish(arena)
     }
@@ -202,6 +208,7 @@ impl World {
     }
 
     /// Clients that couldn't keep up with reliable events this tick.
+    #[must_use]
     pub fn dropped_clients(&self) -> &[u32] {
         &self.scratch.dropped
     }
@@ -217,6 +224,7 @@ impl World {
 }
 
 /// Inclusive tile rectangle a player at (cx, cy) receives updates for.
+#[must_use]
 pub fn aoi_rect(cx: i32, cy: i32, (hw, hh): (i32, i32)) -> (i32, i32, i32, i32) {
     (cx - hw, cy - hh, cx + hw, cy + hh)
 }
