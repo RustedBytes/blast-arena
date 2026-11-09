@@ -47,6 +47,8 @@ pub struct Player {
     pub input_alt: u8,
     /// Sequence number of the newest input applied, echoed for prediction.
     pub input_seq: u16,
+    /// Newest snapshot tick the client says it has decoded (0 = none).
+    pub snap_ack: u32,
     /// Bomb / action / emote presses seen so far from the input slot.
     pub bomb_presses: u32,
     pub act_presses: u32,
@@ -107,6 +109,7 @@ impl Player {
             input_dir: 0,
             input_alt: 0,
             input_seq: 0,
+            snap_ack: 0,
             bomb_presses: 0,
             act_presses: 0,
             emote_seq: 0,

@@ -140,9 +140,111 @@ struct Parked {
     flags: [bool; 5],
 }
 
+/// A player as a client sees it: id, x*100, y*100, facing, flags.
+type PlayerEntry = (u32, i32, i32, u8, u8);
+/// A bomb as a client sees it: id, x, y, detonation tick (0 = remote), flags.
+type BombEntry = (u32, i32, i32, u64, u8);
+const SNAP_HISTORY: usize = 32;
+
+/// What recent snapshots told one client, so the next one can be a delta
+/// against whichever snapshot the client confirms it received. The lists
+/// keep their capacity, so recording a snapshot doesn't allocate.
+pub struct SnapHistory {
+    ticks: [u64; SNAP_HISTORY],
+    players: [Vec<PlayerEntry>; SNAP_HISTORY],
+    bombs: [Vec<BombEntry>; SNAP_HISTORY],
+}
+
+impl Default for SnapHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SnapHistory {
+    /// Pre-sized for a busy view, so recording rarely has to grow a list.
+    fn new() -> Self {
+        SnapHistory {
+            ticks: [0; SNAP_HISTORY],
+            players: std::array::from_fn(|_| Vec::with_capacity(96)),
+            bombs: std::array::from_fn(|_| Vec::with_capacity(64)),
+        }
+    }
+
+    /// Slot holding the snapshot for `tick`, if it's still remembered.
+    fn slot_for(&self, tick: u64) -> Option<usize> {
+        let s = (tick % SNAP_HISTORY as u64) as usize;
+        (tick != 0 && self.ticks[s] == tick).then_some(s)
+    }
+
+    fn record(&mut self, tick: u64, players: &[PlayerEntry], bombs: &[BombEntry]) {
+        let s = (tick % SNAP_HISTORY as u64) as usize;
+        self.ticks[s] = tick;
+        self.players[s].clear();
+        self.players[s].extend_from_slice(players);
+        self.bombs[s].clear();
+        self.bombs[s].extend_from_slice(bombs);
+    }
+}
+
+/// Per-snapshot working lists.
+#[derive(Default)]
+struct DeltaScratch {
+    players: Vec<PlayerEntry>,
+    bombs: Vec<BombEntry>,
+}
+
+trait Keyed: Copy + PartialEq {
+    fn key(&self) -> u32;
+}
+impl Keyed for PlayerEntry {
+    fn key(&self) -> u32 {
+        self.0
+    }
+}
+impl Keyed for BombEntry {
+    fn key(&self) -> u32 {
+        self.0
+    }
+}
+
+/// Writes `changed`: entries of `cur` that are new or differ from `base`,
+/// then `removed`: ids in `base` that are gone from `cur`. Both lists are
+/// sorted by id, so this is a single merge pass.
+fn write_delta<E: Keyed>(w: &mut Wire<'_>, changed: &str, removed: &str, cur: &[E], base: &[E], write: impl Fn(&mut Wire<'_>, &E)) {
+    w.key(changed);
+    let at = w.open_arr();
+    let (mut n, mut j) = (0, 0);
+    for e in cur {
+        while j < base.len() && base[j].key() < e.key() {
+            j += 1;
+        }
+        if j < base.len() && base[j] == *e {
+            continue;
+        }
+        write(w, e);
+        n += 1;
+    }
+    w.close_arr(at, n);
+    w.key(removed);
+    let at = w.open_arr();
+    let (mut n, mut i) = (0, 0);
+    for b in base {
+        while i < cur.len() && cur[i].key() < b.key() {
+            i += 1;
+        }
+        if i >= cur.len() || cur[i].key() != b.key() {
+            w.uint(b.key() as u64);
+            n += 1;
+        }
+    }
+    w.close_arr(at, n);
+}
+
 /// Buffers reused every tick so the hot path doesn't allocate.
 #[derive(Default)]
 struct Scratch {
+    delta: DeltaScratch,
     ids: Vec<u32>,
     bomb_ids: Vec<u32>,
     chain: Vec<u32>,
@@ -194,6 +296,8 @@ pub struct World {
     round_ticks: u64,
     pub round_end: u64,
     parked: HashMap<String, Parked>,
+    /// Per-client record of recent snapshots, for delta encoding.
+    histories: HashMap<u32, SnapHistory>,
     snapshot_arenas: ArenaRing,
     /// Reliable events use their own arenas, so a slow client holding queued
     /// events never pins the (much larger) snapshot buffers.
@@ -268,6 +372,7 @@ impl World {
             round_ticks,
             round_end: round_ticks,
             parked: HashMap::new(),
+            histories: HashMap::new(),
             snapshot_arenas: ArenaRing::new(SNAPSHOT_ARENA_CAPACITY),
             event_arenas: ArenaRing::new(EVENT_ARENA_CAPACITY),
             scratch: Scratch::default(),
@@ -422,6 +527,7 @@ impl World {
     }
 
     pub fn leave(&mut self, id: u32) {
+        self.histories.remove(&id);
         if self.bots.remove(&id).is_some() {
             self.bot_ids.retain(|&b| b != id);
         }
@@ -644,6 +750,7 @@ impl World {
                     self.scratch.emotes.push((p.id, e));
                 }
             }
+            p.snap_ack = link.input.ack();
             if let Some((w, h)) = link.input.view() {
                 p.set_aoi(w, h);
             }
@@ -744,17 +851,11 @@ impl World {
             let start = (p.x, p.y);
             let start_cell = p.cell();
             let on = self.map.get(start_cell.0, start_cell.1);
-            let mut dist = p.speed(self.tick) * DT;
-            // On ice you can't stop dead: letting go slides you on to the
-            // next cell centre.
+            let dist = p.speed(self.tick) * DT;
+            // On ice you can't stop: letting go keeps you sliding until you
+            // steer, hit something or reach the end of the ice.
             if dir == 0 && on == Tile::Ice && p.moving && p.slide_dir != 0 {
-                let (dx, dy) = DIRS[p.slide_dir as usize];
-                let along = if dx != 0 { p.x * dx as f32 } else { p.y * dy as f32 };
-                let to_centre = (along - 0.5).ceil() + 0.5 - along;
-                if to_centre > 0.01 {
-                    dir = p.slide_dir;
-                    dist = dist.min(to_centre);
-                }
+                dir = p.slide_dir;
             }
             let ghost = p.ghost(self.tick);
             let (mut x, mut y) = start;
@@ -1089,46 +1190,56 @@ impl World {
     /// flames); tiles and items arrive through the reliable `w` stream.
     /// Arrays are written with back-patched lengths, so no intermediate
     /// lists are built.
-    fn encode_snapshot(&self, arena: &mut BytesMut, p: &Player) -> Bytes {
+    fn encode_snapshot(&self, arena: &mut BytesMut, p: &Player, hist: &mut SnapHistory, cur: &mut DeltaScratch) -> Bytes {
         let tick = self.tick;
         // While dead, watch whoever got you.
         let spectating = (!p.alive).then_some(p.killed_by).flatten().and_then(|k| self.players.get(&k)).filter(|k| k.alive && k.id != p.id);
         let (cx, cy) = spectating.map_or(p.cell(), |k| k.cell());
         let (x0, y0, x1, y1) = aoi_rect(cx, cy, p.aoi);
-        let mut w = Wire(arena);
-        w.map(6).key("t").str("s").key("k").uint(tick);
 
-        w.key("p");
-        let at = w.open_arr();
-        let mut n = 0;
-        for o in self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive) {
+        // What the client should see now, sorted by id for diffing.
+        cur.players.clear();
+        cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).map(|o| {
             let flags = o.moving as u8
                 | ((o.invulnerable_until > tick) as u8) << 1
                 | ((o.curse(tick).0 != 0) as u8) << 2
                 | (o.ghost(tick) as u8) << 3
                 | (o.bounty as u8) << 4;
-            w.arr(5).uint(o.id as u64).int((o.x * 100.0) as i64).int((o.y * 100.0) as i64).uint(o.facing as u64).uint(flags as u64);
-            n += 1;
-        }
-        w.close_arr(at, n);
-
+            (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
+        }));
+        cur.players.sort_unstable_by_key(|e| e.0);
+        cur.bombs.clear();
         let (bx0, by0, bx1, by1) = (x0.max(0), y0.max(0), x1.min(self.map.w - 1), y1.min(self.map.h - 1));
-        w.key("b");
-        let at = w.open_arr();
-        let mut n = 0;
         for y in by0..=by1 {
             for x in bx0..=bx1 {
                 let id = self.bomb_grid[self.map.idx(x, y)];
                 if id != 0 {
                     let b = &self.bombs[&id];
-                    let fuse = if b.remote { 99 } else { b.explode_at.saturating_sub(tick) };
-                    let flags = b.pierce as u64 | (b.remote as u64) << 1;
-                    w.arr(5).uint(id as u64).int(x as i64).int(y as i64).uint(fuse).uint(flags);
-                    n += 1;
+                    // The absolute detonation tick never changes, so a resting
+                    // bomb is identical from one snapshot to the next.
+                    let at = if b.remote { 0 } else { b.explode_at };
+                    cur.bombs.push((id, x, y, at, b.pierce as u8 | (b.remote as u8) << 1));
                 }
             }
         }
-        w.close_arr(at, n);
+        cur.bombs.sort_unstable_by_key(|e| e.0);
+
+        // Delta against the newest snapshot the client confirmed, if we
+        // still remember it; otherwise a full snapshot.
+        let base = hist.slot_for(p.snap_ack as u64);
+        let mut w = Wire(arena);
+        w.map(9).key("t").str("s").key("k").uint(tick).key("bk").uint(base.map_or(0, |s| hist.ticks[s]));
+        let (bp, bb): (&[PlayerEntry], &[BombEntry]) = match base {
+            Some(s) => (&hist.players[s], &hist.bombs[s]),
+            None => (&[], &[]),
+        };
+        write_delta(&mut w, "p", "pr", &cur.players, bp, |w, e| {
+            w.arr(5).uint(e.0 as u64).int(e.1 as i64).int(e.2 as i64).uint(e.3 as u64).uint(e.4 as u64);
+        });
+        write_delta(&mut w, "b", "br", &cur.bombs, bb, |w, e| {
+            w.arr(5).uint(e.0 as u64).int(e.1 as i64).int(e.2 as i64).uint(e.3).uint(e.4 as u64);
+        });
+        hist.record(tick, &cur.players, &cur.bombs);
 
         let reach = MAX_RANGE as i32;
         w.key("e");
@@ -1259,6 +1370,8 @@ impl World {
             broadcasts.push(lb);
         }
         let mut ring = std::mem::take(&mut self.snapshot_arenas);
+        let mut histories = std::mem::take(&mut self.histories);
+        let mut delta = std::mem::take(&mut self.scratch.delta);
         let arena = ring.rotate();
         let mut dropped = std::mem::take(&mut self.scratch.dropped);
         dropped.clear();
@@ -1268,9 +1381,12 @@ impl World {
                 dropped.push(p.id);
                 continue;
             }
-            link.snapshot.publish(self.encode_snapshot(arena, p));
+            let hist = histories.entry(p.id).or_default();
+            link.snapshot.publish(self.encode_snapshot(arena, p, hist, &mut delta));
         }
         self.snapshot_arenas = ring;
+        self.histories = histories;
+        self.scratch.delta = delta;
         broadcasts.clear();
         self.scratch.broadcasts = broadcasts;
         self.scratch.dropped = dropped;
@@ -1402,6 +1518,13 @@ impl World {
     fn hold(&mut self, id: u32, dir: u8, alt: u8) {
         self.players[&id].link.as_ref().unwrap().input.set_dirs(dir, alt, 0);
     }
+
+    /// A full (non-delta) snapshot for player `id`, decoded.
+    fn full_snapshot(&self, id: u32) -> serde_json::Value {
+        let mut arena = BytesMut::new();
+        let (mut hist, mut scratch) = (SnapHistory::default(), DeltaScratch::default());
+        rmp_serde::from_slice(&self.encode_snapshot(&mut arena, &self.players[&id], &mut hist, &mut scratch)).unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -1418,8 +1541,7 @@ mod tests {
         let ids: Vec<u32> = w.players_in_rect(x0, y0, x1, y1).map(|p| p.id).collect();
         assert!(ids.contains(&me) && ids.contains(&near));
         assert!(!ids.contains(&far));
-        let mut arena = BytesMut::new();
-        let snap: serde_json::Value = rmp_serde::from_slice(&w.encode_snapshot(&mut arena, &w.players[&me])).unwrap();
+        let snap: serde_json::Value = w.full_snapshot(me);
         assert_eq!(snap["t"], "s");
         let seen: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
         assert!(seen.contains(&(me as u64)) && seen.contains(&(near as u64)));
@@ -1435,8 +1557,7 @@ mod tests {
         w.place_bomb(me);
         w.set_item(3, 5, Item::Mystery as u8);
         w.set_tile(5, 5, Tile::Floor);
-        let mut arena = BytesMut::new();
-        let snap: serde_json::Value = rmp_serde::from_slice(&w.encode_snapshot(&mut arena, &w.players[&me])).unwrap();
+        let snap: serde_json::Value = w.full_snapshot(me);
         assert_eq!(snap["k"], 0);
         assert_eq!(snap["p"][0], serde_json::json!([me, 350, 350, 3, 0]));
         assert_eq!(snap["b"][0], serde_json::json!([1, 3, 3, bomb::FUSE_TICKS, 0]));
@@ -1795,22 +1916,27 @@ mod tests {
     }
 
     #[test]
-    fn ice_slides_you_to_the_next_cell_centre() {
+    fn ice_keeps_you_sliding_until_you_hit_something() {
         let mut map = Map::empty(15, 15);
         for x in 1..8 {
             map.set(x, 1, Tile::Ice);
         }
+        map.set(8, 1, Tile::Crate);
         let mut w = test_world(map);
         let id = w.spawn_test_player(1.5, 1.5);
         w.hold(id, 2, 0);
         w.step();
         w.step();
         w.hold(id, 0, 0);
-        for _ in 0..10 {
+        for _ in 0..60 {
             w.step();
         }
         let x = w.players[&id].x;
-        assert!((x - 2.5).abs() < 1e-3, "slid on to the centre of the next cell, x = {x}");
+        assert!((x - 7.5).abs() < 1e-3, "slid all the way to the crate, x = {x}");
+        // Steering still works on ice.
+        w.hold(id, 4, 0);
+        w.step();
+        assert!(w.players[&id].x < 7.5);
     }
 
     #[test]
@@ -1865,8 +1991,7 @@ mod tests {
         let me = w.spawn_test_player(5.5, 5.5);
         let killer = w.spawn_test_player(60.5, 60.5);
         w.kill(me, Some(killer));
-        let mut arena = BytesMut::new();
-        let snap: serde_json::Value = rmp_serde::from_slice(&w.encode_snapshot(&mut arena, &w.players[&me])).unwrap();
+        let snap: serde_json::Value = w.full_snapshot(me);
         assert_eq!(me_obj(&snap)["spec"], killer);
         let ids: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
         assert!(ids.contains(&(killer as u64)), "the killer is in view");
@@ -1891,9 +2016,78 @@ mod tests {
         let id = w.spawn_test_player(1.5, 1.5);
         w.players[&id].link.as_ref().unwrap().input.set_dirs(2, 0, 4242);
         w.step();
-        let mut arena = BytesMut::new();
-        let snap: serde_json::Value = rmp_serde::from_slice(&w.encode_snapshot(&mut arena, &w.players[&id])).unwrap();
+        let snap: serde_json::Value = w.full_snapshot(id);
         assert_eq!(me_obj(&snap)["ack"], 4242);
+    }
+
+    /// Applies a delta list (`changed`, `removed`) to a client-side id map,
+    /// exactly as the browser does.
+    fn apply_delta(state: &mut std::collections::BTreeMap<u64, serde_json::Value>, changed: &serde_json::Value, removed: &serde_json::Value) {
+        for id in removed.as_array().unwrap() {
+            state.remove(&id.as_u64().unwrap());
+        }
+        for e in changed.as_array().unwrap() {
+            state.insert(e[0].as_u64().unwrap(), e.clone());
+        }
+    }
+
+    #[test]
+    fn delta_snapshots_rebuild_the_full_picture() {
+        let mut rng = Rng::new(21);
+        let map = Map::generate(41, 41, 0.45, &mut rng);
+        let mut w = World::with_map(map, rng, 64);
+        w.set_target_bots(12);
+        let (me, _rx) = joined(&mut w, "viewer");
+        w.players.get_mut(&me).unwrap().set_aoi(26, 18); // see most of the map
+        let input = w.players[&me].link.as_ref().unwrap().input.clone();
+        let snapshot = w.players[&me].link.as_ref().unwrap().snapshot.clone();
+        // Client-side state, keyed by tick: (players, bombs).
+        type View = std::collections::BTreeMap<u64, serde_json::Value>;
+        let mut decoded: HashMap<u64, (View, View)> = HashMap::new();
+        let (mut delta_bytes, mut full_bytes, mut deltas) = (0usize, 0usize, 0);
+        for t in 0..400 {
+            w.step();
+            w.send_updates();
+            let msg = snapshot.take().expect("a snapshot every tick");
+            let snap: serde_json::Value = rmp_serde::from_slice(&msg).unwrap();
+            let k = snap["k"].as_u64().unwrap();
+            let bk = snap["bk"].as_u64().unwrap();
+            let (mut players, mut bombs) = if bk == 0 { Default::default() } else { decoded[&bk].clone() };
+            if bk != 0 {
+                deltas += 1;
+            }
+            apply_delta(&mut players, &snap["p"], &snap["pr"]);
+            apply_delta(&mut bombs, &snap["b"], &snap["br"]);
+            // Compare with what a full snapshot would have said.
+            let full = w.full_snapshot(me);
+            let as_map = |v: &serde_json::Value| -> View { v.as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap(), e.clone())).collect() };
+            assert_eq!(players, as_map(&full["p"]), "players differ at tick {k}");
+            assert_eq!(bombs, as_map(&full["b"]), "bombs differ at tick {k}");
+            delta_bytes += msg.len();
+            full_bytes += rmp_serde::to_vec_named(&full).unwrap().len();
+            decoded.insert(k, (players, bombs));
+            // Like a real client: acknowledge now and then, sometimes late.
+            if t % 3 != 2 {
+                input.set_ack(k as u32);
+            }
+        }
+        assert!(deltas > 300, "most snapshots are deltas: {deltas}");
+        eprintln!("delta snapshots: {delta_bytes} bytes vs {full_bytes} full");
+        assert!(delta_bytes < full_bytes, "deltas are smaller");
+    }
+
+    #[test]
+    fn snapshots_fall_back_to_full_without_a_known_ack() {
+        let mut w = test_world(Map::empty(15, 15));
+        let (me, _rx) = joined(&mut w, "a");
+        let link = w.players[&me].link.as_ref().unwrap();
+        let (input, snapshot) = (link.input.clone(), link.snapshot.clone());
+        input.set_ack(999_999); // a tick the server never sent
+        w.step();
+        w.send_updates();
+        let snap: serde_json::Value = rmp_serde::from_slice(&snapshot.take().unwrap()).unwrap();
+        assert_eq!(snap["bk"], 0, "full snapshot");
+        assert_eq!(snap["p"].as_array().unwrap().len(), 1);
     }
 
     #[test]

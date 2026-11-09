@@ -113,13 +113,17 @@ fn main() {
         let took = started.elapsed();
         let (a1, b1) = (ALLOCS.load(Relaxed), ALLOC_BYTES.load(Relaxed));
 
-        // Drain like the socket writers would.
-        for (_, snapshot, rx) in &mut clients {
+        // Drain like the socket writers would, and acknowledge the snapshot
+        // like a browser does, so the next one can be a delta.
+        let tick = world.tick as u32;
+        for (input, snapshot, rx) in &mut clients {
             while rx.try_recv().is_ok() {}
-            if let Some(s) = snapshot.take()
-                && t >= args.warmup {
+            if let Some(s) = snapshot.take() {
+                input.set_ack(tick);
+                if t >= args.warmup {
                     snapshot_bytes += s.len() as u64;
                 }
+            }
         }
         if t >= args.warmup {
             times.push(took.as_nanos() as u64);

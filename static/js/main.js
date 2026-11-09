@@ -65,6 +65,26 @@ const params = new URLSearchParams(location.search);
 let seenExplosions = new Set();
 let nextExplosions = new Set();
 
+/** The decoded snapshot for server tick `k`, if still in the ring. */
+function findSnapshot(k) {
+  const ring = state.snaps;
+  for (let i = ring.len - 1; i >= 0; i--) {
+    const s = ring.get(i);
+    if (s.k === k) return s;
+    if (s.k < k) break;
+  }
+  return null;
+}
+
+/** Applies a delta (changed entries, removed ids) to a base list of [id, ...] entries. */
+function applyDelta(base, changed, removed) {
+  const byId = new Map();
+  for (const e of base) byId.set(e[0], e);
+  for (const id of removed) byId.delete(id);
+  for (const e of changed) byId.set(e[0], e);
+  return Array.from(byId.values());
+}
+
 function rebuildItems() {
   state.items.length = 0;
   for (const [idx, kind] of state.itemMap) state.items.push([idx % state.map.w, Math.floor(idx / state.map.w), kind]);
@@ -130,6 +150,20 @@ const net = new Net({
   s(m) {
     if (!state) return;
     const now = performance.now();
+    // A delta snapshot lists only what changed since snapshot `bk` (one we
+    // acknowledged); rebuild the full lists from it.
+    let players = m.p, rawBombs = m.b;
+    if (m.bk) {
+      const base = findSnapshot(m.bk);
+      if (!base) return; // can't decode; the server falls back to a full snapshot
+      players = applyDelta(base.p, m.p, m.pr);
+      rawBombs = applyDelta(base.rawB, m.b, m.br);
+    }
+    m.p = players;
+    m.rawB = rawBombs;
+    // Bombs carry their absolute detonation tick; derive the fuse left.
+    m.b = rawBombs.map(([id, x, y, at, f]) => [id, x, y, f & 2 ? 99 : Math.max(0, at - m.k), f]);
+    state.lastK = m.k;
     // The player's own state arrives as a positional array (see ME_FIELDS).
     const me = {};
     for (let i = 0; i < ME_FIELDS.length; i++) me[ME_FIELDS[i]] = m.me[i];
@@ -600,7 +634,9 @@ function picker(el, names, levels, key) {
 
 let last = performance.now();
 let perfTime = 0, perfFrames = 0, perfWork = 0;
-const sendInput = (d, s, q) => net.send({ t: 'in', d, s, q });
+// Every input message also acknowledges the newest decoded snapshot (`k`),
+// which the server uses as the base for delta snapshots.
+const sendInput = (d, s, q) => net.send({ t: 'in', d, s, q, k: state?.lastK ?? 0 });
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
@@ -610,9 +646,10 @@ function frame(now) {
   if (!state || state.snaps.len === 0) return;
   const t0 = performance.now();
 
+  // Inputs (and snapshot acks) go out at 20 Hz even while dead.
+  predictor.update(dt, input.current, state, sendInput);
   // Local player: predicted. Dead: the camera follows whoever we watch.
   if (state.me?.alive && predictor.active) {
-    predictor.update(dt, input.current, state, sendInput);
     const px = state.self.x, py = state.self.y;
     predictor.render(state.self);
     tutorial.notify('moved', Math.abs(state.self.x - px) + Math.abs(state.self.y - py));
@@ -663,6 +700,11 @@ $('join-form').addEventListener('submit', (e) => {
   net.close();
   net.connect(joinInfo.arena, joinInfo.join);
 });
+
+// With ?debug, expose internals for testing from the browser console.
+if (params.has('debug')) {
+  window.__blast = { get state() { return state; }, predictor, net };
+}
 
 applyLanguage(getLanguage());
 applyI18n();

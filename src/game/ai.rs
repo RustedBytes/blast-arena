@@ -382,11 +382,11 @@ impl World {
         }
     }
 
-    /// Cells a bot may stop on: belts would carry it off and pads would
-    /// teleport it away.
+    /// Cells a bot may stop on: belts would carry it off, pads would
+    /// teleport it away, and on ice it would keep sliding.
     fn rest_ok(&self, c: (i32, i32)) -> bool {
         let t = self.map.get(c.0, c.1);
-        t.conveyor_dir() == 0 && t != Tile::Teleport
+        t.conveyor_dir() == 0 && t != Tile::Teleport && t != Tile::Ice
     }
 
     fn walkable(&self, c: (i32, i32), start: (i32, i32)) -> bool {

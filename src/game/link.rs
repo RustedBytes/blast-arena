@@ -26,6 +26,8 @@ pub struct InputSlot {
     emote: AtomicU32,
     /// Requested view half extents as `w << 16 | h`; 0 when never set.
     view: AtomicU32,
+    /// Newest snapshot tick the client has decoded (delta baseline).
+    ack: AtomicU32,
 }
 
 pub fn pack_dirs(dir: u8, alt: u8, seq: u16) -> u32 {
@@ -51,6 +53,14 @@ impl InputSlot {
 
     pub fn bomb_presses(&self) -> u32 {
         self.bombs.load(Relaxed)
+    }
+
+    pub fn set_ack(&self, tick: u32) {
+        self.ack.store(tick, Relaxed);
+    }
+
+    pub fn ack(&self) -> u32 {
+        self.ack.load(Relaxed)
     }
 
     pub fn press_act(&self) {

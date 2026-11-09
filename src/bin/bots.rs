@@ -17,7 +17,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 #[serde(tag = "t", rename_all = "lowercase")]
 enum Out<'a> {
     Join { name: &'a str },
-    In { d: u8, s: u8 },
+    In { d: u8, s: u8, q: u16, k: u32 },
     View { w: u16, h: u16 },
     Bomb,
     Ping { c: f64 },
@@ -35,6 +35,23 @@ struct Pong {
 /// MessagePack prefix of `{"t": "pong", ...}`: a 2-entry map whose first key
 /// is "t" with value "pong". Lets bots skip decoding every snapshot.
 const PONG_PREFIX: &[u8] = &[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g'];
+
+/// Snapshots start `{"t": "s", "k": <tick>, ...}`; reads the tick without
+/// decoding the rest.
+fn snapshot_tick(data: &[u8]) -> Option<u32> {
+    const PREFIX: &[u8] = &[0x89, 0xa1, b't', 0xa1, b's', 0xa1, b'k'];
+    let rest = data.strip_prefix(PREFIX)?;
+    let be = |n: usize| rest.get(1..1 + n).map(|b| b.iter().fold(0u64, |a, &x| a << 8 | x as u64));
+    let v = match *rest.first()? {
+        b @ 0..=0x7f => b as u64,
+        0xcc => be(1)?,
+        0xcd => be(2)?,
+        0xce => be(4)?,
+        0xcf => be(8)?,
+        _ => return None,
+    };
+    Some(v as u32)
+}
 
 #[derive(Default)]
 struct Stats {
@@ -88,7 +105,11 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
 
     let mut seed = 0x2545_F491_4F6C_DD1Du64 ^ (n as u64 + 1).wrapping_mul(0x9E37_79B9);
     let mut next_action = tokio::time::interval(Duration::from_millis(250 + n as u64 % 100));
+    // Like the browser: send the held input (and the newest snapshot tick,
+    // which lets the server send deltas) at the 20 Hz input rate.
+    let mut input_tick = tokio::time::interval(Duration::from_millis(50));
     let mut ping = tokio::time::interval(Duration::from_secs(2));
+    let (mut d, mut s, mut q, mut last_k) = (0u8, 0u8, 0u16, 0u32);
     loop {
         tokio::select! {
             msg = rx.next() => {
@@ -96,7 +117,9 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 if let Message::Binary(data) = msg {
                     stats.messages.fetch_add(1, Relaxed);
                     stats.bytes.fetch_add(data.len() as u64, Relaxed);
-                    if data.starts_with(PONG_PREFIX)
+                    if let Some(k) = snapshot_tick(&data) {
+                        last_k = k;
+                    } else if data.starts_with(PONG_PREFIX)
                         && let Ok(pong) = rmp_serde::from_slice::<Pong>(&data) {
                             let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
                             stats.rtt_us_sum.fetch_add(rtt, Relaxed);
@@ -105,19 +128,19 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                         }
                 }
             }
+            _ = input_tick.tick() => {
+                q = q.wrapping_add(1);
+                if tx.send(frame(&Out::In { d, s, q, k: last_k })).await.is_err() {
+                    break;
+                }
+            }
             _ = next_action.tick() => {
                 let r = next_rand(&mut seed);
-                let mut out = Vec::new();
                 if r.is_multiple_of(3) {
-                    out.push(Out::In { d: ((r >> 8) % 5) as u8, s: ((r >> 16) % 5) as u8 });
+                    (d, s) = (((r >> 8) % 5) as u8, ((r >> 16) % 5) as u8);
                 }
-                if r.is_multiple_of(23) {
-                    out.push(Out::Bomb);
-                }
-                for m in &out {
-                    if tx.send(frame(m)).await.is_err() {
-                        break;
-                    }
+                if r.is_multiple_of(23) && tx.send(frame(&Out::Bomb)).await.is_err() {
+                    break;
                 }
             }
             _ = ping.tick() => {

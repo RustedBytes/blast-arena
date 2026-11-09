@@ -58,7 +58,7 @@ Without `--arena` the server runs three arenas:
 
   | Region | Feature |
   |---|---|
-  | Snow | Ice: you slide on to the next cell when you let go |
+  | Snow | Ice: let go and you keep sliding until you steer, hit something or leave the ice |
   | Desert | Conveyor belts that carry players and bombs |
   | Volcano | Armored crates that take two blasts |
   | Grass | Normal arena |
@@ -118,7 +118,7 @@ Each arena keeps its bots topped up, and humans take a bot's place when an arena
 How a bot plays:
 - **Danger map.** The bots share a map of how many ticks remain before fire reaches each cell. It covers chain reactions and treats remote bombs as live.
 - **Priorities:** escape first, then power-ups, attack spots, crate spots, or wandering. In team mode they don't target teammates.
-- **Safe bombing.** A bot drops a bomb only with a robust way out. It avoids cells where others stand, and needs either two exits or a roomy safe area. It never chooses a conveyor or teleporter as a place to stop.
+- **Safe bombing.** A bot drops a bomb only with a robust way out. It avoids cells where others stand, and needs either two exits or a roomy safe area. It never chooses ice, a conveyor or a teleporter as a place to stop.
 - **Remote bombs.** Once safe, a bot detonates its remote bombs.
 
 ## Deploy
@@ -131,6 +131,13 @@ DOMAIN=play.example.com docker compose up -d
 - `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
 - Profiles live in the `blast-data` volume.
 - Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.
+
+Tested with Docker 29 (in WSL):
+- The image builds, and the server starts all arenas as a non-root user.
+- With the game and Caddy on one network and `DOMAIN=localhost`, Caddy serves the page and API over HTTPS.
+- The WebSocket upgrade over `wss://` returns 101, `/metrics` returns 404, and the profile database is written to the `/data` volume.
+
+The `docker compose` command itself wasn't run, because that machine lacks the compose plugin. The containers were started by hand with the same settings.
 
 ## Benchmarks
 
@@ -146,10 +153,21 @@ Results on this machine:
 
 | Measure | Result |
 |---|---|
-| Server tick, 200 bots + 150 clients encoding real snapshots (simbench) | about 3 ms (budget 50 ms) |
+| Server tick, 200 bots + 150 clients encoding real snapshots (simbench) | about 3.4 ms (budget 50 ms) |
 | Heap allocations per tick | about 0.06; 94% of ticks allocate nothing |
-| Bandwidth per client, 150 connections (load test) | about 6.9 KB/s |
+| Snapshot size per client per tick (simbench) | 383 bytes, down from 530 before delta encoding |
+| Bandwidth per client, 150 connections (load test) | about 5.1 KB/s |
 | Disconnects in the load test | 0 |
+
+Prediction was also tested in the browser with every message delayed by 100 ms each way (212 ms ping):
+
+| Measure | Result |
+|---|---|
+| First local movement after a key press | 14 ms |
+| Prediction error over 171 reconciliations while turning constantly | 0.001 tiles on average, 0.005 at most |
+| Corrections larger than a quarter tile | none |
+
+Open the game with `?debug` to get `window.__blast` (state, predictor stats, network) in the browser console.
 
 ## How it scales
 
@@ -158,9 +176,12 @@ Results on this machine:
   - Messages are MessagePack over binary WebSocket frames.
   - Hot messages are written by hand straight into reusable buffers.
   - Client messages are parsed in place, without allocating.
-- **Snapshots carry only moving things.**
-  - Snapshots hold players, bombs and flames near you, plus your own state as a compact array.
-  - Tiles and items are sent once on join. After that only their *changes* go out, in a reliable world-delta stream. A skipped snapshot can't lose them.
+- **Delta snapshots.**
+  - Every input message also says which snapshot the client last decoded.
+  - The server keeps a short history (32 ticks) of what it sent each client. It encodes only the players and bombs that are new, moved or gone since the snapshot the client confirmed.
+  - If that snapshot is too old or unknown, a full snapshot goes out instead. This happens, for example, right after joining.
+  - Bombs carry their absolute detonation tick, so a resting bomb never counts as changed.
+  - Tiles and items are sent once on join. After that only their changes go out, in a reliable world-delta stream. A skipped snapshot can't lose them.
 - **Client-side prediction.**
   - Your browser runs the same movement code as the server, so your own moves show up instantly.
   - Each input carries a sequence number, and snapshots echo the last one the server applied.

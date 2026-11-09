@@ -65,6 +65,7 @@ export class Predictor {
     this.acc = 0;
     this.active = false;
     this.tmp = { x: 0, y: 0, moving: false, slide: 0 };
+    this.stats = { samples: 0, sumError: 0, maxError: 0, corrections: 0 };
   }
 
   reset(x, y) {
@@ -80,7 +81,7 @@ export class Predictor {
    * input (via `send(d, s, seq)`) and applies it locally.
    */
   update(dt, input, world, send) {
-    if (!this.active) return;
+    // Inputs keep flowing while inactive (dead): they also carry snapshot acks.
     this.acc += dt;
     let steps = 0;
     while (this.acc >= DT && steps < 4) {
@@ -92,6 +93,7 @@ export class Predictor {
       this.hSeq[k] = seq;
       this.hDir[k] = input.d;
       this.hAlt[k] = input.s;
+      if (!this.active) continue;
       this.prev.x = this.pos.x;
       this.prev.y = this.pos.y;
       simulate(this.pos, input.d, input.s, world);
@@ -115,6 +117,11 @@ export class Predictor {
       }
     }
     const err = Math.hypot(p.x - this.pos.x, p.y - this.pos.y);
+    // How far the server's view (after replay) was from our prediction.
+    this.stats.samples++;
+    this.stats.sumError += err;
+    this.stats.maxError = Math.max(this.stats.maxError, err);
+    if (err > 0.25) this.stats.corrections++;
     if (err > 2) {
       // Teleport or big desync: jump.
       this.prev.x = p.x; this.prev.y = p.y;
@@ -140,14 +147,10 @@ function simulate(p, d, s, world) {
   const startCx = Math.floor(sx), startCy = Math.floor(sy);
   const tileAt = (x, y) => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
   const on = tileAt(startCx, startCy);
-  let dist = (me.curse === 1 ? CURSED_SPEED : BASE_SPEED + SPEED_STEP * me.speed) * DT;
+  const dist = (me.curse === 1 ? CURSED_SPEED : BASE_SPEED + SPEED_STEP * me.speed) * DT;
   let dir = d;
-  if (dir === 0 && on === T_ICE && p.moving && p.slide) {
-    const [dx, dy] = DIRS[p.slide];
-    const along = dx ? p.x * dx : p.y * dy;
-    const toCentre = Math.ceil(along - 0.5) + 0.5 - along;
-    if (toCentre > 0.01) { dir = p.slide; dist = Math.min(dist, toCentre); }
-  }
+  // On ice you keep sliding until you steer or hit something.
+  if (dir === 0 && on === T_ICE && p.moving && p.slide) dir = p.slide;
   const ghost = me.ghost > 0;
   const bombs = world.bombCells;
   const blocked = (cx, cy) => {

@@ -29,7 +29,8 @@ pub enum ClientMsg<'a> {
     Join { name: &'a str, token: &'a str, hat: u8, trail: u8, near: u32 },
     /// Held direction plus a fallback direction (0 none, 1 up, 2 right,
     /// 3 down, 4 left), and the input's sequence number for prediction.
-    In { d: u8, s: u8, q: u16 },
+    /// `k` acknowledges the newest snapshot tick decoded (the delta baseline).
+    In { d: u8, s: u8, q: u16, k: u32 },
     Bomb,
     /// Action key: detonate remote bombs, or punch the bomb in front.
     Act,
@@ -118,7 +119,7 @@ impl<'a> ClientMsg<'a> {
         let n = r.map_len()?;
         let (mut tag, mut name, mut token) = (None, None, "");
         let (mut d, mut s, mut c, mut w, mut h) = (0.0, 0.0, 0.0, 0.0, 0.0);
-        let (mut q, mut e, mut hat, mut trail, mut near) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let (mut q, mut e, mut hat, mut trail, mut near, mut k) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         for _ in 0..n {
             let Value::Str(key) = r.value()? else { return None };
             match (key, r.value()?) {
@@ -131,6 +132,7 @@ impl<'a> ClientMsg<'a> {
                 ("h", Value::Num(v)) => h = v,
                 ("token", Value::Str(v)) => token = v,
                 ("q", Value::Num(v)) => q = v,
+                ("k", Value::Num(v)) => k = v,
                 ("e", Value::Num(v)) => e = v,
                 ("hat", Value::Num(v)) => hat = v,
                 ("trail", Value::Num(v)) => trail = v,
@@ -147,7 +149,7 @@ impl<'a> ClientMsg<'a> {
                 trail: trail.clamp(0.0, 255.0) as u8,
                 near: near.clamp(0.0, u32::MAX as f64) as u32,
             },
-            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16 },
+            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16, k: k.clamp(0.0, u32::MAX as f64) as u32 },
             "bomb" => ClientMsg::Bomb,
             "act" => ClientMsg::Act,
             "emote" => ClientMsg::Emote { e: e.clamp(0.0, 15.0) as u8 },
@@ -538,9 +540,9 @@ mod tests {
         assert_eq!(ClientMsg::decode(&join), Some(ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 }));
         let bare = pack(json!({"t": "join", "name": "Bo"}));
         assert_eq!(ClientMsg::decode(&bare), Some(ClientMsg::Join { name: "Bo", token: "", hat: 0, trail: 0, near: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3, "s": 2, "q": 513}))), Some(ClientMsg::In { d: 3, s: 2, q: 513 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3, "s": 2, "q": 513, "k": 70000}))), Some(ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0, k: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0, k: 0 }));
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "bomb"}))), Some(ClientMsg::Bomb));
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "act"}))), Some(ClientMsg::Act));
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "emote", "e": 3}))), Some(ClientMsg::Emote { e: 3 }));
