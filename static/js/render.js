@@ -63,6 +63,8 @@ export class Renderer {
     this.specials = []; // [x, y, tile] of animated tiles (conveyors, pads)
     this.highContrast = false;
     this.colorblind = false;
+    /** 'pixel' (default) or 'classic' map tiles. */
+    this.tileStyle = 'pixel';
     // Pooled frame data, reused every frame.
     this.frame = {
       players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false })),
@@ -86,6 +88,8 @@ export class Renderer {
       this.buildVignette(w, h);
     }
     this.dpr = dpr;
+    // A hidden page can report 0x0; keep the last good sizes until it's shown.
+    if (w === 0 || h === 0) return;
     this.baseT = Math.max(w / (2 * aoi[0] - 1), h / (2 * aoi[1] - 1));
     // Zooming out may show at most the largest area the server will send.
     const minT = Math.max(w / (2 * aoiMax[0] - 1), h / (2 * aoiMax[1] - 1));
@@ -179,8 +183,12 @@ export class Renderer {
   paintChunk(c, map, cx, cy) {
     const g = c.getContext('2d');
     const a = this.assets;
-    const grass = [a.sprite('floor'), a.sprite('floor_b'), a.sprite('floor_c')];
-    const biomeFloor = [null, a.sprite('floor_snow'), a.sprite('floor_sand'), a.sprite('floor_ash')];
+    const style = this.tileStyle;
+    const sprite = (name) => a.tile(name, style);
+    // Pixel art is scaled up with hard edges; vector art smoothly.
+    g.imageSmoothingEnabled = style !== 'pixel';
+    const grass = [sprite('floor'), sprite('floor_b'), sprite('floor_c')];
+    const biomeFloor = [null, sprite('floor_snow'), sprite('floor_sand'), sprite('floor_ash')];
     const P = CHUNK_PX;
     g.fillStyle = '#1b2a17';
     g.fillRect(0, 0, c.width, c.height);
@@ -200,18 +208,18 @@ export class Renderer {
           g.drawImage(floor, px, py, P, P);
         }
         let s = null;
-        if (t === T_WALL) s = a.sprite('pillar');
-        else if (t === T_CRATE) s = a.sprite('crate');
-        else if (t === T_ARMORED) s = a.sprite('crate_armored');
-        else if (t === T_ICE) s = a.sprite('ice');
-        else if (t === T_TELEPORT) s = a.sprite('teleport');
+        if (t === T_WALL) s = sprite('pillar');
+        else if (t === T_CRATE) s = sprite('crate');
+        else if (t === T_ARMORED) s = sprite('crate_armored');
+        else if (t === T_ICE) s = sprite('ice');
+        else if (t === T_TELEPORT) s = sprite('teleport');
         if (s) g.drawImage(s, px, py, P, P);
         const belt = CONVEYOR_DIR[t];
         if (belt) {
           g.save();
           g.translate(px + P / 2, py + P / 2);
           g.rotate(ARM_ANGLES[belt - 1]);
-          g.drawImage(a.sprite('conveyor'), -P / 2, -P / 2, P, P);
+          g.drawImage(sprite('conveyor'), -P / 2, -P / 2, P, P);
           g.restore();
         }
         if (this.highContrast && (t === T_CRATE || t === T_ARMORED || t === T_WALL)) {
@@ -347,7 +355,11 @@ export class Renderer {
     this.drawEffects(now, camX, camY, T);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
 
-    ctx.drawImage(this.vignette, 0, 0);
+    // The page may have loaded hidden (0x0); keep the vignette in step.
+    if (W > 0 && H > 0) {
+      if (this.vignette.width !== W || this.vignette.height !== H) this.buildVignette(W, H);
+      ctx.drawImage(this.vignette, 0, 0);
+    }
 
     if (now - this.lastMinimap > 400) {
       this.lastMinimap = now;

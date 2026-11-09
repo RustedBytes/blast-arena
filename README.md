@@ -29,7 +29,7 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Gamepad | Stick or d-pad moves, A bomb, X action, shoulder buttons zoom |
 | Touch | Drag on the left to steer (floating joystick), bomb and action buttons, pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **tile style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Tile style is **Pixel art** by default: crisp 16×16 tiles drawn in code (`static/js/pixelart.js`). **Classic** brings back the original vector tiles. A short interactive tutorial runs on your first game.
 
 ## Configuration
 

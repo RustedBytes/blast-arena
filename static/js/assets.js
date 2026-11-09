@@ -1,5 +1,8 @@
 // Loads the SVG artwork once and rasterises it at a fixed resolution.
 // Sprites are scaled at draw time, so zooming never re-rasterises anything.
+// Map tiles also come in a pixel-art style (see pixelart.js).
+
+import { buildPixelTiles } from './pixelart.js';
 
 const STATIC = [
   'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash',
@@ -71,6 +74,12 @@ export class Assets {
       ...PLAYER_VIEWS.map(async (n) => { this.templates[n] = await fetchText(n); }),
     ]);
     this.glow = this.makeGlow();
+    this.pixel = buildPixelTiles();
+  }
+
+  /** A map tile in the chosen style: 'pixel' art or the 'classic' vector look. */
+  tile(name, style) {
+    return (style === 'pixel' && this.pixel[name]) || this.sprites[name];
   }
 
   sprite(name) {

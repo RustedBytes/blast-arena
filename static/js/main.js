@@ -409,7 +409,8 @@ function banner(text) {
 
 let viewTimer = 0;
 function setZoom(z) {
-  const zz = Math.min(renderer.maxZoom ?? 2.2, Math.max(renderer.minZoom ?? 0.4, z));
+  let zz = Math.min(renderer.maxZoom ?? 2.2, Math.max(renderer.minZoom ?? 0.4, z));
+  if (!Number.isFinite(zz)) zz = 1;
   if (state) state.zoomTarget = zz;
   settings.set('zoom', zz);
   $('set-zoom').value = zz;
@@ -499,9 +500,11 @@ function toggleSettings(open = $('settings').classList.contains('hidden')) {
 
 function applyVisualSettings() {
   const cb = settings.get('colorblind'), hc = settings.get('highContrast');
-  if (renderer.colorblind !== cb || renderer.highContrast !== hc) {
+  const style = settings.get('tileStyle') === 'classic' ? 'classic' : 'pixel';
+  if (renderer.colorblind !== cb || renderer.highContrast !== hc || renderer.tileStyle !== style) {
     renderer.colorblind = cb;
     renderer.highContrast = hc;
+    renderer.tileStyle = style;
     renderer.invalidateAll();
   }
 }
@@ -531,6 +534,7 @@ function applySettings() {
   $('set-zoom').value = settings.get('zoom');
   $('set-colorblind').checked = settings.get('colorblind');
   $('set-contrast').checked = settings.get('highContrast');
+  $('set-style').value = settings.get('tileStyle');
   applyVisualSettings();
 }
 
@@ -555,6 +559,7 @@ $('set-muted').addEventListener('change', (e) => settings.set('muted', e.target.
 $('set-fps').addEventListener('change', (e) => settings.set('showFps', e.target.checked));
 $('set-colorblind').addEventListener('change', (e) => settings.set('colorblind', e.target.checked));
 $('set-contrast').addEventListener('change', (e) => settings.set('highContrast', e.target.checked));
+$('set-style').addEventListener('change', (e) => settings.set('tileStyle', e.target.value));
 $('set-lang').addEventListener('change', (e) => applyLanguage(e.target.value));
 $('join-lang').addEventListener('change', (e) => applyLanguage(e.target.value));
 $('settings-close').addEventListener('click', () => toggleSettings(false));
