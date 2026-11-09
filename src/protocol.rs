@@ -1,6 +1,7 @@
-//! Wire format. JSON with short keys and tuples-as-arrays keeps messages
-//! compact while staying easy to inspect in the browser dev tools.
+//! Wire format: MessagePack over binary WebSocket frames. Short keys and
+//! tuples-as-arrays keep messages compact.
 
+use axum::body::Bytes;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug)]
@@ -78,7 +79,45 @@ pub enum ServerMsg<'a> {
 }
 
 impl ServerMsg<'_> {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("server messages always serialize")
+    /// Encodes as MessagePack. Structs become maps keyed by field name so
+    /// the client can dispatch on `t`; tuples become compact arrays.
+    pub fn encode(&self) -> Bytes {
+        rmp_serde::to_vec_named(self).expect("server messages always serialize").into()
+    }
+}
+
+impl ClientMsg {
+    pub fn decode(bytes: &[u8]) -> Option<ClientMsg> {
+        rmp_serde::from_slice(bytes).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pack(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    #[test]
+    fn decodes_client_messages() {
+        let join = ClientMsg::decode(&pack(serde_json::json!({"t": "join", "name": "Ann"})));
+        assert!(matches!(join, Some(ClientMsg::Join { name }) if name == "Ann"));
+        assert!(matches!(ClientMsg::decode(&pack(serde_json::json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3 })));
+        assert!(matches!(ClientMsg::decode(&pack(serde_json::json!({"t": "bomb"}))), Some(ClientMsg::Bomb)));
+        // JS encodes whole-number timestamps as ints; they must still parse.
+        assert!(matches!(ClientMsg::decode(&pack(serde_json::json!({"t": "ping", "c": 1234}))), Some(ClientMsg::Ping { c }) if c == 1234.0));
+        assert!(ClientMsg::decode(&[0xc1, 0xff]).is_none());
+    }
+
+    #[test]
+    fn server_messages_are_tagged_maps() {
+        let bytes = ServerMsg::Pong { c: 1.5 }.encode();
+        assert!(bytes.starts_with(&[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g']));
+        let v: serde_json::Value = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(v, serde_json::json!({"t": "pong", "c": 1.5}));
+        let kill: serde_json::Value = rmp_serde::from_slice(&ServerMsg::Kill { k: None, v: 7, x: 1.5, y: 2.5 }.encode()).unwrap();
+        assert_eq!(kill["k"], serde_json::Value::Null);
     }
 }

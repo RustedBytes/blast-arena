@@ -36,6 +36,7 @@ It prints message rate, bandwidth per bot, ping round-trip and disconnects every
 
 ## How it scales
 
+- **Compact binary protocol.** Messages are MessagePack over binary WebSocket frames (`rmp-serde` on the server, a small codec in `static/js/msgpack.js` on the client).
 - **One authoritative simulation task.** It owns the whole world and runs at 20 ticks/s with no locks. Connections send it input over a channel.
 - **Area of interest.** Each client gets only the players, bombs, flames and items within ±16×12 tiles of itself, found through an 8×8-tile spatial grid. The client sizes its tiles so the screen never shows more than that box. Tile changes, such as a crate destroyed or regrown, are small and go to everyone so each client's map copy stays correct.
 - **Back-pressure.** Each client has a bounded outgoing queue (64 messages). A client that can't keep up is disconnected instead of slowing the world for everyone else.
@@ -57,7 +58,7 @@ It prints message rate, bandwidth per bot, ping round-trip and disconnects every
 ```
 src/main.rs          router, config
 src/net.rs           WebSocket sessions (handshake, reader/writer, rate limit)
-src/protocol.rs      JSON wire format
+src/protocol.rs      MessagePack wire format
 src/game/            simulation: map, player movement, bombs, items, AOI
 src/bin/bots.rs      load-testing bot swarm
 static/              client (index.html, js/, style.css) and SVG art in assets/

@@ -1,4 +1,4 @@
-use axum::extract::ws::Utf8Bytes;
+use axum::body::Bytes;
 use tokio::sync::mpsc;
 
 /// Direction vectors indexed by the protocol direction code:
@@ -19,7 +19,7 @@ const CORNER_ASSIST_MIN: f32 = 0.12;
 pub struct Player {
     pub id: u32,
     pub name: String,
-    pub tx: mpsc::Sender<Utf8Bytes>,
+    pub tx: mpsc::Sender<Bytes>,
     /// Centre of the player in tile units (tile (3,4) spans 3.0..4.0).
     pub x: f32,
     pub y: f32,
@@ -42,7 +42,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(id: u32, name: String, tx: mpsc::Sender<Utf8Bytes>) -> Self {
+    pub fn new(id: u32, name: String, tx: mpsc::Sender<Bytes>) -> Self {
         Player {
             id,
             name,

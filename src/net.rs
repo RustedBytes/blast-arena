@@ -4,7 +4,8 @@
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
-use axum::extract::ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade};
+use axum::body::Bytes;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
@@ -43,14 +44,14 @@ async fn session(socket: WebSocket, state: AppState) {
 
     // Handshake: the first message must be a join.
     let name = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
-        Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<ClientMsg>(&text) {
-            Ok(ClientMsg::Join { name }) => sanitize_name(&name),
+        Ok(Some(Ok(Message::Binary(data)))) => match ClientMsg::decode(&data) {
+            Some(ClientMsg::Join { name }) => sanitize_name(&name),
             _ => return,
         },
         _ => return,
     };
 
-    let (tx, mut rx) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
+    let (tx, mut rx) = mpsc::channel::<Bytes>(OUTBOX_CAPACITY);
     let pong_tx = tx.downgrade();
     let (reply_tx, reply_rx) = oneshot::channel();
     if state.game.send(GameEvent::Join { name, tx, reply: reply_tx }).await.is_err() {
@@ -59,7 +60,7 @@ async fn session(socket: WebSocket, state: AppState) {
     let id = match reply_rx.await {
         Ok(Ok(id)) => id,
         Ok(Err(reason)) => {
-            let _ = sink.send(Message::Text(ServerMsg::Err { m: reason }.to_json().into())).await;
+            let _ = sink.send(Message::Binary(ServerMsg::Err { m: reason }.encode())).await;
             let _ = sink.close().await;
             return;
         }
@@ -70,7 +71,7 @@ async fn session(socket: WebSocket, state: AppState) {
     // when the client is too slow), which closes the socket.
     let mut writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            if sink.send(Message::Text(msg)).await.is_err() {
+            if sink.send(Message::Binary(msg)).await.is_err() {
                 return;
             }
         }
@@ -82,7 +83,7 @@ async fn session(socket: WebSocket, state: AppState) {
         let mut window = Instant::now();
         let mut count = 0u32;
         while let Some(Ok(msg)) = stream.next().await {
-            let Message::Text(text) = msg else {
+            let Message::Binary(data) = msg else {
                 if matches!(msg, Message::Close(_)) {
                     break;
                 }
@@ -97,13 +98,13 @@ async fn session(socket: WebSocket, state: AppState) {
                 tracing::warn!(id, "client exceeded message rate, disconnecting");
                 break;
             }
-            let ev = match serde_json::from_str::<ClientMsg>(&text) {
-                Ok(ClientMsg::In { d }) => GameEvent::Input { id, dir: d },
-                Ok(ClientMsg::Bomb) => GameEvent::Bomb { id },
-                Ok(ClientMsg::Ping { c }) => {
+            let ev = match ClientMsg::decode(&data) {
+                Some(ClientMsg::In { d }) => GameEvent::Input { id, dir: d },
+                Some(ClientMsg::Bomb) => GameEvent::Bomb { id },
+                Some(ClientMsg::Ping { c }) => {
                     // Answer directly so latency doesn't include tick wait.
                     if let Some(tx) = pong_tx.upgrade() {
-                        let _ = tx.try_send(ServerMsg::Pong { c }.to_json().into());
+                        let _ = tx.try_send(ServerMsg::Pong { c }.encode());
                     }
                     continue;
                 }

@@ -1,4 +1,7 @@
-// Thin WebSocket wrapper: JSON in, JSON out, dispatching on the `t` field.
+// Thin WebSocket wrapper: MessagePack in, MessagePack out, dispatching on
+// the `t` field.
+
+import { decode, encode } from './msgpack.js';
 
 export class Net {
   constructor(handlers) {
@@ -12,14 +15,16 @@ export class Net {
   connect(name) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {
       this.send({ t: 'join', name });
       this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000);
     };
     ws.onmessage = (ev) => {
-      this.bytesIn += ev.data.length;
-      const msg = JSON.parse(ev.data);
+      if (!(ev.data instanceof ArrayBuffer)) return;
+      this.bytesIn += ev.data.byteLength;
+      const msg = decode(new Uint8Array(ev.data));
       if (msg.t === 'pong') {
         this.ping = Math.round(performance.now() - msg.c);
         return;
@@ -33,7 +38,7 @@ export class Net {
   }
 
   send(obj) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(obj));
   }
 
   close() {

@@ -10,7 +10,7 @@ pub mod rng;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use axum::extract::ws::Utf8Bytes;
+use axum::body::Bytes;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::protocol::{Me, ServerMsg, TileChange};
@@ -42,7 +42,7 @@ pub struct Config {
 }
 
 pub enum GameEvent {
-    Join { name: String, tx: mpsc::Sender<Utf8Bytes>, reply: oneshot::Sender<Result<u32, &'static str>> },
+    Join { name: String, tx: mpsc::Sender<Bytes>, reply: oneshot::Sender<Result<u32, &'static str>> },
     Input { id: u32, dir: u8 },
     Bomb { id: u32 },
     Leave { id: u32 },
@@ -69,7 +69,7 @@ pub struct World {
     buckets: Vec<Vec<u32>>,
     buckets_w: i32,
     /// Messages for everyone (joins, leaves, kills), flushed each tick.
-    broadcasts: Vec<Utf8Bytes>,
+    broadcasts: Vec<Bytes>,
 }
 
 impl World {
@@ -124,7 +124,7 @@ impl World {
 
     // ---------------------------------------------------------------- players
 
-    fn join(&mut self, name: String, tx: mpsc::Sender<Utf8Bytes>) -> Result<u32, &'static str> {
+    fn join(&mut self, name: String, tx: mpsc::Sender<Bytes>) -> Result<u32, &'static str> {
         if self.players.len() >= self.max_players {
             return Err("server is full, try again later");
         }
@@ -151,8 +151,8 @@ impl World {
                 .chain(std::iter::once((id, p.name.as_str())))
                 .collect(),
         };
-        let _ = p.tx.try_send(welcome.to_json().into());
-        self.broadcasts.push(ServerMsg::Pj { id, name: &p.name }.to_json().into());
+        let _ = p.tx.try_send(welcome.encode());
+        self.broadcasts.push(ServerMsg::Pj { id, name: &p.name }.encode());
         self.players.insert(id, p);
         self.rebuild_buckets();
         Ok(id)
@@ -160,7 +160,7 @@ impl World {
 
     fn leave(&mut self, id: u32) {
         if self.players.remove(&id).is_some() {
-            self.broadcasts.push(ServerMsg::Pl { id }.to_json().into());
+            self.broadcasts.push(ServerMsg::Pl { id }.encode());
         }
     }
 
@@ -274,7 +274,7 @@ impl World {
             }
             None => {}
         }
-        self.broadcasts.push(ServerMsg::Kill { k: killer, v: victim, x: vx, y: vy }.to_json().into());
+        self.broadcasts.push(ServerMsg::Kill { k: killer, v: victim, x: vx, y: vy }.encode());
     }
 
     fn update_players(&mut self) {
@@ -437,7 +437,7 @@ impl World {
             })
     }
 
-    fn snapshot_for(&self, p: &Player) -> String {
+    fn snapshot_for(&self, p: &Player) -> Bytes {
         let (cx, cy) = p.cell();
         let (x0, y0, x1, y1) = aoi_rect(cx, cy);
         let players = self
@@ -491,17 +491,17 @@ impl World {
                 killer: p.killed_by,
             },
         }
-        .to_json()
+        .encode()
     }
 
-    fn leaderboard(&self) -> String {
+    fn leaderboard(&self) -> Bytes {
         let mut top: Vec<&Player> = self.players.values().collect();
         top.sort_by(|a, b| b.score.cmp(&a.score).then(b.kills.cmp(&a.kills)).then(a.id.cmp(&b.id)));
         ServerMsg::Lb {
             n: self.players.len(),
             top: top.iter().take(10).map(|p| (p.id, p.name.as_str(), p.score, p.kills, p.deaths)).collect(),
         }
-        .to_json()
+        .encode()
     }
 
     // ------------------------------------------------------------- the tick
@@ -640,8 +640,11 @@ mod tests {
         let ids: Vec<u32> = w.players_in_rect(x0, y0, x1, y1).map(|p| p.id).collect();
         assert!(ids.contains(&me) && ids.contains(&near));
         assert!(!ids.contains(&far));
-        let snap = w.snapshot_for(&w.players[&me]);
-        assert!(!snap.contains(&format!("[{far},")));
+        let snap: serde_json::Value = rmp_serde::from_slice(&w.snapshot_for(&w.players[&me])).unwrap();
+        assert_eq!(snap["t"], "s");
+        let seen: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
+        assert!(seen.contains(&(me as u64)) && seen.contains(&(near as u64)));
+        assert!(!seen.contains(&(far as u64)));
     }
 
     #[test]

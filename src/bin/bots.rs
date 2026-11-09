@@ -8,7 +8,31 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+/// Client messages, MessagePack-encoded like the browser client does.
+#[derive(Serialize)]
+#[serde(tag = "t", rename_all = "lowercase")]
+enum Out<'a> {
+    Join { name: &'a str },
+    In { d: u8 },
+    Bomb,
+    Ping { c: f64 },
+}
+
+fn frame(m: &Out) -> Message {
+    Message::Binary(rmp_serde::to_vec_named(m).expect("bot messages serialize").into())
+}
+
+#[derive(Deserialize)]
+struct Pong {
+    c: f64,
+}
+
+/// MessagePack prefix of `{"t": "pong", ...}`: a 2-entry map whose first key
+/// is "t" with value "pong". Lets bots skip decoding every snapshot.
+const PONG_PREFIX: &[u8] = &[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g'];
 
 #[derive(Default)]
 struct Stats {
@@ -45,8 +69,8 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
     };
     stats.connected.fetch_add(1, Relaxed);
     let (mut tx, mut rx) = ws.split();
-    let join = format!(r#"{{"t":"join","name":"bot-{n}"}}"#);
-    if tx.send(Message::Text(join.into())).await.is_err() {
+    let name = format!("bot-{n}");
+    if tx.send(frame(&Out::Join { name: &name })).await.is_err() {
         return;
     }
 
@@ -57,13 +81,12 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
         tokio::select! {
             msg = rx.next() => {
                 let Some(Ok(msg)) = msg else { break };
-                if let Message::Text(text) = msg {
+                if let Message::Binary(data) = msg {
                     stats.messages.fetch_add(1, Relaxed);
-                    stats.bytes.fetch_add(text.len() as u64, Relaxed);
-                    if text.starts_with(r#"{"t":"pong""#) {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                            let sent = v["c"].as_f64().unwrap_or(0.0);
-                            let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - sent) as u64;
+                    stats.bytes.fetch_add(data.len() as u64, Relaxed);
+                    if data.starts_with(PONG_PREFIX) {
+                        if let Ok(pong) = rmp_serde::from_slice::<Pong>(&data) {
+                            let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
                             stats.rtt_us_sum.fetch_add(rtt, Relaxed);
                             stats.rtt_count.fetch_add(1, Relaxed);
                             stats.rtt_us_max.fetch_max(rtt, Relaxed);
@@ -75,20 +98,20 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 let r = next_rand(&mut seed);
                 let mut out = Vec::new();
                 if r % 3 == 0 {
-                    out.push(format!(r#"{{"t":"in","d":{}}}"#, (r >> 8) % 5));
+                    out.push(Out::In { d: ((r >> 8) % 5) as u8 });
                 }
                 if r % 23 == 0 {
-                    out.push(r#"{"t":"bomb"}"#.to_string());
+                    out.push(Out::Bomb);
                 }
-                for m in out {
-                    if tx.send(Message::Text(m.into())).await.is_err() {
+                for m in &out {
+                    if tx.send(frame(m)).await.is_err() {
                         break;
                     }
                 }
             }
             _ = ping.tick() => {
                 let c = epoch.elapsed().as_secs_f64() * 1e6;
-                if tx.send(Message::Text(format!(r#"{{"t":"ping","c":{c}}}"#).into())).await.is_err() {
+                if tx.send(frame(&Out::Ping { c })).await.is_err() {
                     break;
                 }
             }
