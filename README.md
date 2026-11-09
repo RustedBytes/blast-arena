@@ -3,7 +3,7 @@
 A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
 
 - **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
-- **Client:** plain HTML5 canvas with hand-made SVG art and procedural chiptune music (no audio files), in English and Russian.
+- **Client:** plain HTML5 canvas with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, Ukrainian and Russian. The language follows your browser and can be changed in the lobby or settings.
 
 ## Run
 

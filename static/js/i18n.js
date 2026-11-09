@@ -1,4 +1,4 @@
-// English and Russian UI text. `t(key, params)` looks a string up in the
+// English, Ukrainian and Russian UI text. `t(key, params)` looks a string up in the
 // current language; elements with data-i18n / data-i18n-placeholder /
 // data-i18n-title attributes are translated by `applyI18n()`.
 
@@ -149,14 +149,89 @@ const STRINGS = {
     tutorialNext: 'Далее', tutorialSkip: 'Пропустить', tutorialDone: 'Вперёд!',
     fullServer: 'сервер заполнен, попробуйте позже',
   },
+  uk: {
+    tagline: 'Одна величезна арена. Сотні гравців. Купа бомб.',
+    nickname: 'Ваш нікнейм',
+    play: 'Грати',
+    language: 'Мова',
+    chooseArena: 'Оберіть арену',
+    arenaPlayers: 'грають: {n}',
+    modeFfa: 'Кожен сам за себе',
+    modeTeams: 'Червоні проти синіх',
+    profile: 'Ваш профіль',
+    level: 'Рівень {n}',
+    xpProgress: '{xp} / {next} досвіду',
+    profileStats: 'вбивств: {k} · MVP: {w} · найкраща серія: {s}',
+    allTime: 'Найкращі за весь час',
+    noRecords: 'Рекордів ще немає. Станьте першим!',
+    hat: 'Шапка',
+    trail: 'Слід',
+    lockedAt: 'Відкриється на рівні {n}',
+    hats: ['Немає', 'Кепка', 'Ковпак', 'Роги', 'Німб', 'Корона', 'Циліндр'],
+    trails: ['Немає', 'Золоті іскри', 'Крижані іскри', 'Веселка'],
+    helpMove: 'рух', helpBomb: 'бомба', helpAct: 'дія', helpZoom: 'масштаб', helpMenu: 'налаштування',
+    score: 'Очки',
+    topBlasters: 'Найкращі підривники',
+    online: 'онлайн: {n}',
+    holdTab: 'Утримуйте {k}, щоб побачити деталі',
+    roundLeft: 'До кінця раунду {t}',
+    red: 'Червоні', blue: 'Сині',
+    youBlewUp: 'Ви підірвали себе!',
+    blastedBy: 'Вас підірвав {name}',
+    youWereBlasted: 'Вас підірвали!',
+    respawning: 'Відродження через {n}…',
+    watching: 'Спостерігаємо за {name}',
+    disconnected: "Зв'язок із сервером втрачено.",
+    reconnecting: "Зв'язок втрачено. Перепідключення…",
+    welcomeBack: 'З поверненням! Прогрес відновлено.',
+    inviteCopied: 'Посилання-запрошення скопійовано!',
+    invite: 'Запросити друга',
+    wasBlasted: '{v}: підірвано',
+    blewUp: '{v}: підірвав(-ла) себе',
+    streak: '{name}: серія з {n} вбивств!',
+    bountyKill: 'Нагороду за голову отримано!',
+    roundOver: 'Раунд завершено!',
+    mvp: 'MVP',
+    teamWins: 'Перемогла команда: {team}!',
+    nextRound: 'Наступний раунд уже почався',
+    settings: 'Налаштування', music: 'Музика', sfx: 'Звуки', zoom: 'Масштаб',
+    tileStyle: 'Стиль графіки', stylePixel: 'Піксель-арт', styleClassic: 'Класичний',
+    mute: 'Вимкнути звук', showFps: 'Показувати FPS', colorblind: 'Кольори для дальтоніків',
+    highContrast: 'Висока контрастність', controls: 'Керування', powerups: 'Бонуси', back: 'Повернутися до гри',
+    tutorialAgain: 'Показати навчання знову',
+    ctlMove: 'Рух (утримуйте дві клавіші, щоб повернути заздалегідь)', ctlBomb: 'Бомба (ще раз на ній — лінія бомб)',
+    ctlAct: 'Дія: підрив із пульта / удар по бомбі', ctlZoom: 'Наблизити / віддалити / скинути', ctlBoard: 'Детальна таблиця',
+    ctlEmote: 'Емоції', ctlMenu: 'Це меню',
+    ctlPad: 'Стік / хрестовина — рух, A — бомба, X — дія, бампери — масштаб', ctlTouch: 'Ведіть зліва, щоб рухатися, натискайте кнопки, щипок — масштаб',
+    secretBox: 'Секретна скриня: {what}',
+    items: {
+      1: '+1 бомба', 2: '+1 до радіуса', 3: 'Прискорення', 4: 'Штовхати бомби', 5: 'Щит (6 с)', 6: 'Пробиває скрині',
+      7: 'Максимальний радіус', 8: 'Секретна скриня', 9: 'Бомби на пульті (E)', 10: 'Лінія бомб (бомба на бомбі)',
+      11: 'Удар по бомбах (E)', 12: 'Привид: крізь скрині',
+      20: 'Джекпот! +1 бомба, радіус і швидкість', 30: 'Прокляття: сповільнення', 31: 'Прокляття: не можна ставити бомби',
+      32: 'Бомбовий дощ!', 33: 'Прокляття: керування навпаки',
+    },
+    curses: ['', 'Сповільнення', 'Без бомб', 'Навпаки'],
+    emotes: ['Привіт!', 'Ха-ха', 'Грр!', 'Клас!', 'Бум!', 'Рятуйте!', 'GG', 'Круто'],
+    tutorial: [
+      ['Рухайтеся', 'WASD або стрілки (на телефоні ведіть пальцем зліва).'],
+      ['Поставте бомбу', 'Натисніть пробіл і вийдіть із хрестоподібного вибуху!'],
+      ['Збирайте бонуси', 'Підривайте скрині, щоб знайти бонуси. Фіолетові — секретні: ризик!'],
+      ['Виграйте раунд', 'Очки за підриви суперників і за перебування на сяйливих пагорбах. Коліщатко або щипок — масштаб, Esc — налаштування.'],
+    ],
+    tutorialNext: 'Далі', tutorialSkip: 'Пропустити', tutorialDone: 'Уперед!',
+    fullServer: 'сервер заповнений, спробуйте пізніше',
+  },
 };
 
-export const LANGUAGES = { en: 'English', ru: 'Русский' };
+export const LANGUAGES = { en: 'English', uk: 'Українська', ru: 'Русский' };
 let lang = 'en';
 
+/** A saved choice wins; otherwise the browser's language, if we have it. */
 export function detectLanguage(saved) {
   if (saved && STRINGS[saved]) return saved;
-  return (navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en';
+  const browser = (navigator.language || 'en').toLowerCase().slice(0, 2);
+  return STRINGS[browser] ? browser : 'en';
 }
 
 export function setLanguage(l) {
