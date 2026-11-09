@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140">
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff27a"/><stop offset="0.55" stop-color="#ffa21f"/><stop offset="1" stop-color="#ff3b0a"/>
+    </linearGradient>
+    <radialGradient id="b" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#6b7488"/><stop offset="0.45" stop-color="#262b38"/><stop offset="1" stop-color="#0b0d13"/>
+    </radialGradient>
+  </defs>
+  <circle cx="70" cy="80" r="46" fill="url(#b)"/>
+  <ellipse cx="52" cy="62" rx="12" ry="7" transform="rotate(-35 52 62)" fill="#fff" opacity="0.35"/>
+  <path d="M96 42 q14 -22 30 -12" stroke="#c9a46a" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <circle cx="128" cy="30" r="14" fill="#ffb02e"/><circle cx="128" cy="30" r="7" fill="#fffbe0"/>
+  <g font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="64" stroke="#3a1300" stroke-width="5" paint-order="stroke" fill="url(#t)">
+    <text x="140" y="78">BLAST</text>
+    <text x="196" y="132">ARENA</text>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="b" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#6b7488"/><stop offset="0.45" stop-color="#262b38"/><stop offset="1" stop-color="#0b0d13"/>
+    </radialGradient>
+    <radialGradient id="spark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fffbe0"/><stop offset="0.4" stop-color="#ffd23f"/><stop offset="1" stop-color="#ff6a00" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="30" cy="59" rx="16" ry="3.5" fill="#000" opacity="0.25"/>
+  <circle cx="30" cy="38" r="20" fill="url(#b)"/>
+  <rect x="34" y="14" width="10" height="8" rx="2" transform="rotate(35 39 18)" fill="#3a4152" stroke="#11141b" stroke-width="1.2"/>
+  <path d="M42 14 q6 -8 12 -4" stroke="#c9a46a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <circle cx="54" cy="10" r="8" fill="url(#spark)"/>
+  <g stroke="#fff3b0" stroke-width="1.5" stroke-linecap="round">
+    <line x1="54" y1="3" x2="54" y2="6"/><line x1="61" y1="10" x2="58" y2="10"/><line x1="49" y1="5" x2="51" y2="7"/><line x1="59" y1="5" x2="57" y2="7"/>
+  </g>
+  <ellipse cx="22" cy="30" rx="6" ry="4" transform="rotate(-35 22 30)" fill="#ffffff" opacity="0.35"/>
+</svg>

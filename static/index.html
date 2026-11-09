@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Blast Arena</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="stats" class="panel">
+      <div class="stat"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
+      <div class="stat"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
+      <div class="stat"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
+      <div class="stat" id="st-kick-wrap"><img src="assets/pu_kick.svg" alt=""><span id="st-kick">–</span></div>
+      <div class="stat score">Score <b id="st-score">0</b></div>
+    </div>
+    <div id="side">
+      <div id="leaderboard" class="panel">
+        <div class="panel-title">Top blasters <span id="online"></span></div>
+        <ol id="lb-list"></ol>
+      </div>
+      <div id="killfeed"></div>
+    </div>
+    <canvas id="minimap" class="panel"></canvas>
+    <div id="netinfo"></div>
+    <div id="dead" class="hidden">
+      <div id="dead-msg"></div>
+      <div id="dead-timer"></div>
+    </div>
+    <div id="touch" class="hidden">
+      <div id="dpad">
+        <button data-dir="1" class="up" aria-label="Up">▲</button>
+        <button data-dir="4" class="left" aria-label="Left">◀</button>
+        <button data-dir="2" class="right" aria-label="Right">▶</button>
+        <button data-dir="3" class="down" aria-label="Down">▼</button>
+      </div>
+      <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
+    </div>
+  </div>
+
+  <div id="join" class="overlay">
+    <form id="join-form" class="card">
+      <img src="assets/logo.svg" alt="Blast Arena" class="logo">
+      <p class="tagline">One giant arena. Hundreds of players. Lots of bombs.</p>
+      <input id="name" maxlength="16" placeholder="Your nickname" autocomplete="off" autofocus>
+      <button type="submit" id="play">Play</button>
+      <p id="join-error" class="error"></p>
+      <div class="help">
+        <span><kbd>WASD</kbd>/<kbd>Arrows</kbd> move</span>
+        <span><kbd>Space</kbd> drop bomb</span>
+      </div>
+    </form>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
