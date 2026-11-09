@@ -132,12 +132,12 @@ DOMAIN=play.example.com docker compose up -d
 - Profiles live in the `blast-data` volume.
 - Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.
 
-Tested with Docker 29 (in WSL):
+Tested with Docker 29 and `docker-compose` 1.29 (in WSL), running `DOMAIN=localhost docker-compose up -d --build`:
 - The image builds, and the server starts all arenas as a non-root user.
-- With the game and Caddy on one network and `DOMAIN=localhost`, Caddy serves the page and API over HTTPS.
-- The WebSocket upgrade over `wss://` returns 101, `/metrics` returns 404, and the profile database is written to the `/data` volume.
-
-The `docker compose` command itself wasn't run, because that machine lacks the compose plugin. The containers were started by hand with the same settings.
+- Caddy serves the page and API over HTTPS, and redirects plain HTTP to HTTPS (308).
+- The WebSocket upgrade over `wss://` returns 101.
+- `/metrics` returns 404 from outside but works inside the Docker network.
+- The profile database is written to the `blast-data` volume.
 
 ## Benchmarks
 

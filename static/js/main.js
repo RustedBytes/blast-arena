@@ -708,7 +708,7 @@ $('join-form').addEventListener('submit', (e) => {
 
 // With ?debug, expose internals for testing from the browser console.
 if (params.has('debug')) {
-  window.__blast = { get state() { return state; }, predictor, net };
+  window.__blast = { get state() { return state; }, predictor, net, audio, input };
 }
 
 applyLanguage(getLanguage());
