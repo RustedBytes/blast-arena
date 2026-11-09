@@ -2,9 +2,11 @@
 // Sprites are scaled at draw time, so zooming never re-rasterises anything.
 
 const STATIC = [
-  'floor', 'floor_b', 'floor_c', 'pillar', 'crate', 'bomb', 'bomb_pierce', 'scorch',
-  'flame_center', 'flame_arm', 'flame_end',
+  'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash',
+  'pillar', 'crate', 'crate_armored', 'ice', 'conveyor', 'teleport',
+  'bomb', 'bomb_pierce', 'scorch', 'flame_center', 'flame_arm', 'flame_end',
   'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery',
+  'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost',
 ];
 const PLAYER_VIEWS = ['player_down', 'player_up', 'player_side'];
 const HUE_BUCKETS = 24;
@@ -12,7 +14,8 @@ const HUE_BUCKETS = 24;
 export const SPRITE_PX = 96;
 
 /** Item kind (protocol code) → sprite name. */
-export const ITEM_SPRITES = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery'];
+export const ITEM_SPRITES = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
+  'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost'];
 
 function svgImage(text) {
   return new Promise((resolve, reject) => {
@@ -35,11 +38,29 @@ export function playerHue(id) {
   return Math.round(((id * 137.508) % 360) / (360 / HUE_BUCKETS)) % HUE_BUCKETS * (360 / HUE_BUCKETS);
 }
 
+// Okabe-Ito palette: distinguishable with common colour-vision deficiencies.
+const SAFE_COLORS = ['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D55E00', '#CC79A7', '#999999'];
+
+/**
+ * Body colour of a player: team colours in team mode, otherwise a colour
+ * from their id. Returns [body, shade] as CSS colours.
+ */
+export function playerColors(id, team, colorblind) {
+  if (team === 1) return colorblind ? ['#E69F00', '#8a5f00'] : ['hsl(2,80%,52%)', 'hsl(2,75%,32%)'];
+  if (team === 2) return colorblind ? ['#0072B2', '#00446b'] : ['hsl(215,85%,55%)', 'hsl(215,80%,33%)'];
+  if (colorblind) {
+    const c = SAFE_COLORS[id % SAFE_COLORS.length];
+    return [c, `color-mix(in srgb, ${c} 55%, black)`];
+  }
+  const hue = playerHue(id);
+  return [`hsl(${hue},78%,54%)`, `hsl(${hue},70%,34%)`];
+}
+
 export class Assets {
   constructor() {
     this.sprites = {};      // name -> canvas
     this.templates = {};    // player view -> SVG text with colour placeholders
-    this.players = new Map(); // `${hue}:${view}` -> canvas | 'loading'
+    this.players = new Map(); // `${body}:${view}` -> canvas | 'loading'
     this.glow = null;
   }
 
@@ -71,15 +92,15 @@ export class Assets {
   }
 
   /** Tinted player sprite; returns null while the variant is being built. */
-  player(hue, view) {
-    const key = `${hue}:${view}`;
+  player([body, shade], view) {
+    const key = `${body}:${view}`;
     const c = this.players.get(key);
     if (c && c !== 'loading') return c;
     if (!c) {
       this.players.set(key, 'loading');
       const svg = this.templates[view]
-        .replaceAll('#BODYDARK', `hsl(${hue},70%,34%)`)
-        .replaceAll('#BODY', `hsl(${hue},78%,54%)`);
+        .replaceAll('#BODYDARK', shade)
+        .replaceAll('#BODY', body);
       svgImage(svg).then((img) => this.players.set(key, rasterize(img, SPRITE_PX)));
     }
     return null;

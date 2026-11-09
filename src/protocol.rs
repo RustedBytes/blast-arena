@@ -13,15 +13,28 @@ use serde::Serialize;
 /// Tile change: x, y, new tile.
 pub type TileChange = (i32, i32, u8);
 
+/// Order of the values in a snapshot's `me` array (the player's own state).
+/// The browser client has the same list.
+pub const ME_FIELDS: [&str; 22] = [
+    "alive", "bombs", "active", "range", "speed", "kick", "pierce", "remote", "line", "punch", "ghost", "shield",
+    "curse", "curse_t", "score", "respawn", "killer", "aoi", "ack", "team", "streak", "spec",
+];
+
 // ------------------------------------------------------------ client → server
 
 #[derive(Debug, PartialEq)]
 pub enum ClientMsg<'a> {
-    Join { name: &'a str },
+    /// Joining: display name, the browser's profile token (may be empty),
+    /// chosen cosmetics, and optionally a friend to spawn next to.
+    Join { name: &'a str, token: &'a str, hat: u8, trail: u8, near: u32 },
     /// Held direction plus a fallback direction (0 none, 1 up, 2 right,
-    /// 3 down, 4 left).
-    In { d: u8, s: u8 },
+    /// 3 down, 4 left), and the input's sequence number for prediction.
+    In { d: u8, s: u8, q: u16 },
     Bomb,
+    /// Action key: detonate remote bombs, or punch the bomb in front.
+    Act,
+    /// Quick-chat emote.
+    Emote { e: u8 },
     /// Client timestamp, echoed back in `pong` for latency measurement.
     Ping { c: f64 },
     /// Requested view half extents in tiles.
@@ -103,8 +116,9 @@ impl<'a> ClientMsg<'a> {
     pub fn decode(bytes: &'a [u8]) -> Option<ClientMsg<'a>> {
         let mut r = Reader { buf: bytes, pos: 0 };
         let n = r.map_len()?;
-        let (mut tag, mut name) = (None, None);
+        let (mut tag, mut name, mut token) = (None, None, "");
         let (mut d, mut s, mut c, mut w, mut h) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let (mut q, mut e, mut hat, mut trail, mut near) = (0.0, 0.0, 0.0, 0.0, 0.0);
         for _ in 0..n {
             let Value::Str(key) = r.value()? else { return None };
             match (key, r.value()?) {
@@ -115,14 +129,28 @@ impl<'a> ClientMsg<'a> {
                 ("c", Value::Num(v)) => c = v,
                 ("w", Value::Num(v)) => w = v,
                 ("h", Value::Num(v)) => h = v,
+                ("token", Value::Str(v)) => token = v,
+                ("q", Value::Num(v)) => q = v,
+                ("e", Value::Num(v)) => e = v,
+                ("hat", Value::Num(v)) => hat = v,
+                ("trail", Value::Num(v)) => trail = v,
+                ("near", Value::Num(v)) => near = v,
                 _ => {}
             }
         }
         let dir = |v: f64| if (0.0..=4.0).contains(&v) { v as u8 } else { 0 };
         Some(match tag? {
-            "join" => ClientMsg::Join { name: name? },
-            "in" => ClientMsg::In { d: dir(d), s: dir(s) },
+            "join" => ClientMsg::Join {
+                name: name?,
+                token,
+                hat: hat.clamp(0.0, 255.0) as u8,
+                trail: trail.clamp(0.0, 255.0) as u8,
+                near: near.clamp(0.0, u32::MAX as f64) as u32,
+            },
+            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16 },
             "bomb" => ClientMsg::Bomb,
+            "act" => ClientMsg::Act,
+            "emote" => ClientMsg::Emote { e: e.clamp(0.0, 15.0) as u8 },
             "ping" => ClientMsg::Ping { c },
             "view" => ClientMsg::View { w: w.clamp(0.0, 1000.0) as u16, h: h.clamp(0.0, 1000.0) as u16 },
             _ => return None,
@@ -306,9 +334,22 @@ pub fn finish(arena: &mut BytesMut) -> Bytes {
     arena.split().freeze()
 }
 
-/// A player joined.
-pub fn encode_pj(arena: &mut BytesMut, id: u32, name: &str) -> Bytes {
-    Wire(arena).map(3).key("t").str("pj").key("id").uint(id as u64).key("name").str(name);
+/// A player joined, with their team and cosmetics.
+pub fn encode_pj(arena: &mut BytesMut, id: u32, name: &str, team: u8, hat: u8, trail: u8) -> Bytes {
+    Wire(arena)
+        .map(6)
+        .key("t")
+        .str("pj")
+        .key("id")
+        .uint(id as u64)
+        .key("name")
+        .str(name)
+        .key("team")
+        .uint(team as u64)
+        .key("hat")
+        .uint(hat as u64)
+        .key("trail")
+        .uint(trail as u64);
     finish(arena)
 }
 
@@ -318,18 +359,57 @@ pub fn encode_pl(arena: &mut BytesMut, id: u32) -> Bytes {
     finish(arena)
 }
 
-/// Someone was blasted; `k` is the bomb owner if still online.
-pub fn encode_kill(arena: &mut BytesMut, k: Option<u32>, v: u32, x: f32, y: f32) -> Bytes {
-    Wire(arena).map(5).key("t").str("kill").key("k").opt_uint(k).key("v").uint(v as u64).key("x").f32(x).key("y").f32(y);
+/// Someone was blasted; `k` is the bomb owner if still online, `b` whether
+/// the victim carried the bounty.
+pub fn encode_kill(arena: &mut BytesMut, k: Option<u32>, v: u32, x: f32, y: f32, bounty: bool) -> Bytes {
+    Wire(arena)
+        .map(6)
+        .key("t")
+        .str("kill")
+        .key("k")
+        .opt_uint(k)
+        .key("v")
+        .uint(v as u64)
+        .key("x")
+        .f32(x)
+        .key("y")
+        .f32(y)
+        .key("b")
+        .bool(bounty);
     finish(arena)
 }
 
-/// Leaderboard: players online and top entries (id, name, score, kills, deaths).
-pub fn encode_lb<'n>(arena: &mut BytesMut, online: usize, top: impl ExactSizeIterator<Item = (u32, &'n str, i32, u32, u32)>) -> Bytes {
+/// Leaderboard: players online, top entries (id, name, score, kills,
+/// deaths), team scores (red, blue) and seconds left in the round.
+pub fn encode_lb<'n>(
+    arena: &mut BytesMut,
+    online: usize,
+    top: impl ExactSizeIterator<Item = (u32, &'n str, i32, u32, u32)>,
+    teams: (i32, i32),
+    round_secs: u32,
+) -> Bytes {
     let mut w = Wire(arena);
-    w.map(3).key("t").str("lb").key("n").uint(online as u64).key("top").arr(top.len());
+    w.map(5).key("t").str("lb").key("n").uint(online as u64).key("top").arr(top.len());
     for (id, name, score, kills, deaths) in top {
         w.arr(5).uint(id as u64).str(name).int(score as i64).uint(kills as u64).uint(deaths as u64);
+    }
+    w.key("teams").arr(2).int(teams.0 as i64).int(teams.1 as i64);
+    w.key("r").uint(round_secs as u64);
+    finish(arena)
+}
+
+/// Static world changes this tick, sent reliably to everyone: tiles
+/// (x, y, tile) and items (x, y, kind, 0 = gone). Snapshots carry only
+/// moving things, so these must never be skipped.
+pub fn encode_world(arena: &mut BytesMut, tiles: &[(i32, i32, u8)], items: &[(i32, i32, u8)]) -> Bytes {
+    let mut w = Wire(arena);
+    w.map(3).key("t").str("w").key("tc").arr(tiles.len());
+    for &(x, y, t) in tiles {
+        w.arr(3).int(x as i64).int(y as i64).uint(t as u64);
+    }
+    w.key("ic").arr(items.len());
+    for &(x, y, k) in items {
+        w.arr(3).int(x as i64).int(y as i64).uint(k as u64);
     }
     finish(arena)
 }
@@ -341,9 +421,63 @@ pub fn encode_fx(arena: &mut BytesMut, f: u8, mystery: bool) -> Bytes {
     finish(arena)
 }
 
+/// A player showed a quick-chat emote.
+pub fn encode_emote(arena: &mut BytesMut, id: u32, e: u8) -> Bytes {
+    Wire(arena).map(3).key("t").str("emote").key("id").uint(id as u64).key("e").uint(e as u64);
+    finish(arena)
+}
+
+/// A player reached a kill streak.
+pub fn encode_streak(arena: &mut BytesMut, id: u32, n: u32) -> Bytes {
+    Wire(arena).map(3).key("t").str("streak").key("id").uint(id as u64).key("n").uint(n as u64);
+    finish(arena)
+}
+
+/// The hills currently scoring points: centres of 3x3 zones.
+pub fn encode_hills(arena: &mut BytesMut, hills: &[(i32, i32)]) -> Bytes {
+    let mut w = Wire(arena);
+    w.map(2).key("t").str("hills").key("h").arr(hills.len());
+    for &(x, y) in hills {
+        w.arr(2).int(x as i64).int(y as i64);
+    }
+    finish(arena)
+}
+
+/// A round ended: the top players (id, name, score, kills), team scores,
+/// the winning team (0 in free-for-all) and the next round's length.
+pub fn encode_round<'n>(
+    arena: &mut BytesMut,
+    mvp: impl ExactSizeIterator<Item = (u32, &'n str, i32, u32)>,
+    teams: (i32, i32),
+    winner: u8,
+    next_secs: u32,
+) -> Bytes {
+    let mut w = Wire(arena);
+    w.map(5).key("t").str("round").key("mvp").arr(mvp.len());
+    for (id, name, score, kills) in mvp {
+        w.arr(4).uint(id as u64).str(name).int(score as i64).uint(kills as u64);
+    }
+    w.key("teams").arr(2).int(teams.0 as i64).int(teams.1 as i64);
+    w.key("win").uint(winner as u64);
+    w.key("next").uint(next_secs as u64);
+    finish(arena)
+}
+
 pub fn encode_pong(arena: &mut BytesMut, c: f64) -> Bytes {
     Wire(arena).map(2).key("t").str("pong").key("c").f64(c);
     finish(arena)
+}
+
+/// What the client knows about its own profile.
+#[derive(Serialize)]
+pub struct ProfileView {
+    pub level: u32,
+    pub xp: u64,
+    pub next_xp: u64,
+    pub kills: u64,
+    pub deaths: u64,
+    pub wins: u64,
+    pub best_streak: u64,
 }
 
 /// Rare, larger messages encoded with serde.
@@ -356,13 +490,25 @@ pub enum ServerMsg<'a> {
         h: i32,
         /// Run-length encoded tiles: (tile, count) pairs, row-major.
         map: Vec<(u8, u32)>,
+        /// Every item on the map: (x, y, kind). Later changes come in `w`.
+        items: Vec<(i32, i32, u8)>,
         rate: u32,
         /// Default half extents of the area of interest in tiles.
         aoi: (i32, i32),
         /// Largest half extents a client may request when zooming out.
         aoi_max: (i32, i32),
-        /// Everyone online: (id, name).
-        roster: Vec<(u32, &'a str)>,
+        /// Everyone online: (id, name, team, hat, trail).
+        roster: Vec<(u32, &'a str, u8, u8, u8)>,
+        arena: &'a str,
+        /// "ffa" or "teams".
+        mode: &'a str,
+        team: u8,
+        hills: Vec<(i32, i32)>,
+        /// Seconds left in the current round.
+        round: u32,
+        /// True when an earlier session's score and power-ups were restored.
+        resumed: bool,
+        profile: Option<ProfileView>,
     },
     Err { m: &'a str },
 }
@@ -388,12 +534,16 @@ mod tests {
 
     #[test]
     fn decodes_client_messages() {
-        let join = pack(json!({"t": "join", "name": "Ann"}));
-        assert_eq!(ClientMsg::decode(&join), Some(ClientMsg::Join { name: "Ann" }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3, "s": 2}))), Some(ClientMsg::In { d: 3, s: 2 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0 }));
+        let join = pack(json!({"t": "join", "name": "Ann", "token": "tok-123456", "hat": 2, "trail": 1, "near": 9}));
+        assert_eq!(ClientMsg::decode(&join), Some(ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 }));
+        let bare = pack(json!({"t": "join", "name": "Bo"}));
+        assert_eq!(ClientMsg::decode(&bare), Some(ClientMsg::Join { name: "Bo", token: "", hat: 0, trail: 0, near: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3, "s": 2, "q": 513}))), Some(ClientMsg::In { d: 3, s: 2, q: 513 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0 }));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0 }));
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "bomb"}))), Some(ClientMsg::Bomb));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "act"}))), Some(ClientMsg::Act));
+        assert_eq!(ClientMsg::decode(&pack(json!({"t": "emote", "e": 3}))), Some(ClientMsg::Emote { e: 3 }));
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "view", "w": 20, "h": 14}))), Some(ClientMsg::View { w: 20, h: 14 }));
         // JS encodes whole-number timestamps as ints and others as float64.
         assert_eq!(ClientMsg::decode(&pack(json!({"t": "ping", "c": 1234}))), Some(ClientMsg::Ping { c: 1234.0 }));
@@ -407,16 +557,33 @@ mod tests {
     #[test]
     fn manual_encoding_matches_serde() {
         let mut arena = BytesMut::with_capacity(1024);
-        assert_eq!(unpack(&encode_pj(&mut arena, 7, "Ann")), json!({"t": "pj", "id": 7, "name": "Ann"}));
+        assert_eq!(
+            unpack(&encode_pj(&mut arena, 7, "Ann", 2, 3, 1)),
+            json!({"t": "pj", "id": 7, "name": "Ann", "team": 2, "hat": 3, "trail": 1})
+        );
         assert_eq!(unpack(&encode_pl(&mut arena, 300)), json!({"t": "pl", "id": 300}));
-        assert_eq!(unpack(&encode_kill(&mut arena, None, 70000, 1.5, 2.25)), json!({"t": "kill", "k": null, "v": 70000, "x": 1.5, "y": 2.25}));
-        assert_eq!(unpack(&encode_kill(&mut arena, Some(3), 4, 0.5, 0.5))["k"], json!(3));
+        assert_eq!(
+            unpack(&encode_kill(&mut arena, None, 70000, 1.5, 2.25, true)),
+            json!({"t": "kill", "k": null, "v": 70000, "x": 1.5, "y": 2.25, "b": true})
+        );
+        assert_eq!(unpack(&encode_kill(&mut arena, Some(3), 4, 0.5, 0.5, false))["k"], json!(3));
         assert_eq!(unpack(&encode_pong(&mut arena, 1.5)), json!({"t": "pong", "c": 1.5}));
         assert_eq!(unpack(&encode_fx(&mut arena, 20, true)), json!({"t": "fx", "f": 20, "m": true}));
+        assert_eq!(unpack(&encode_emote(&mut arena, 5, 2)), json!({"t": "emote", "id": 5, "e": 2}));
+        assert_eq!(unpack(&encode_streak(&mut arena, 5, 3)), json!({"t": "streak", "id": 5, "n": 3}));
+        assert_eq!(unpack(&encode_hills(&mut arena, &[(3, 5), (9, 11)])), json!({"t": "hills", "h": [[3, 5], [9, 11]]}));
+        assert_eq!(
+            unpack(&encode_world(&mut arena, &[(1, 2, 0)], &[(3, 4, 8), (5, 6, 0)])),
+            json!({"t": "w", "tc": [[1, 2, 0]], "ic": [[3, 4, 8], [5, 6, 0]]})
+        );
         let top = [(1, "a", -3, 0, 2), (2, "a-much-longer-name-than-thirty-one-bytes", 200, 5, 70000)];
         assert_eq!(
-            unpack(&encode_lb(&mut arena, 2, top.into_iter())),
-            json!({"t": "lb", "n": 2, "top": [[1, "a", -3, 0, 2], [2, "a-much-longer-name-than-thirty-one-bytes", 200, 5, 70000]]})
+            unpack(&encode_lb(&mut arena, 2, top.into_iter(), (4, -1), 299)),
+            json!({"t": "lb", "n": 2, "top": [[1, "a", -3, 0, 2], [2, "a-much-longer-name-than-thirty-one-bytes", 200, 5, 70000]], "teams": [4, -1], "r": 299})
+        );
+        assert_eq!(
+            unpack(&encode_round(&mut arena, [(1, "a", 9, 4)].into_iter(), (10, 7), 1, 300)),
+            json!({"t": "round", "mvp": [[1, "a", 9, 4]], "teams": [10, 7], "win": 1, "next": 300})
         );
         let pong = encode_pong(&mut arena, 1.5);
         assert!(pong.starts_with(&[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g']), "bots rely on this prefix");

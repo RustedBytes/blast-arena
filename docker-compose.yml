@@ -1,0 +1,36 @@
+# Production setup: the game server behind Caddy, which gets a TLS
+# certificate automatically and proxies WebSockets (wss://) as well.
+#
+#   DOMAIN=play.example.com docker compose up -d
+#
+# Without DOMAIN, Caddy serves https://localhost with a local certificate.
+services:
+  game:
+    build: .
+    restart: unless-stopped
+    environment:
+      BOTS: "10"
+      ROUND_SECS: "300"
+      # Optional: ARENAS: "Main:ffa:81:10,Teams:teams:61:8,Mini:ffa:31:4"
+    volumes:
+      - blast-data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - game
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  blast-data:
+  caddy-data:

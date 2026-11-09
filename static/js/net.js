@@ -12,13 +12,14 @@ export class Net {
     this.pingTimer = null;
   }
 
-  connect(name) {
+  /** Joins arena `arena` with the given join fields (name, token, hat, ...). */
+  connect(arena, join) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws?arena=${arena}`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {
-      this.send({ t: 'join', name });
+      this.send({ t: 'join', ...join });
       this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000);
     };
     ws.onmessage = (ev) => {
@@ -33,8 +34,15 @@ export class Net {
     };
     ws.onclose = () => {
       clearInterval(this.pingTimer);
-      if (this.ws === ws) this.handlers.close?.();
+      if (this.ws === ws) {
+        this.ws = null;
+        this.handlers.close?.();
+      }
     };
+  }
+
+  get open() {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 
   send(obj) {

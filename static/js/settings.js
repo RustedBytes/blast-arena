@@ -1,7 +1,10 @@
 // Player preferences, persisted in localStorage when available.
 
 const KEY = 'blast-settings';
-const DEFAULTS = { music: 0.35, sfx: 0.6, muted: false, showFps: true, zoom: 1 };
+const DEFAULTS = {
+  music: 0.35, sfx: 0.6, muted: false, showFps: true, zoom: 1,
+  colorblind: false, highContrast: false, lang: '', hat: 0, trail: 0, arena: 0, tutorialDone: false,
+};
 
 export class Settings {
   constructor() {

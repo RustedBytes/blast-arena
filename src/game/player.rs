@@ -1,18 +1,21 @@
 use super::link::ClientLink;
+use crate::db::Profile;
 
 /// Direction vectors indexed by the protocol direction code:
 /// 0 = none, 1 = up, 2 = right, 3 = down, 4 = left.
 pub const DIRS: [(i32, i32); 5] = [(0, 0), (0, -1), (1, 0), (0, 1), (-1, 0)];
+/// Opposite of each direction code (used by the reversed-controls curse).
+pub const OPPOSITE: [u8; 5] = [0, 3, 4, 1, 2];
 
 pub const BASE_BOMBS: u8 = 1;
 pub const BASE_RANGE: u8 = 2;
 pub const MAX_BOMBS: u8 = 8;
 pub const MAX_RANGE: u8 = 8;
 pub const MAX_SPEED_LVL: u8 = 6;
-const BASE_SPEED: f32 = 3.5; // tiles per second
-const SPEED_STEP: f32 = 0.6;
+pub const BASE_SPEED: f32 = 3.5; // tiles per second
+pub const SPEED_STEP: f32 = 0.6;
 /// Speed while under the slow curse.
-const CURSED_SPEED: f32 = 2.2;
+pub const CURSED_SPEED: f32 = 2.2;
 /// Default half extents of the area a client receives updates for, and the
 /// range a client may request when zooming.
 pub const AOI_DEFAULT: (i32, i32) = (16, 12);
@@ -27,34 +30,64 @@ pub struct Player {
     pub name: String,
     /// Connection to the client; `None` for server-side bots.
     pub link: Option<ClientLink>,
+    /// Persistent identity of a human player (their profile key).
+    pub token: Option<String>,
+    pub profile: Option<Profile>,
+    pub profile_dirty: bool,
+    /// Team in team mode (1 red, 2 blue); 0 in free-for-all.
+    pub team: u8,
+    /// Cosmetics: hat and trail ids.
+    pub hat: u8,
+    pub trail: u8,
     /// Centre of the player in tile units (tile (3,4) spans 3.0..4.0).
     pub x: f32,
     pub y: f32,
     pub input_dir: u8,
     /// Fallback direction tried when `input_dir` is blocked (turn buffering).
     pub input_alt: u8,
-    /// Bomb presses seen so far from the client's input slot.
+    /// Sequence number of the newest input applied, echoed for prediction.
+    pub input_seq: u16,
+    /// Bomb / action / emote presses seen so far from the input slot.
     pub bomb_presses: u32,
+    pub act_presses: u32,
+    pub emote_seq: u32,
     /// Half extents of this player's area of interest.
     pub aoi: (i32, i32),
     pub facing: u8,
     pub moving: bool,
+    /// Direction a player keeps sliding in on ice.
+    pub slide_dir: u8,
     pub want_bomb: bool,
+    pub want_act: bool,
     pub alive: bool,
     pub respawn_at: u64,
     pub invulnerable_until: u64,
+    pub teleport_ready_at: u64,
+    /// Earliest tick the next emote is accepted.
+    pub next_emote_at: u64,
     pub killed_by: Option<u32>,
     pub max_bombs: u8,
     pub range: u8,
     pub speed_lvl: u8,
     pub kick: bool,
     pub pierce: bool,
+    pub remote: bool,
+    pub line: bool,
+    pub punch: bool,
+    pub ghost_until: u64,
     pub slow_until: u64,
     pub nobomb_until: u64,
+    pub reversed_until: u64,
     pub active_bombs: u8,
     pub score: i32,
     pub kills: u32,
     pub deaths: u32,
+    /// Kills since the last death.
+    pub streak: u32,
+    /// Leader with a price on their head.
+    pub bounty: bool,
+    /// Ticks spent standing on a hill towards the next point.
+    pub hill_ticks: u32,
 }
 
 impl Player {
@@ -63,35 +96,60 @@ impl Player {
             id,
             name,
             link,
+            token: None,
+            profile: None,
+            profile_dirty: false,
+            team: 0,
+            hat: 0,
+            trail: 0,
             x: 1.5,
             y: 1.5,
             input_dir: 0,
             input_alt: 0,
+            input_seq: 0,
             bomb_presses: 0,
+            act_presses: 0,
+            emote_seq: 0,
             aoi: AOI_DEFAULT,
             facing: 3,
             moving: false,
+            slide_dir: 0,
             want_bomb: false,
+            want_act: false,
             alive: false,
             respawn_at: 0,
             invulnerable_until: 0,
+            teleport_ready_at: 0,
+            next_emote_at: 0,
             killed_by: None,
             max_bombs: BASE_BOMBS,
             range: BASE_RANGE,
             speed_lvl: 0,
             kick: false,
             pierce: false,
+            remote: false,
+            line: false,
+            punch: false,
+            ghost_until: 0,
             slow_until: 0,
             nobomb_until: 0,
+            reversed_until: 0,
             active_bombs: 0,
             score: 0,
             kills: 0,
             deaths: 0,
+            streak: 0,
+            bounty: false,
+            hill_ticks: 0,
         }
     }
 
     pub fn cell(&self) -> (i32, i32) {
         (self.x.floor() as i32, self.y.floor() as i32)
+    }
+
+    pub fn is_bot(&self) -> bool {
+        self.link.is_none()
     }
 
     /// Tiles per second at game tick `tick`, accounting for the slow curse.
@@ -107,12 +165,19 @@ impl Player {
         self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick
     }
 
-    /// Curse shown to clients: 0 none, 1 slow, 2 no bombs; plus ticks left.
+    pub fn ghost(&self, tick: u64) -> bool {
+        self.ghost_until > tick
+    }
+
+    /// Curse shown to clients: 0 none, 1 slow, 2 no bombs, 3 reversed
+    /// controls; plus ticks left.
     pub fn curse(&self, tick: u64) -> (u8, u64) {
         if self.slow_until > tick {
             (1, self.slow_until - tick)
         } else if self.nobomb_until > tick {
             (2, self.nobomb_until - tick)
+        } else if self.reversed_until > tick {
+            (3, self.reversed_until - tick)
         } else {
             (0, 0)
         }
@@ -124,13 +189,24 @@ impl Player {
         self.speed_lvl = 0;
         self.kick = false;
         self.pierce = false;
+        self.remote = false;
+        self.line = false;
+        self.punch = false;
+        self.ghost_until = 0;
         self.slow_until = 0;
         self.nobomb_until = 0;
+        self.reversed_until = 0;
     }
 
     /// Applies a client's requested view half-extents, clamped to the limits.
     pub fn set_aoi(&mut self, w: i32, h: i32) {
         self.aoi = (w.clamp(AOI_MIN.0, AOI_MAX.0), h.clamp(AOI_MIN.1, AOI_MAX.1));
+    }
+
+    /// Whether this player's blasts can hurt `other` (no friendly fire,
+    /// but your own bombs always can).
+    pub fn can_hurt(&self, other: &Player) -> bool {
+        self.id == other.id || self.team == 0 || self.team != other.team
     }
 }
 

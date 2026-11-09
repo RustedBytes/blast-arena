@@ -7,6 +7,16 @@ pub const FUSE_TICKS: u64 = 50; // 2.5 s at 20 Hz
 pub const FLAME_TICKS: u64 = 10; // 0.5 s
 /// A kicked bomb advances one cell every this many ticks.
 pub const SLIDE_TICKS: u64 = 3;
+/// Conveyors move a resting bomb one cell every this many ticks.
+pub const CONVEYOR_TICKS: u64 = 8;
+/// A remote bomb still goes off on its own after this long.
+pub const REMOTE_SAFETY_TICKS: u64 = 200;
+/// How far a punched bomb flies before looking for a landing spot.
+pub const PUNCH_DISTANCE: i32 = 3;
+/// Longest line a line bomb lays.
+const MAX_LINE: i32 = 8;
+const RAIN_BOMBS: usize = 6;
+const RAIN_FUSE_TICKS: u64 = 40;
 
 pub struct Bomb {
     pub id: u32,
@@ -16,6 +26,8 @@ pub struct Bomb {
     pub range: u8,
     /// Blast goes through crates (the owner had the pierce power-up).
     pub pierce: bool,
+    /// Waits for the owner's action key (or the safety timer).
+    pub remote: bool,
     pub explode_at: u64,
     /// Direction code of a kicked bomb, 0 when resting.
     pub slide_dir: u8,
@@ -45,20 +57,34 @@ impl World {
         self.map.in_bounds(x, y) && self.flame_until[self.map.idx(x, y)] > self.tick
     }
 
+    /// The bomb button: drops a bomb where the player stands, or, with the
+    /// line-bomb power-up while standing on their own bomb, lays the rest of
+    /// their bombs in a line ahead.
     pub fn place_bomb(&mut self, owner: u32) -> bool {
         let Some(p) = self.players.get(&owner) else { return false };
         if !p.can_bomb(self.tick) {
             return false;
         }
         let (x, y) = p.cell();
-        let (range, pierce) = (p.range, p.pierce);
+        let (range, pierce, remote, line, facing) = (p.range, p.pierce, p.remote, p.line, p.facing);
+        if let Some(b) = self.bomb_at(x, y) {
+            if line && self.bombs[&b].owner == owner {
+                return self.line_bombs(owner, x, y, facing);
+            }
+            return false;
+        }
+        self.place_bomb_at(owner, x, y, range, pierce, remote, FUSE_TICKS)
+    }
+
+    /// Places a bomb at a free cell. `owner` 0 means nobody (bomb rain).
+    pub fn place_bomb_at(&mut self, owner: u32, x: i32, y: i32, range: u8, pierce: bool, remote: bool, fuse: u64) -> bool {
         if self.map.is_solid(x, y) || self.bomb_at(x, y).is_some() {
             return false;
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
-        let explode_at = self.tick + FUSE_TICKS;
-        self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, explode_at, slide_dir: 0, next_slide: 0 });
+        let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
+        self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, remote, explode_at, slide_dir: 0, next_slide: 0 });
         let i = self.map.idx(x, y);
         self.bomb_grid[i] = id;
         if let Some(p) = self.players.get_mut(&owner) {
@@ -67,14 +93,101 @@ impl World {
         true
     }
 
+    /// Lays the owner's remaining bombs in consecutive free cells ahead.
+    fn line_bombs(&mut self, owner: u32, x: i32, y: i32, dir: u8) -> bool {
+        let (dx, dy) = DIRS[dir as usize];
+        let mut placed = false;
+        for k in 1..=MAX_LINE {
+            let p = &self.players[&owner];
+            if !p.can_bomb(self.tick) {
+                break;
+            }
+            let (cx, cy) = (x + dx * k, y + dy * k);
+            let (range, pierce, remote) = (p.range, p.pierce, p.remote);
+            if !self.place_bomb_at(owner, cx, cy, range, pierce, remote, FUSE_TICKS) {
+                break;
+            }
+            placed = true;
+        }
+        placed
+    }
+
+    /// The action key: detonates the player's remote bombs if they have any
+    /// out, otherwise punches the bomb in front of them (with the power-up).
+    pub fn act(&mut self, id: u32) {
+        let Some(p) = self.players.get(&id) else { return };
+        if !p.alive {
+            return;
+        }
+        let tick = self.tick;
+        let mut detonated = false;
+        for b in self.bombs.values_mut() {
+            if b.owner == id && b.remote {
+                b.explode_at = tick;
+                detonated = true;
+            }
+        }
+        if detonated || !p.punch {
+            return;
+        }
+        let (cx, cy) = p.cell();
+        let dir = p.facing;
+        let (dx, dy) = DIRS[dir as usize];
+        if let Some(b) = self.bomb_at(cx + dx, cy + dy) {
+            self.punch_bomb(b, dir);
+        }
+    }
+
+    /// Throws a bomb over obstacles: it lands `PUNCH_DISTANCE` cells away, or
+    /// further on if that cell is taken. Bombs can't leave the map.
+    pub fn punch_bomb(&mut self, id: u32, dir: u8) -> bool {
+        let (x, y) = {
+            let b = &self.bombs[&id];
+            (b.x, b.y)
+        };
+        let (dx, dy) = DIRS[dir as usize];
+        for k in PUNCH_DISTANCE..PUNCH_DISTANCE + 6 {
+            let (nx, ny) = (x + dx * k, y + dy * k);
+            if !self.map.in_bounds(nx, ny) {
+                return false;
+            }
+            if !self.map.is_solid(nx, ny) && self.bomb_at(nx, ny).is_none() {
+                let (oi, ni) = (self.map.idx(x, y), self.map.idx(nx, ny));
+                self.bomb_grid[oi] = 0;
+                self.bomb_grid[ni] = id;
+                let b = self.bombs.get_mut(&id).unwrap();
+                (b.x, b.y, b.slide_dir) = (nx, ny, 0);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Bomb rain from a secret box: ownerless bombs around (x, y).
+    pub fn bomb_rain(&mut self, x: i32, y: i32) {
+        let mut placed = 0;
+        for _ in 0..40 {
+            if placed >= RAIN_BOMBS {
+                break;
+            }
+            let (bx, by) = (x + self.rng.between(-4, 4), y + self.rng.between(-4, 4));
+            if (bx, by) == (x, y) || !self.map.in_bounds(bx, by) {
+                continue;
+            }
+            let fuse = RAIN_FUSE_TICKS + self.rng.below(20) as u64;
+            if self.place_bomb_at(0, bx, by, 2, false, false, fuse) {
+                placed += 1;
+            }
+        }
+    }
+
     /// Starts a bomb sliding away from the player who kicked it.
     pub fn kick_bomb(&mut self, id: u32, dir: u8) {
-        if let Some(b) = self.bombs.get_mut(&id) {
-            if b.slide_dir == 0 {
+        if let Some(b) = self.bombs.get_mut(&id)
+            && b.slide_dir == 0 {
                 b.slide_dir = dir;
                 b.next_slide = self.tick + 1;
             }
-        }
     }
 
     fn cell_blocks_slide(&self, x: i32, y: i32) -> bool {
@@ -83,19 +196,29 @@ impl World {
             || self.players_in_rect(x, y, x, y).any(|p| p.alive && p.cell() == (x, y))
     }
 
+    /// Moves kicked bombs, and resting bombs that sit on conveyor belts.
     pub fn update_sliding_bombs(&mut self) {
         let mut sliding = std::mem::take(&mut self.scratch.bomb_ids);
         sliding.clear();
-        sliding.extend(self.bombs.values().filter(|b| b.slide_dir != 0 && b.next_slide <= self.tick).map(|b| b.id));
+        let map = &self.map;
+        sliding.extend(
+            self.bombs
+                .values()
+                .filter(|b| b.next_slide <= self.tick && (b.slide_dir != 0 || map.get(b.x, b.y).conveyor_dir() != 0))
+                .map(|b| b.id),
+        );
         for &id in &sliding {
-            let (x, y, dir) = {
+            let (x, y, kicked) = {
                 let b = &self.bombs[&id];
                 (b.x, b.y, b.slide_dir)
             };
+            let dir = if kicked != 0 { kicked } else { self.map.get(x, y).conveyor_dir() };
             let (dx, dy) = DIRS[dir as usize];
             let (nx, ny) = (x + dx, y + dy);
             if self.cell_blocks_slide(nx, ny) {
-                self.bombs.get_mut(&id).unwrap().slide_dir = 0;
+                let b = self.bombs.get_mut(&id).unwrap();
+                b.slide_dir = 0;
+                b.next_slide = self.tick + CONVEYOR_TICKS;
                 continue;
             }
             let (oi, ni) = (self.map.idx(x, y), self.map.idx(nx, ny));
@@ -104,7 +227,7 @@ impl World {
             let b = self.bombs.get_mut(&id).unwrap();
             b.x = nx;
             b.y = ny;
-            b.next_slide = self.tick + SLIDE_TICKS;
+            b.next_slide = self.tick + if kicked != 0 { SLIDE_TICKS } else { CONVEYOR_TICKS };
         }
         self.scratch.bomb_ids = sliding;
     }
@@ -145,17 +268,23 @@ impl World {
             for &(arm, r, x, y) in &cells {
                 arms[arm] = r;
                 self.set_flame(x, y, b.owner, flame_until);
-                if self.map.get(x, y) == Tile::Crate {
-                    self.set_tile(x, y, Tile::Floor);
-                    self.stats.crates_destroyed += 1;
-                    if let Some(item) = Item::crate_drop(&mut self.rng) {
-                        drops.push((x, y, item));
+                match self.map.get(x, y) {
+                    Tile::Crate => {
+                        self.set_tile(x, y, Tile::Floor);
+                        self.stats.crates_destroyed += 1;
+                        if let Some(item) = Item::crate_drop(&mut self.rng) {
+                            drops.push((x, y, item));
+                        }
                     }
-                } else if let Some(other) = self.bomb_at(x, y) {
-                    queue.push(other);
-                } else {
-                    let i = self.map.idx(x, y);
-                    self.items[i] = 0;
+                    // Armor absorbs one blast and leaves a normal crate.
+                    Tile::Armored => self.set_tile(x, y, Tile::Crate),
+                    _ => {
+                        if let Some(other) = self.bomb_at(x, y) {
+                            queue.push(other);
+                        } else {
+                            self.set_item(x, y, 0);
+                        }
+                    }
                 }
             }
             self.explosions.push(Explosion { x: b.x, y: b.y, arms, until: flame_until });
@@ -164,8 +293,7 @@ impl World {
         // Items revealed by crates appear only after the whole chain resolved,
         // so a chained blast can't instantly destroy them.
         for &(x, y, item) in &drops {
-            let i = self.map.idx(x, y);
-            self.items[i] = item as u8;
+            self.set_item(x, y, item as u8);
         }
         self.scratch.chain = queue;
         self.scratch.drops = drops;
@@ -185,13 +313,13 @@ impl World {
                 let (cx, cy) = (x + dx * r, y + dy * r);
                 match self.map.get(cx, cy) {
                     Tile::Wall => break,
-                    Tile::Crate => {
+                    Tile::Crate | Tile::Armored => {
                         f(arm, r as u8, cx, cy);
                         if !pierce {
                             break;
                         }
                     }
-                    Tile::Floor => {
+                    _ => {
                         f(arm, r as u8, cx, cy);
                         let i = self.map.idx(cx, cy);
                         if self.bomb_grid[i] != 0 || (items_block && self.items[i] != 0) {
@@ -328,5 +456,80 @@ mod tests {
         }
         assert_eq!(w.bomb_at(4, 1), Some(bid));
         assert_eq!(w.bombs[&bid].slide_dir, 0);
+    }
+
+    #[test]
+    fn armored_crate_takes_two_blasts() {
+        let mut map = Map::empty(15, 15);
+        map.set(3, 1, Tile::Armored);
+        let mut w = test_world(map);
+        let id = w.spawn_test_player(1.5, 1.5);
+        w.place_bomb(id);
+        w.explode(w.bomb_at(1, 1).unwrap());
+        assert_eq!(w.map.get(3, 1), Tile::Crate, "first blast strips the armor");
+        w.tick += 20;
+        w.place_bomb(id);
+        w.explode(w.bomb_at(1, 1).unwrap());
+        assert_eq!(w.map.get(3, 1), Tile::Floor, "second blast destroys it");
+    }
+
+    #[test]
+    fn remote_bombs_wait_for_the_action_key() {
+        let mut w = test_world(Map::empty(15, 15));
+        let id = w.spawn_test_player(1.5, 1.5);
+        w.players.get_mut(&id).unwrap().remote = true;
+        w.place_bomb(id);
+        w.tick += FUSE_TICKS + 5;
+        w.update_fuses();
+        assert_eq!(w.bombs.len(), 1, "a remote bomb ignores the normal fuse");
+        w.act(id);
+        w.update_fuses();
+        assert!(w.bombs.is_empty(), "the action key detonates it");
+    }
+
+    #[test]
+    fn line_bomb_lays_remaining_bombs_ahead() {
+        let mut w = test_world(Map::empty(15, 15));
+        let id = w.spawn_test_player(1.5, 1.5);
+        let p = w.players.get_mut(&id).unwrap();
+        (p.line, p.max_bombs, p.facing) = (true, 4, 2);
+        assert!(w.place_bomb(id));
+        assert!(w.place_bomb(id), "pressing again on the bomb lays a line");
+        let cells: Vec<_> = (1..=4).map(|x| w.bomb_at(x, 1).is_some()).collect();
+        assert_eq!(cells, [true, true, true, true]);
+        assert_eq!(w.players[&id].active_bombs, 4);
+    }
+
+    #[test]
+    fn punched_bomb_flies_over_obstacles() {
+        let mut map = Map::empty(15, 15);
+        map.set(3, 1, Tile::Crate);
+        let mut w = test_world(map);
+        let other = w.spawn_test_player(2.5, 1.5);
+        w.place_bomb(other);
+        w.players.get_mut(&other).unwrap().x = 9.5;
+        let me = w.spawn_test_player(1.5, 1.5);
+        let p = w.players.get_mut(&me).unwrap();
+        (p.punch, p.facing) = (true, 2);
+        w.act(me);
+        assert!(w.bomb_at(2, 1).is_none());
+        assert!(w.bomb_at(5, 1).is_some(), "lands three cells on, past the crate");
+    }
+
+    #[test]
+    fn conveyors_carry_resting_bombs() {
+        let mut map = Map::empty(15, 15);
+        for x in 1..6 {
+            map.set(x, 1, Tile::ConveyorRight);
+        }
+        let mut w = test_world(map);
+        let id = w.spawn_test_player(1.5, 1.5);
+        w.place_bomb(id);
+        w.players.get_mut(&id).unwrap().y = 3.5;
+        for _ in 0..CONVEYOR_TICKS * 2 + 1 {
+            w.tick += 1;
+            w.update_sliding_bombs();
+        }
+        assert!(w.bomb_at(4, 1).is_some(), "carried three cells");
     }
 }

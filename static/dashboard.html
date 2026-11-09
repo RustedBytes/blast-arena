@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blast Arena Monitor</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #0f1520; --panel: #182131; --line: #2a3650; --text: #e8edf5; --muted: #8e9bb0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+    header { display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 22px; color: #ffb02e; }
+    .kpis { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+    .kpi { background: var(--panel); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .kpi b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+    .kpi span { color: var(--muted); font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; }
+    .chart { background: var(--panel); border-radius: 10px; padding: 10px 12px; }
+    .chart h2 { margin: 0 0 6px; font-size: 14px; color: var(--muted); font-weight: 600; }
+    canvas { width: 100%; height: 180px; display: block; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; background: var(--panel); border-radius: 10px; overflow: hidden; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    a { color: #ffb02e; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Blast Arena monitor</h1>
+    <span id="status" style="color: var(--muted)">connecting…</span>
+    <a href="/">Play</a> <a href="/metrics">/metrics</a>
+  </header>
+  <div class="kpis">
+    <div class="kpi"><b id="k-players">–</b><span>players (incl. bots)</span></div>
+    <div class="kpi"><b id="k-humans">–</b><span>humans online</span></div>
+    <div class="kpi"><b id="k-tick">–</b><span>worst avg tick (ms)</span></div>
+    <div class="kpi"><b id="k-net">–</b><span>outgoing KB/s</span></div>
+    <div class="kpi"><b id="k-cpu">–</b><span>CPU % (100 = 1 core)</span></div>
+    <div class="kpi"><b id="k-mem">–</b><span>memory MB</span></div>
+    <div class="kpi"><b id="k-up">–</b><span>uptime</span></div>
+  </div>
+  <div class="grid">
+    <div class="chart"><h2>Connections per arena</h2><canvas id="c-players"></canvas><div class="legend" id="l-players"></div></div>
+    <div class="chart"><h2>Average tick time (ms) — budget 50 ms</h2><canvas id="c-tick"></canvas><div class="legend" id="l-tick"></div></div>
+    <div class="chart"><h2>Outgoing bandwidth (KB/s)</h2><canvas id="c-net"></canvas><div class="legend" id="l-net"></div></div>
+    <div class="chart"><h2>Process CPU (%) and memory (MB)</h2><canvas id="c-sys"></canvas><div class="legend" id="l-sys"></div></div>
+  </div>
+  <table>
+    <thead><tr><th>Arena</th><th>Mode</th><th>Map</th><th>Humans</th><th>Bots</th><th>Bombs</th><th>Tick ms</th><th>Max ms</th><th>Round left</th><th>Deaths</th></tr></thead>
+    <tbody id="arenas"></tbody>
+  </table>
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>

@@ -88,7 +88,7 @@ fn main() {
             if joined < args.clients {
                 let (link, rx) = test_link();
                 let (input, snapshot) = (link.input.clone(), link.snapshot.clone());
-                world.join(format!("client-{joined}"), link).expect("room for every client");
+                world.join(bomberman_multiplayer::game::plain_join(&format!("client-{joined}")), link).expect("room for every client");
                 input.set_view(20, 13);
                 clients.push((input, snapshot, rx));
                 joined += 1;
@@ -98,7 +98,7 @@ fn main() {
         for (input, _, _) in &clients {
             let r = next();
             if r % 10 == 0 {
-                input.set_dirs((r >> 8) as u8 % 5, (r >> 16) as u8 % 5);
+                input.set_dirs((r >> 8) as u8 % 5, (r >> 16) as u8 % 5, t as u16);
             }
             if r % 97 == 0 {
                 input.press_bomb();
@@ -116,11 +116,10 @@ fn main() {
         // Drain like the socket writers would.
         for (_, snapshot, rx) in &mut clients {
             while rx.try_recv().is_ok() {}
-            if let Some(s) = snapshot.take() {
-                if t >= args.warmup {
+            if let Some(s) = snapshot.take()
+                && t >= args.warmup {
                     snapshot_bytes += s.len() as u64;
                 }
-            }
         }
         if t >= args.warmup {
             times.push(took.as_nanos() as u64);

@@ -15,8 +15,9 @@ const JOY_RADIUS = 60;
 
 export class Input {
   /**
-   * handlers: onDir(d, s), onBomb(), onZoom(factor), onAction(name, down)
-   * where action is one of 'zoomReset', 'mute', 'fps', 'menu', 'board'.
+   * handlers: onDir(d, s), onBomb(), onAct(), onEmote(e), onZoom(factor),
+   * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
+   * 'menu', 'board', 'emoteWheel'.
    */
   constructor(handlers) {
     this.h = handlers;
@@ -28,7 +29,9 @@ export class Input {
     this.padZoom = 0;
     this.joyDir = 0;
     this.joyAlt = 0;
-    this.sent = -1;        // last (d << 3 | s) sent
+    this.sent = -1;        // last (d << 3 | s) reported
+    this.current = { d: 0, s: 0 }; // read every prediction step
+    this.padAct = false;
 
     addEventListener('keydown', (e) => this.keydown(e));
     addEventListener('keyup', (e) => this.keyup(e));
@@ -54,6 +57,13 @@ export class Input {
       case 'Space': case 'Enter':
         e.preventDefault();
         if (!e.repeat) this.h.onBomb();
+        break;
+      case 'KeyE': case 'ShiftLeft': case 'ShiftRight':
+        if (!e.repeat) this.h.onAct();
+        break;
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
+      case 'Digit5': case 'Digit6': case 'Digit7': case 'Digit8':
+        if (!e.repeat) this.h.onEmote(Number(e.code.slice(5)) - 1);
         break;
       case 'Equal': case 'NumpadAdd': this.h.onZoom(1.15); break;
       case 'Minus': case 'NumpadSubtract': this.h.onZoom(1 / 1.15); break;
@@ -92,6 +102,8 @@ export class Input {
       d = n ? this.held[n - 1] : 0;
       s = n > 1 ? this.held[n - 2] : 0;
     }
+    this.current.d = d;
+    this.current.s = s;
     const key = d << 3 | s;
     if (key !== this.sent) {
       this.sent = key;
@@ -102,7 +114,7 @@ export class Input {
   /** Call once per frame: reads connected gamepads. */
   pollGamepad() {
     if (!this.enabled || !navigator.getGamepads) return;
-    let dir = 0, alt = 0, bomb = false, zoom = 0;
+    let dir = 0, alt = 0, bomb = false, act = false, zoom = 0;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
       const b = (i) => gp.buttons[i]?.pressed;
@@ -114,11 +126,14 @@ export class Input {
         if (Math.abs(minor) > DEADZONE * 0.75) alt = Math.abs(ax) > Math.abs(ay) ? (ay > 0 ? 3 : 1) : (ax > 0 ? 2 : 4);
       }
       bomb ||= b(0) || b(1);
+      act ||= b(2) || b(3);
       if (b(5)) zoom = 1; else if (b(4)) zoom = -1;
       break; // first connected pad only
     }
     if (bomb && !this.padBomb) this.h.onBomb();
     this.padBomb = bomb;
+    if (act && !this.padAct) this.h.onAct();
+    this.padAct = act;
     if (zoom) this.h.onZoom(zoom > 0 ? 1.02 : 1 / 1.02);
     if (dir !== this.padDir || alt !== this.padAlt) {
       this.padDir = dir;
@@ -208,5 +223,16 @@ export class Input {
     const up = () => bomb.classList.remove('active');
     bomb.addEventListener('pointerup', up);
     bomb.addEventListener('pointercancel', up);
+
+    const act = document.getElementById('act-btn');
+    act.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      navigator.vibrate?.(10);
+      this.h.onAct();
+    });
+    document.getElementById('emote-btn').addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.h.onAction('emoteWheel', true);
+    });
   }
 }

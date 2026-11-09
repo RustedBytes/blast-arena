@@ -15,12 +15,23 @@ pub enum Item {
     FullFire = 7,
     /// The secret box: a random outcome when opened.
     Mystery = 8,
+    /// Your bombs wait for the action key (or 10 s) to go off.
+    Remote = 9,
+    /// Pressing bomb while standing on your bomb lays the rest in a line.
+    LineBomb = 10,
+    /// The action key throws the bomb in front of you over obstacles.
+    Punch = 11,
+    /// Walk through crates for a while.
+    Ghost = 12,
 }
 
+pub const ALL_ITEMS: u8 = 12;
 pub const CRATE_DROP_CHANCE: f32 = 0.25;
 pub const SHIELD_TICKS: u64 = 6 * 20;
+pub const GHOST_TICKS: u64 = 6 * 20;
 pub const SLOW_CURSE_TICKS: u64 = 8 * 20;
 pub const NOBOMB_CURSE_TICKS: u64 = 6 * 20;
+pub const REVERSE_CURSE_TICKS: u64 = 8 * 20;
 
 /// What opening a secret box gave the player.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -32,60 +43,87 @@ pub enum Mystery {
     Slow,
     /// Can't drop bombs for a while.
     NoBomb,
+    /// Controls are reversed for a while.
+    Reversed,
+    /// Bombs rain down around the player.
+    BombRain,
 }
 
 impl Mystery {
-    /// Code sent to the client in `fx` messages: item codes 1–7 as-is.
+    /// Code sent to the client in `fx` messages: item codes as-is.
     pub fn code(self) -> u8 {
         match self {
             Mystery::Item(i) => i as u8,
             Mystery::Jackpot => 20,
             Mystery::Slow => 30,
             Mystery::NoBomb => 31,
+            Mystery::BombRain => 32,
+            Mystery::Reversed => 33,
         }
     }
 
     pub fn open(rng: &mut Rng) -> Mystery {
         match rng.below(100) {
-            0..=59 => {
-                // Any regular power-up, rare ones a bit more likely than from crates.
-                const POOL: [Item; 7] =
-                    [Item::ExtraBomb, Item::Range, Item::Speed, Item::Kick, Item::Shield, Item::Pierce, Item::FullFire];
+            0..=54 => {
+                // Any regular power-up, rare ones more likely than from crates.
+                const POOL: [Item; 11] = [
+                    Item::ExtraBomb,
+                    Item::Range,
+                    Item::Speed,
+                    Item::Kick,
+                    Item::Shield,
+                    Item::Pierce,
+                    Item::FullFire,
+                    Item::Remote,
+                    Item::LineBomb,
+                    Item::Punch,
+                    Item::Ghost,
+                ];
                 Mystery::Item(POOL[rng.below(POOL.len() as u32) as usize])
             }
-            60..=74 => Mystery::Jackpot,
-            75..=87 => Mystery::Slow,
-            _ => Mystery::NoBomb,
+            55..=67 => Mystery::Jackpot,
+            68..=75 => Mystery::Slow,
+            76..=83 => Mystery::NoBomb,
+            84..=91 => Mystery::Reversed,
+            _ => Mystery::BombRain,
         }
     }
 }
 
 impl Item {
     pub fn from_u8(v: u8) -> Option<Item> {
-        match v {
-            1 => Some(Item::ExtraBomb),
-            2 => Some(Item::Range),
-            3 => Some(Item::Speed),
-            4 => Some(Item::Kick),
-            5 => Some(Item::Shield),
-            6 => Some(Item::Pierce),
-            7 => Some(Item::FullFire),
-            8 => Some(Item::Mystery),
-            _ => None,
-        }
+        Some(match v {
+            1 => Item::ExtraBomb,
+            2 => Item::Range,
+            3 => Item::Speed,
+            4 => Item::Kick,
+            5 => Item::Shield,
+            6 => Item::Pierce,
+            7 => Item::FullFire,
+            8 => Item::Mystery,
+            9 => Item::Remote,
+            10 => Item::LineBomb,
+            11 => Item::Punch,
+            12 => Item::Ghost,
+            _ => return None,
+        })
     }
 
     /// Weighted random pick: bombs and range are common, full fire is rare.
     pub fn random(rng: &mut Rng) -> Item {
         match rng.below(100) {
-            0..=27 => Item::ExtraBomb,
-            28..=55 => Item::Range,
-            56..=71 => Item::Speed,
-            72..=79 => Item::Kick,
-            80..=85 => Item::Shield,
-            86..=90 => Item::Pierce,
-            91..=93 => Item::FullFire,
-            _ => Item::Mystery,
+            0..=23 => Item::ExtraBomb,
+            24..=47 => Item::Range,
+            48..=60 => Item::Speed,
+            61..=66 => Item::Kick,
+            67..=71 => Item::Shield,
+            72..=75 => Item::Pierce,
+            76..=78 => Item::FullFire,
+            79..=84 => Item::Mystery,
+            85..=88 => Item::Remote,
+            89..=92 => Item::LineBomb,
+            93..=96 => Item::Punch,
+            _ => Item::Ghost,
         }
     }
 
@@ -102,31 +140,34 @@ mod tests {
     #[test]
     fn secret_box_produces_every_outcome() {
         let mut rng = Rng::new(9);
-        let (mut items, mut jackpot, mut slow, mut nobomb) = (0, 0, 0, 0);
-        let mut kinds = [false; 8];
-        for _ in 0..2000 {
+        let mut items = [false; ALL_ITEMS as usize + 1];
+        let mut other = [0; 5];
+        for _ in 0..4000 {
             match Mystery::open(&mut rng) {
                 Mystery::Item(i) => {
-                    items += 1;
-                    kinds[i as usize] = true;
+                    items[i as usize] = true;
                     assert_ne!(i, Item::Mystery, "a box never contains another box");
                 }
-                Mystery::Jackpot => jackpot += 1,
-                Mystery::Slow => slow += 1,
-                Mystery::NoBomb => nobomb += 1,
+                Mystery::Jackpot => other[0] += 1,
+                Mystery::Slow => other[1] += 1,
+                Mystery::NoBomb => other[2] += 1,
+                Mystery::Reversed => other[3] += 1,
+                Mystery::BombRain => other[4] += 1,
             }
         }
-        assert!(kinds[1..8].iter().all(|&k| k), "every power-up can come out: {kinds:?}");
-        assert!(items > 1000 && jackpot > 200 && slow > 150 && nobomb > 150);
+        let missing: Vec<usize> = (1..=ALL_ITEMS as usize).filter(|&i| i != 8 && !items[i]).collect();
+        assert!(missing.is_empty(), "missing power-ups: {missing:?}");
+        assert!(other.iter().all(|&n| n > 150), "{other:?}");
     }
 
     #[test]
-    fn crate_drops_include_new_items() {
+    fn crate_drops_include_every_item() {
         let mut rng = Rng::new(4);
-        let mut seen = [false; 9];
-        for _ in 0..5000 {
+        let mut seen = [false; ALL_ITEMS as usize + 1];
+        for _ in 0..10000 {
             seen[Item::random(&mut rng) as usize] = true;
         }
         assert!(seen[1..].iter().all(|&s| s));
+        assert!((1..=ALL_ITEMS).all(|v| Item::from_u8(v).is_some()));
     }
 }

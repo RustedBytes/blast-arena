@@ -96,23 +96,22 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 if let Message::Binary(data) = msg {
                     stats.messages.fetch_add(1, Relaxed);
                     stats.bytes.fetch_add(data.len() as u64, Relaxed);
-                    if data.starts_with(PONG_PREFIX) {
-                        if let Ok(pong) = rmp_serde::from_slice::<Pong>(&data) {
+                    if data.starts_with(PONG_PREFIX)
+                        && let Ok(pong) = rmp_serde::from_slice::<Pong>(&data) {
                             let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
                             stats.rtt_us_sum.fetch_add(rtt, Relaxed);
                             stats.rtt_count.fetch_add(1, Relaxed);
                             stats.rtt_us_max.fetch_max(rtt, Relaxed);
                         }
-                    }
                 }
             }
             _ = next_action.tick() => {
                 let r = next_rand(&mut seed);
                 let mut out = Vec::new();
-                if r % 3 == 0 {
+                if r.is_multiple_of(3) {
                     out.push(Out::In { d: ((r >> 8) % 5) as u8, s: ((r >> 16) % 5) as u8 });
                 }
-                if r % 23 == 0 {
+                if r.is_multiple_of(23) {
                     out.push(Out::Bomb);
                 }
                 for m in &out {

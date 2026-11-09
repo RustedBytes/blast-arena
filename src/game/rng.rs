@@ -27,7 +27,7 @@ impl Rng {
 
     /// Uniform integer in `0..n` (n must be > 0).
     pub fn below(&mut self, n: u32) -> u32 {
-        ((self.next_u64() >> 32) * n as u64 >> 32) as u32
+        (((self.next_u64() >> 32) * n as u64) >> 32) as u32
     }
 
     /// Uniform integer in `lo..=hi`.

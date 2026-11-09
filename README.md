@@ -1,8 +1,9 @@
 # Blast Arena
 
-A massively multiplayer bomb-maze game for the browser. Everyone plays in one huge shared arena: drop bombs, blast crates, collect power-ups and blast each other.
-- **Server:** Rust (Axum + WebSocket).
-- **Client:** plain HTML5 canvas with hand-made SVG art and procedural chiptune music. There are no audio files.
+A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
+
+- **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
+- **Client:** plain HTML5 canvas with hand-made SVG art and procedural chiptune music (no audio files), in English and Russian.
 
 ## Run
 
@@ -10,113 +11,60 @@ A massively multiplayer bomb-maze game for the browser. Everyone plays in one hu
 cargo run --release
 ```
 
-Open http://localhost:3000, enter a nickname and play.
+Open http://localhost:3000, pick an arena, enter a nickname and play.
 
-### Keyboard
+The live server dashboard is at http://localhost:3000/dashboard.html, and Prometheus metrics at `/metrics`.
 
-| Key | Action |
+### Controls
+
+| Input | Action |
 |---|---|
 | WASD / arrow keys | Move. Hold a second direction to queue a turn: hold Right, press Up early, and you turn at the next gap. |
-| Space / Enter | Drop a bomb |
+| Space / Enter | Drop a bomb. Press again while standing on it with the line bomb to lay a row. |
+| E / Shift | Action: detonate remote bombs, or punch the bomb in front of you |
+| 1–8 | Emotes (also the 😀 button) |
 | Mouse wheel, `+` / `-` / `0` | Zoom in / out / reset |
 | Tab (hold) | Leaderboard with kills and deaths |
-| M | Mute |
-| F | Show or hide FPS |
-| Esc | Settings |
+| M / F / Esc | Mute / FPS / settings |
+| Gamepad | Stick or d-pad moves, A bomb, X action, shoulder buttons zoom |
+| Touch | Drag on the left to steer (floating joystick), bomb and action buttons, pinch to zoom |
 
-### Other controls
-- **Gamepad:** the stick or d-pad moves, A/B drops a bomb, and the shoulder buttons zoom.
-- **Touch:** drag anywhere on the left to steer with a floating joystick, tap the bomb button, and pinch to zoom.
+The settings menu has music and sound volume, zoom, language, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. A short interactive tutorial runs on your first game.
 
-### Settings
-The settings menu has music volume, sound effects volume, zoom, mute and FPS. They're remembered per browser.
+## Configuration
 
-Configuration is through command-line arguments, each with an environment-variable fallback. `cargo run --release -- --help` lists them.
+Command-line arguments; each has an environment-variable fallback. `cargo run --release -- --help` lists them.
 
-| Argument        | Env var       | Default    | Meaning                                         |
-|-----------------|---------------|------------|-------------------------------------------------|
-| `--port`        | `PORT`        | `3000`     | HTTP/WebSocket port                             |
-| `--map-size`    | `MAP_SIZE`    | `81`       | Arena width/height in tiles (forced odd, ≥15)   |
-| `--max-players` | `MAX_PLAYERS` | `256`      | Player cap, bots included                       |
-| `--bots`        | `BOTS`        | `10`       | AI bots kept in the arena; `0` turns them off   |
-| `--static-dir`  | `STATIC_DIR`  | `./static` | Client files                                    |
+| Argument | Env var | Default | Meaning |
+|---|---|---|---|
+| `--port` | `PORT` | `3000` | HTTP/WebSocket port |
+| `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa` or `teams`. Repeat the flag, or comma-separate in the env var. |
+| `--map-size` | `MAP_SIZE` | `81` | Size of the default main arena |
+| `--bots` | `BOTS` | `10` | Bots in the default main arena |
+| `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included |
+| `--round-secs` | `ROUND_SECS` | `300` | Round length |
+| `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
+| `--static-dir` | `STATIC_DIR` | `./static` | Client files |
 
-For example, to start a small arena with 6 bots:
+Without `--arena` the server runs three arenas:
+- `Main:ffa:<map-size>:<bots>`
+- `Teams:teams:61:8`
+- `Mini:ffa:31:4`
 
-```bash
-cargo run --release -- --map-size 21 --bots 6
-```
+## Gameplay
 
-## AI bots
+- **Bombs** explode in a cross after 2.5 s. Pillars stop the blast. Crates absorb it and break. Blasts set off other bombs in chain reactions.
+- **Map regions** (on maps of 41×41 and up), each with its own look:
 
-The server runs its own bots so the arena is never empty. They show up as regular players named like "Sparky [bot]". Each bot is an ordinary player without a connection, so it follows exactly the same rules as humans.
+  | Region | Feature |
+  |---|---|
+  | Snow | Ice: you slide on to the next cell when you let go |
+  | Desert | Conveyor belts that carry players and bombs |
+  | Volcano | Armored crates that take two blasts |
+  | Grass | Normal arena |
 
-How a bot thinks:
-- **Danger map.** Every tick, the bots share a map of how many ticks remain before fire reaches each cell. It accounts for chain reactions, where one bomb sets off another.
-- **Priorities.** A bot always escapes danger first. After that it goes for the best target nearby: a power-up, a spot where a bomb would hit an enemy, or a spot where a bomb would blow up the most crates. If there's nothing in reach, it wanders off to explore.
-- **Safe bombing.** A bot drops a bomb only after simulating the blast and finding a way out before the fuse burns down. It also avoids escape routes through cells where other players stand, and wants either two separate exits or a roomy safe area. That way another player can't seal off its only escape.
-- **Last resort.** If a bot is trapped anyway, it moves to the cell that will catch fire last, or tries to kick its way out.
-- **Mistakes.** Each bot has a small random chance to drop a risky bomb when attacking, so they stay beatable.
-
-Bots make room for humans. When the server is full, a joining player replaces a bot. Bots refill up to `--bots` whenever there's space again.
-
-## Benchmarks
-
-### Load test
-
-With the server running:
-
-```bash
-cargo run --release --bin bots -- --count 150
-```
-
-This is a separate binary that opens real WebSocket connections that wander at random, to stress the network side. Use `--url` to point it at another server and `--secs` to stop it after a set time. It prints message rate, bandwidth per bot, ping round-trip and disconnects every 5 s. The server logs its average and worst tick time every 10 s.
-
-### Simulation benchmark
-
-```bash
-cargo run --release --bin simbench
-```
-
-This runs the world in-process with 200 bots and 150 simulated clients. Their snapshots are really encoded and then drained. It reports the tick time and the **heap allocations per tick**, counted by a wrapper around the global allocator.
-
-A typical run:
-
-| Measure | Result |
-|---|---|
-| Tick time | about 2 ms on average, budget 50 ms |
-| Allocations | about 0.07 per tick |
-| Ticks with no allocation at all | 94% |
-
-## How it scales
-
-- **Compact binary protocol.** Messages are MessagePack over binary WebSocket frames.
-  - Hot messages are written by hand straight into a reusable buffer.
-  - Client messages are parsed in place, without allocating.
-  - The browser side uses a small codec in `static/js/msgpack.js`.
-- **Zero-copy, zero-allocation ticks.**
-  - **Encoding.** Snapshots are encoded into a ring of large arenas. Each client's message is a reference-counted slice of the arena, handed to the socket without copying. An arena is reused in place once its messages have been sent.
-  - **No per-tick allocation.** The simulation and the bots work in persistent scratch buffers. Path searches use generation-stamped visit marks, so they never need clearing.
-- **Lock-free input.** Each connection writes its newest input (directions, bomb presses, view size) into a small set of atomics, and the game reads it once per tick. Input needs no queue and builds no backlog.
-- **One authoritative simulation task.** It owns the whole world and runs at 20 ticks/s with no locks.
-- **Area of interest.**
-  - Each client gets only the players, bombs, flames and items near it, found through an 8×8-tile spatial grid.
-  - The default area is ±16×12 tiles. When a client zooms, it asks for its view size, and the server grants up to ±26×18.
-  - Tile changes go to everyone, so each client's map copy stays correct.
-- **Back-pressure without punishing lag.**
-  - Snapshots go through a one-slot mailbox, so a client that falls behind simply skips stale ones.
-  - Only an overflowing reliable-event queue (256 messages) disconnects a client.
-- **Client.**
-  - Static tiles are cached in chunk canvases that are redrawn only when a tile changes.
-  - Snapshots live in a fixed ring buffer.
-  - Particles come from a preallocated typed-array pool.
-  - The per-frame render path creates no garbage.
-  - An FPS / frame-time widget shows the result.
-
-## Game rules
-
-- Bombs explode in a cross after 2.5 s. Pillars stop the blast. A crate absorbs it and is destroyed. Blasts set off other bombs in chain reactions.
-- Destroyed crates drop a power-up 25% of the time:
+  Linked teleporter pads connect distant parts of the map.
+- **Power-ups**, revealed from 25% of crates:
 
   | Power-up | Effect |
   |---|---|
@@ -127,34 +75,128 @@ A typical run:
   | shield | 6 s of invulnerability |
   | pierce | Your blasts go through crates |
   | full fire | Maximum range |
+  | remote | Your bombs wait for E (or 10 s) |
+  | line bomb | Lay a row of bombs |
+  | punch | Throw a bomb over obstacles |
+  | ghost | Walk through crates for 6 s |
   | **secret box** | A random outcome when opened (see below) |
 
-- **Secret box.** Walk onto it to open it. It contains one of:
+- **Secret box.** Opening it gives one of:
   - any power-up
   - a jackpot: +1 bomb, +1 range and +1 speed
-  - a curse: 8 s slowed down, or 6 s with no bombs
+  - a curse: slowed down, no bombs, or reversed controls
+  - bomb rain around you
 
-  Secret boxes also appear on their own around the arena.
-- If bombs box you in and every other way out is blocked, you can kick an adjacent bomb even without the kick power-up, so you're never stuck waiting to explode.
-- Corner assist eases you into corridors when you're slightly off-line. You can walk off a bomb you just dropped, but not back onto it.
+  Secret boxes also appear on their own around the map.
+- **Rounds** last 5 minutes. At the end, the MVPs and the winning team are shown, the MVP's profile gets a win and bonus XP, and scores reset.
+- **Scoring:**
+  - +1 per kill.
+  - +1 every 3 s you stand on a glowing **hill**; hills move each round.
+  - The leader (5+ points) carries a **bounty** worth +2 extra.
+  - Streaks of 3, 5, 8 and 12 kills are announced to everyone.
+  - Blowing yourself up costs 1 point.
+- **Team mode:** red versus blue, with balanced teams and no friendly fire.
 - **Dying:**
-  - You lose your power-ups, and a few of them are scattered nearby.
-  - You respawn after 3 s with 2 s of spawn protection.
-- **Scoring:** a kill gives the bomb's owner +1. Blowing yourself up costs 1 point.
-- Crates slowly regrow in quiet areas so the big arena never runs dry.
+  - You drop some power-ups.
+  - While you wait 3 s to respawn, the camera follows whoever got you.
+  - You come back with 2 s of spawn protection.
+- If bombs box you in, you can kick one even without the kick power-up.
+
+## Profiles, cosmetics, friends
+
+- **Profiles:**
+  - Your browser keeps a random profile token, with no sign-up. Kills, deaths, MVP wins, best streak and XP are saved in SQLite.
+  - The lobby shows your level and an all-time top 20.
+- **Cosmetics:** hats (cap, party hat, horns, halo, crown, top hat) and trails (gold, ice, rainbow) unlock as you level up.
+- **Invites:** the 🔗 button copies an invite link (`?arena=…&near=<your id>`). Friends who open it spawn next to you.
+- **Reconnecting:** a dropped connection reconnects automatically. The server keeps your score and power-ups for 30 s.
+
+## AI bots
+
+Each arena keeps its bots topped up, and humans take a bot's place when an arena is full. Bots follow the same rules as players.
+
+How a bot plays:
+- **Danger map.** The bots share a map of how many ticks remain before fire reaches each cell. It covers chain reactions and treats remote bombs as live.
+- **Priorities:** escape first, then power-ups, attack spots, crate spots, or wandering. In team mode they don't target teammates.
+- **Safe bombing.** A bot drops a bomb only with a robust way out. It avoids cells where others stand, and needs either two exits or a roomy safe area. It never chooses a conveyor or teleporter as a place to stop.
+- **Remote bombs.** Once safe, a bot detonates its remote bombs.
+
+## Deploy
+
+```bash
+DOMAIN=play.example.com docker compose up -d
+```
+
+- `Dockerfile` builds a small runtime image.
+- `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
+- Profiles live in the `blast-data` volume.
+- Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.
+
+## Benchmarks
+
+```bash
+# Network load test: real WebSocket clients wandering at random.
+cargo run --release --bin bots -- --count 150
+
+# In-process simulation: tick time and heap allocations per tick.
+cargo run --release --bin simbench
+```
+
+Results on this machine:
+
+| Measure | Result |
+|---|---|
+| Server tick, 200 bots + 150 clients encoding real snapshots (simbench) | about 3 ms (budget 50 ms) |
+| Heap allocations per tick | about 0.06; 94% of ticks allocate nothing |
+| Bandwidth per client, 150 connections (load test) | about 6.9 KB/s |
+| Disconnects in the load test | 0 |
+
+## How it scales
+
+- **Several arenas.** Each arena is its own simulation task with its own bots. The lobby lists them with live player counts.
+- **Compact binary protocol.**
+  - Messages are MessagePack over binary WebSocket frames.
+  - Hot messages are written by hand straight into reusable buffers.
+  - Client messages are parsed in place, without allocating.
+- **Snapshots carry only moving things.**
+  - Snapshots hold players, bombs and flames near you, plus your own state as a compact array.
+  - Tiles and items are sent once on join. After that only their *changes* go out, in a reliable world-delta stream. A skipped snapshot can't lose them.
+- **Client-side prediction.**
+  - Your browser runs the same movement code as the server, so your own moves show up instantly.
+  - Each input carries a sequence number, and snapshots echo the last one the server applied.
+  - The client then replays only the inputs the server hasn't seen yet.
+- **Zero-copy, zero-allocation ticks.**
+  - **Encoding.** Snapshots are encoded into a ring of large reusable buffers. Each client's message is a reference-counted slice handed to the socket without copying.
+  - **No per-tick allocation.** The simulation and the bots work in persistent scratch memory, and their path searches never need clearing between uses.
+- **Lock-free input.** Each connection writes its newest input into a few atomic counters that the game reads once per tick. There is no queue.
+- **Area of interest.** Clients get entities within ±16×12 tiles by default. A client that zooms out can request up to ±26×18.
+- **Back-pressure.**
+  - A client that falls behind skips stale snapshots instead of building up a queue.
+  - Only a client whose queue of important messages (kills, joins and the like) overflows is disconnected.
+- **Client.**
+  - Static tiles are cached in canvas chunks, redrawn only when a tile changes.
+  - Snapshots live in a fixed-size ring buffer.
+  - Effects use a preallocated particle pool.
+  - An FPS / frame-time widget shows the result: 100–165 FPS at about 1 ms of work per frame in testing.
 
 ## Layout
 
 ```
-src/main.rs          server entry point, command-line config
-src/lib.rs           library root (game, net, protocol)
-src/net.rs           WebSocket sessions (handshake, reader/writer, rate limit)
-src/protocol.rs      MessagePack wire format, hand-rolled encoder, arena ring
-src/game/            simulation: map, player movement, bombs, items, AOI
-src/game/link.rs     lock-free input slot and snapshot mailbox per client
-src/game/ai.rs       server-side AI bots
-src/bin/bots.rs      network load tester
-src/bin/simbench.rs  tick-time and allocation benchmark
-static/              client: index.html, style.css, SVG art in assets/
-static/js/           main, render, particles, input, audio, settings, net, msgpack
+src/main.rs           server entry point: arenas, routes, config
+src/lib.rs            library root
+src/net.rs            WebSocket sessions (arena choice, profile load, reader/writer)
+src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /metrics
+src/db.rs             SQLite profiles, levels and cosmetic unlocks
+src/metrics.rs        lock-free per-arena live stats
+src/protocol.rs       MessagePack wire format, hand-rolled encoder, arena ring
+src/game/             simulation: map and biomes, movement, bombs, items, rounds, AOI
+src/game/link.rs      lock-free input slot and snapshot mailbox per client
+src/game/ai.rs        server-side AI bots
+src/bin/bots.rs       network load tester
+src/bin/simbench.rs   tick-time and allocation benchmark
+static/index.html     lobby and game page; dashboard.html is the server monitor
+static/js/            main, render, prediction, particles, input, audio, i18n,
+                      tutorial, settings, net, msgpack, dashboard
+static/assets/        SVG art
+Dockerfile, docker-compose.yml, Caddyfile   deployment
 ```

@@ -12,30 +12,44 @@
 
   <div id="hud" class="hidden">
     <div id="stats" class="panel">
-      <div class="stat" title="Bombs available"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
-      <div class="stat" title="Blast range"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
-      <div class="stat" title="Speed level"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
-      <div class="stat off" id="st-kick" title="Kick bombs"><img src="assets/pu_kick.svg" alt=""></div>
-      <div class="stat off" id="st-pierce" title="Pierce: blasts go through crates"><img src="assets/pu_pierce.svg" alt=""></div>
+      <div class="stat" title="Bombs"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
+      <div class="stat" title="Range"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
+      <div class="stat" title="Speed"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
+      <div class="stat off" id="st-kick" title="Kick"><img src="assets/pu_kick.svg" alt=""></div>
+      <div class="stat off" id="st-pierce" title="Pierce"><img src="assets/pu_pierce.svg" alt=""></div>
+      <div class="stat off" id="st-remote" title="Remote (E)"><img src="assets/pu_remote.svg" alt=""></div>
+      <div class="stat off" id="st-line" title="Line bomb"><img src="assets/pu_line.svg" alt=""></div>
+      <div class="stat off" id="st-punch" title="Punch (E)"><img src="assets/pu_punch.svg" alt=""></div>
       <div class="stat timer hidden" id="st-shield" title="Shield"><img src="assets/pu_shield.svg" alt=""><span></span></div>
-      <div class="stat timer curse hidden" id="st-curse" title="Cursed"><img src="assets/pu_mystery.svg" alt=""><span></span></div>
-      <div class="stat score">Score <b id="st-score">0</b></div>
+      <div class="stat timer hidden" id="st-ghost" title="Ghost"><img src="assets/pu_ghost.svg" alt=""><span></span></div>
+      <div class="stat timer curse hidden" id="st-curse"><img src="assets/pu_mystery.svg" alt=""><span></span></div>
+      <div class="stat score"><span data-i18n="score">Score</span> <b id="st-score">0</b></div>
+    </div>
+    <div id="roundbar" class="panel">
+      <span id="round-time">5:00</span>
+      <span id="team-scores" class="hidden"><b class="red">0</b> : <b class="blue">0</b></span>
     </div>
     <div id="side">
       <div id="leaderboard" class="panel">
-        <div class="panel-title">Top blasters <span id="online"></span></div>
+        <div class="panel-title"><span data-i18n="topBlasters">Top blasters</span> <span id="online"></span></div>
         <ol id="lb-list"></ol>
-        <div class="lb-hint">Hold <kbd>Tab</kbd> for details</div>
+        <div class="lb-hint" id="lb-hint"></div>
       </div>
       <div id="killfeed"></div>
     </div>
     <div id="toasts"></div>
+    <div id="banner" class="hidden"></div>
     <canvas id="minimap" class="panel"></canvas>
     <div id="perf" class="panel">
       <div id="fps">– FPS</div>
       <div id="netinfo"></div>
     </div>
-    <button id="gear" class="panel" aria-label="Settings" title="Settings (Esc)">⚙</button>
+    <div id="hud-buttons">
+      <button id="invite" class="panel" data-i18n-title="invite" title="Invite a friend">🔗</button>
+      <button id="emote-toggle" class="panel" data-i18n-title="ctlEmote" title="Emotes">😀</button>
+      <button id="gear" class="panel" data-i18n-title="settings" title="Settings (Esc)">⚙</button>
+    </div>
+    <div id="emote-wheel" class="panel hidden"></div>
     <div id="dead" class="hidden">
       <div id="dead-msg"></div>
       <div id="dead-timer"></div>
@@ -43,57 +57,97 @@
     <div id="touch" class="hidden">
       <div id="joy-zone"></div>
       <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
+      <button id="act-btn" aria-label="Action">E</button>
+      <button id="emote-btn" aria-label="Emote">😀</button>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
     </div>
+    <div id="tutorial" class="panel hidden">
+      <div class="tut-step"></div>
+      <div class="tut-title"></div>
+      <div class="tut-body"></div>
+      <div class="tut-buttons"><button class="tut-skip"></button><button class="tut-next primary"></button></div>
+    </div>
+  </div>
+
+  <div id="round-over" class="overlay hidden">
+    <div class="card round-card">
+      <h2 data-i18n="roundOver">Round over!</h2>
+      <div id="round-winner"></div>
+      <ol id="round-mvp"></ol>
+      <p class="muted" data-i18n="nextRound">Next round starts now</p>
+    </div>
+  </div>
+
+  <div id="reconnecting" class="overlay hidden">
+    <div class="card"><div class="spinner"></div><p data-i18n="reconnecting">Reconnecting…</p></div>
   </div>
 
   <div id="settings" class="overlay hidden">
     <div class="card settings-card">
-      <h2>Settings</h2>
-      <label class="row">Music <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
-      <label class="row">Sound effects <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
-      <label class="row">Zoom <input type="range" id="set-zoom" min="0.4" max="2.2" step="0.05"></label>
-      <label class="row check"><input type="checkbox" id="set-muted"> Mute all sound <kbd>M</kbd></label>
-      <label class="row check"><input type="checkbox" id="set-fps"> Show FPS <kbd>F</kbd></label>
-      <h3>Controls</h3>
+      <h2 data-i18n="settings">Settings</h2>
+      <label class="row"><span data-i18n="music">Music</span> <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
+      <label class="row"><span data-i18n="sfx">Sound effects</span> <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
+      <label class="row"><span data-i18n="zoom">Zoom</span> <input type="range" id="set-zoom" min="0.4" max="2.2" step="0.05"></label>
+      <label class="row"><span data-i18n="language">Language</span> <select id="set-lang"></select></label>
+      <label class="row check"><input type="checkbox" id="set-muted"> <span data-i18n="mute">Mute all sound</span> <kbd>M</kbd></label>
+      <label class="row check"><input type="checkbox" id="set-fps"> <span data-i18n="showFps">Show FPS</span> <kbd>F</kbd></label>
+      <label class="row check"><input type="checkbox" id="set-colorblind"> <span data-i18n="colorblind">Colour-blind friendly colours</span></label>
+      <label class="row check"><input type="checkbox" id="set-contrast"> <span data-i18n="highContrast">High contrast</span></label>
+      <button id="tutorial-again" class="link" data-i18n="tutorialAgain">Show the tutorial again</button>
+      <h3 data-i18n="controls">Controls</h3>
       <div class="controls">
-        <span><kbd>WASD</kbd> <kbd>Arrows</kbd></span><span>Move (hold two keys to queue a turn)</span>
-        <span><kbd>Space</kbd> <kbd>Enter</kbd></span><span>Drop bomb</span>
-        <span><kbd>Wheel</kbd> <kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></span><span>Zoom in / out / reset</span>
-        <span><kbd>Tab</kbd></span><span>Leaderboard details</span>
-        <span><kbd>Esc</kbd></span><span>This menu</span>
-        <span>Gamepad</span><span>Stick / d-pad move, A bomb, shoulders zoom</span>
-        <span>Touch</span><span>Drag on the left to steer, tap the bomb, pinch to zoom</span>
+        <span><kbd>WASD</kbd> <kbd>Arrows</kbd></span><span data-i18n="ctlMove"></span>
+        <span><kbd>Space</kbd> <kbd>Enter</kbd></span><span data-i18n="ctlBomb"></span>
+        <span><kbd>E</kbd> <kbd>Shift</kbd></span><span data-i18n="ctlAct"></span>
+        <span><kbd>Wheel</kbd> <kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></span><span data-i18n="ctlZoom"></span>
+        <span><kbd>1</kbd>–<kbd>8</kbd></span><span data-i18n="ctlEmote"></span>
+        <span><kbd>Tab</kbd></span><span data-i18n="ctlBoard"></span>
+        <span><kbd>Esc</kbd></span><span data-i18n="ctlMenu"></span>
+        <span>🎮</span><span data-i18n="ctlPad"></span>
+        <span>📱</span><span data-i18n="ctlTouch"></span>
       </div>
-      <h3>Power-ups</h3>
-      <div class="legend">
-        <span><img src="assets/pu_bomb.svg" alt="">+1 bomb</span>
-        <span><img src="assets/pu_range.svg" alt="">+1 range</span>
-        <span><img src="assets/pu_speed.svg" alt="">Speed</span>
-        <span><img src="assets/pu_kick.svg" alt="">Kick bombs</span>
-        <span><img src="assets/pu_shield.svg" alt="">Shield (6 s)</span>
-        <span><img src="assets/pu_pierce.svg" alt="">Pierce crates</span>
-        <span><img src="assets/pu_fullfire.svg" alt="">Max range</span>
-        <span><img src="assets/pu_mystery.svg" alt="">Secret box: random, maybe a curse!</span>
-      </div>
-      <button id="settings-close" class="primary">Back to game</button>
+      <h3 data-i18n="powerups">Power-ups</h3>
+      <div class="legend" id="legend"></div>
+      <button id="settings-close" class="primary" data-i18n="back">Back to game</button>
     </div>
   </div>
 
   <div id="join" class="overlay">
-    <form id="join-form" class="card">
-      <img src="assets/logo.svg" alt="Blast Arena" class="logo">
-      <p class="tagline">One giant arena. Hundreds of players. Lots of bombs.</p>
-      <input id="name" maxlength="16" placeholder="Your nickname" autocomplete="off" autofocus>
-      <button type="submit" id="play" class="primary">Play</button>
-      <p id="join-error" class="error"></p>
-      <div class="help">
-        <span><kbd>WASD</kbd>/<kbd>Arrows</kbd> move</span>
-        <span><kbd>Space</kbd> bomb</span>
-        <span><kbd>Wheel</kbd> zoom</span>
-        <span><kbd>Esc</kbd> settings</span>
+    <div class="lobby">
+      <form id="join-form" class="card">
+        <img src="assets/logo.svg" alt="Blast Arena" class="logo">
+        <p class="tagline" data-i18n="tagline">One giant arena. Hundreds of players. Lots of bombs.</p>
+        <div class="row-inline">
+          <input id="name" maxlength="16" data-i18n-placeholder="nickname" placeholder="Your nickname" autocomplete="off" autofocus>
+          <select id="join-lang" aria-label="Language"></select>
+        </div>
+        <div class="section-title" data-i18n="chooseArena">Choose an arena</div>
+        <div id="arena-list"></div>
+        <button type="submit" id="play" class="primary" data-i18n="play">Play</button>
+        <p id="join-error" class="error"></p>
+        <div class="help">
+          <span><kbd>WASD</kbd> <span data-i18n="helpMove">move</span></span>
+          <span><kbd>Space</kbd> <span data-i18n="helpBomb">bomb</span></span>
+          <span><kbd>E</kbd> <span data-i18n="helpAct">action</span></span>
+          <span><kbd>Wheel</kbd> <span data-i18n="helpZoom">zoom</span></span>
+          <span><kbd>Esc</kbd> <span data-i18n="helpMenu">settings</span></span>
+        </div>
+      </form>
+      <div class="card side-card">
+        <div class="section-title" data-i18n="profile">Your profile</div>
+        <div id="profile">
+          <div class="level-row"><b id="pf-level"></b><span id="pf-xp" class="muted"></span></div>
+          <div class="xpbar"><div id="pf-xpbar"></div></div>
+          <div id="pf-stats" class="muted small"></div>
+        </div>
+        <div class="section-title"><span data-i18n="hat">Hat</span></div>
+        <div id="hat-picker" class="picker"></div>
+        <div class="section-title"><span data-i18n="trail">Trail</span></div>
+        <div id="trail-picker" class="picker"></div>
+        <div class="section-title" data-i18n="allTime">All-time top blasters</div>
+        <ol id="alltime" class="small"></ol>
       </div>
-    </form>
+    </div>
   </div>
 
   <script type="module" src="js/main.js"></script>

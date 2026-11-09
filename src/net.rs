@@ -1,32 +1,58 @@
-//! WebSocket sessions: handshake, then a reader that writes input into the
-//! client's lock-free slot and a writer that forwards reliable events and
-//! the newest snapshot.
+//! WebSocket sessions: handshake (arena choice, profile), then a reader that
+//! writes input into the client's lock-free slot and a writer that forwards
+//! reliable events and the newest snapshot.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
-use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Query, State};
 use axum::response::Response;
 use bytes::{Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::game::GameEvent;
+use crate::db::{self, Db};
 use crate::game::link::{ClientLink, EVENT_QUEUE, InputSlot, SnapshotSlot};
+use crate::game::{GameEvent, JoinRequest, Mode};
+use crate::metrics::ArenaStats;
 use crate::protocol::{self, ClientMsg, ServerMsg};
 
 const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
-const MAX_MSGS_PER_SEC: u32 = 60;
+/// Inputs arrive up to 20/s for prediction, plus pings and the odd emote.
+const MAX_MSGS_PER_SEC: u32 = 80;
 const MAX_NAME_LEN: usize = 16;
+
+/// One running arena: its game task and live stats.
+#[derive(Clone)]
+pub struct ArenaHandle {
+    pub name: String,
+    pub mode: Mode,
+    pub map_size: i32,
+    pub max_players: usize,
+    pub game: mpsc::Sender<GameEvent>,
+    pub live: Arc<ArenaStats>,
+}
 
 #[derive(Clone)]
 pub struct AppState {
-    pub game: mpsc::Sender<GameEvent>,
+    pub arenas: Arc<Vec<ArenaHandle>>,
+    pub db: Option<Db>,
+    pub started: Instant,
+    pub sys: Arc<std::sync::Mutex<sysinfo::System>>,
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.max_message_size(4096).on_upgrade(move |socket| session(socket, state))
+#[derive(Deserialize)]
+pub struct WsQuery {
+    arena: Option<usize>,
+}
+
+pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, State(state): State<AppState>) -> Response {
+    let arena = q.arena.unwrap_or(0).min(state.arenas.len() - 1);
+    let handle = state.arenas[arena].clone();
+    ws.max_message_size(4096).on_upgrade(move |socket| session(socket, handle, state.db))
 }
 
 pub fn sanitize_name(raw: &str) -> String {
@@ -39,17 +65,32 @@ pub fn sanitize_name(raw: &str) -> String {
     if name.is_empty() { "Blaster".to_string() } else { name.to_string() }
 }
 
-async fn session(socket: WebSocket, state: AppState) {
+async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
     let (mut sink, mut stream) = socket.split();
 
     // Handshake: the first message must be a join.
-    let name = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
+    let mut req = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
         Ok(Some(Ok(Message::Binary(data)))) => match ClientMsg::decode(&data) {
-            Some(ClientMsg::Join { name }) => sanitize_name(name),
+            Some(ClientMsg::Join { name, token, hat, trail, near }) => JoinRequest {
+                name: sanitize_name(name),
+                token: db::valid_token(token).then(|| token.to_string()),
+                hat,
+                trail,
+                near,
+                profile: None,
+            },
             _ => return,
         },
         _ => return,
     };
+    // Load (or start) the player's profile before joining.
+    if let (Some(db), Some(token)) = (&db, &req.token) {
+        let mut profile = db.load(token).await.unwrap_or_else(|| db::Profile { token: token.clone(), ..Default::default() });
+        profile.name.clone_from(&req.name);
+        profile.hat = profile.allowed_hat(req.hat);
+        profile.trail = profile.allowed_trail(req.trail);
+        req.profile = Some(profile);
+    }
 
     let (events_tx, mut events_rx) = mpsc::channel::<Bytes>(EVENT_QUEUE);
     let pong_tx = events_tx.downgrade();
@@ -57,7 +98,7 @@ async fn session(socket: WebSocket, state: AppState) {
     let input = Arc::new(InputSlot::default());
     let link = ClientLink { events: events_tx, snapshot: snapshot.clone(), input: input.clone() };
     let (reply_tx, reply_rx) = oneshot::channel();
-    if state.game.send(GameEvent::Join { name, link, reply: reply_tx }).await.is_err() {
+    if arena.game.send(GameEvent::Join { req, link, reply: reply_tx }).await.is_err() {
         return;
     }
     let id = match reply_rx.await {
@@ -73,6 +114,7 @@ async fn session(socket: WebSocket, state: AppState) {
     // Events go first so the welcome always precedes snapshots. The writer
     // ends when the game drops the client's event sender (on leave, or when
     // the client can't keep up), which closes the socket.
+    let live = arena.live.clone();
     let mut writer = tokio::spawn(async move {
         loop {
             let msg = tokio::select! {
@@ -83,6 +125,7 @@ async fn session(socket: WebSocket, state: AppState) {
                 },
                 snap = snapshot.next() => snap,
             };
+            live.bytes_out.fetch_add(msg.len() as u64, Relaxed);
             if sink.send(Message::Binary(msg)).await.is_err() {
                 return;
             }
@@ -112,8 +155,10 @@ async fn session(socket: WebSocket, state: AppState) {
                 break;
             }
             match ClientMsg::decode(&data) {
-                Some(ClientMsg::In { d, s }) => input.set_dirs(d, s),
+                Some(ClientMsg::In { d, s, q }) => input.set_dirs(d, s, q),
                 Some(ClientMsg::Bomb) => input.press_bomb(),
+                Some(ClientMsg::Act) => input.press_act(),
+                Some(ClientMsg::Emote { e }) => input.emote(e),
                 Some(ClientMsg::View { w, h }) => input.set_view(w, h),
                 Some(ClientMsg::Ping { c }) => {
                     // Answer directly so latency doesn't include tick wait.
@@ -130,7 +175,7 @@ async fn session(socket: WebSocket, state: AppState) {
         _ = &mut writer => reader.abort(),
         _ = &mut reader => writer.abort(),
     }
-    let _ = state.game.send(GameEvent::Leave { id }).await;
+    let _ = arena.game.send(GameEvent::Leave { id }).await;
 }
 
 #[cfg(test)]

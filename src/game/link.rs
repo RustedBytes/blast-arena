@@ -15,28 +15,33 @@ use tokio::sync::{Notify, mpsc};
 
 #[derive(Default)]
 pub struct InputSlot {
-    /// Bits 0..3 held direction, bits 3..6 fallback direction.
+    /// Bits 0..3 held direction, bits 3..6 fallback direction, bits 16..32
+    /// the client's input sequence number (echoed back for prediction).
     dirs: AtomicU32,
     /// Running count of bomb presses.
     bombs: AtomicU32,
+    /// Running count of action-key presses (remote detonation, punch).
+    acts: AtomicU32,
+    /// Latest emote as `count << 8 | emote`.
+    emote: AtomicU32,
     /// Requested view half extents as `w << 16 | h`; 0 when never set.
     view: AtomicU32,
 }
 
-pub fn pack_dirs(dir: u8, alt: u8) -> u32 {
-    dir.min(4) as u32 | (alt.min(4) as u32) << 3
+pub fn pack_dirs(dir: u8, alt: u8, seq: u16) -> u32 {
+    dir.min(4) as u32 | (alt.min(4) as u32) << 3 | (seq as u32) << 16
 }
 
-pub fn unpack_dirs(v: u32) -> (u8, u8) {
-    ((v & 7) as u8, (v >> 3 & 7) as u8)
+pub fn unpack_dirs(v: u32) -> (u8, u8, u16) {
+    ((v & 7) as u8, (v >> 3 & 7) as u8, (v >> 16) as u16)
 }
 
 impl InputSlot {
-    pub fn set_dirs(&self, dir: u8, alt: u8) {
-        self.dirs.store(pack_dirs(dir, alt), Relaxed);
+    pub fn set_dirs(&self, dir: u8, alt: u8, seq: u16) {
+        self.dirs.store(pack_dirs(dir, alt, seq), Relaxed);
     }
 
-    pub fn dirs(&self) -> (u8, u8) {
+    pub fn dirs(&self) -> (u8, u8, u16) {
         unpack_dirs(self.dirs.load(Relaxed))
     }
 
@@ -46,6 +51,25 @@ impl InputSlot {
 
     pub fn bomb_presses(&self) -> u32 {
         self.bombs.load(Relaxed)
+    }
+
+    pub fn press_act(&self) {
+        self.acts.fetch_add(1, Relaxed);
+    }
+
+    pub fn act_presses(&self) -> u32 {
+        self.acts.load(Relaxed)
+    }
+
+    pub fn emote(&self, e: u8) {
+        let count = (self.emote.load(Relaxed) >> 8).wrapping_add(1);
+        self.emote.store(count << 8 | e as u32, Relaxed);
+    }
+
+    /// (emote count, latest emote).
+    pub fn latest_emote(&self) -> (u32, u8) {
+        let v = self.emote.load(Relaxed);
+        (v >> 8, v as u8)
     }
 
     pub fn set_view(&self, w: u16, h: u16) {
@@ -111,22 +135,27 @@ mod tests {
     fn dirs_round_trip() {
         for d in 0..=4 {
             for a in 0..=4 {
-                assert_eq!(unpack_dirs(pack_dirs(d, a)), (d, a));
+                assert_eq!(unpack_dirs(pack_dirs(d, a, 65535)), (d, a, 65535));
             }
         }
-        assert_eq!(unpack_dirs(pack_dirs(9, 200)), (4, 4), "out of range values are clamped");
+        assert_eq!(unpack_dirs(pack_dirs(9, 200, 7)), (4, 4, 7), "out of range values are clamped");
     }
 
     #[test]
     fn input_slot_tracks_latest_state() {
         let slot = InputSlot::default();
         assert_eq!(slot.view(), None);
-        slot.set_dirs(2, 1);
-        slot.set_dirs(3, 2);
+        slot.set_dirs(2, 1, 1);
+        slot.set_dirs(3, 2, 2);
         slot.press_bomb();
         slot.press_bomb();
+        slot.press_act();
+        slot.emote(4);
+        slot.emote(5);
         slot.set_view(20, 14);
-        assert_eq!(slot.dirs(), (3, 2));
+        assert_eq!(slot.dirs(), (3, 2, 2));
+        assert_eq!(slot.act_presses(), 1);
+        assert_eq!(slot.latest_emote(), (2, 5));
         assert_eq!(slot.bomb_presses(), 2);
         assert_eq!(slot.view(), Some((20, 14)));
     }

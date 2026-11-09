@@ -214,7 +214,23 @@ export class GameAudio {
     this._noiseHit(t, 0.05, 'lowpass', 800, 1, 0.2, this.sfxGain);
   }
 
-  explosion(distanceTiles = 0) {
+  /**
+   * A stereo panner feeding the SFX bus, for positional sounds. `pan` is
+   * -1 (left) .. 1 (right). Returns the plain SFX bus when panning isn't
+   * available.
+   */
+  _panned(pan, t, dur) {
+    const ctx = this.ctx;
+    if (!ctx.createStereoPanner || !pan) return this.sfxGain;
+    const p = ctx.createStereoPanner();
+    p.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+    p.connect(this.sfxGain);
+    setTimeout(() => p.disconnect(), (dur + 0.2) * 1000);
+    return p;
+  }
+
+  /** `pan` places the blast left/right of the listener (-1 .. 1). */
+  explosion(distanceTiles = 0, pan = 0) {
     const t = this._now();
     if (t === null) return;
     const d = Math.max(0, Number(distanceTiles) || 0);
@@ -222,8 +238,10 @@ export class GameAudio {
     const near = 1 - d / 20; // 1 = on top of player
     const vol = 0.15 + 0.75 * near * near;
     const cutoff = 500 + 2500 * near;
-    this._noiseHit(t, 0.35 + 0.35 * near, 'lowpass', cutoff, 0.8, vol, this.sfxGain, 120);
-    this._voice('sine', 90 + 40 * near, t, 0.3 + 0.3 * near, vol * near, this.sfxGain, null, 30);
+    const dur = 0.35 + 0.35 * near;
+    const out = this._panned(pan * (1 - near * 0.5), t, dur + 0.4);
+    this._noiseHit(t, dur, 'lowpass', cutoff, 0.8, vol, out, 120);
+    this._voice('sine', 90 + 40 * near, t, 0.3 + 0.3 * near, vol * near, out, null, 30);
   }
 
   pickup() {

@@ -29,6 +29,8 @@ const BOMB_SPOT_RANGE: u16 = 8;
 const ESCAPE_MARGIN: f32 = 3.0;
 /// Safe cells needed behind a single exit before a bot dares to bomb.
 const MIN_SAFE_POCKET: usize = 6;
+/// How soon bots assume a remote bomb might be detonated.
+const REMOTE_ASSUMED_TICKS: u16 = FUSE_TICKS as u16;
 
 const NAMES: &[&str] = &[
     "Sparky", "Boomer", "Kaboom", "Fuse", "Dynamo", "Pixel", "Zapper", "Turbo", "Nova", "Gizmo",
@@ -142,8 +144,9 @@ impl Search {
 pub struct AiScratch {
     danger: Vec<u16>,
     hypothetical: Vec<u16>,
-    /// Living, unshielded players per cell (bombing targets).
-    targets: Vec<u8>,
+    /// Living, unshielded players per cell that a bot of each team (index
+    /// 0 = no team) may target.
+    targets: [Vec<u8>; 3],
     /// Living players per cell.
     occupied: Vec<u8>,
     bombs: Vec<(i32, i32, u8, bool, u16)>,
@@ -156,7 +159,7 @@ impl AiScratch {
         AiScratch {
             danger: vec![SAFE; cells],
             hypothetical: vec![SAFE; cells],
-            targets: vec![0; cells],
+            targets: [vec![0; cells], vec![0; cells], vec![0; cells]],
             occupied: vec![0; cells],
             bombs: Vec::with_capacity(256),
             bomb_index: HashMap::with_capacity(256),
@@ -178,6 +181,10 @@ struct Me {
     speed_lvl: u8,
     kick: bool,
     shielded: bool,
+    /// Index into the per-team target grids.
+    team: usize,
+    /// Has remote bombs waiting to be detonated.
+    remote_out: bool,
 }
 
 fn dir_between(a: (i32, i32), b: (i32, i32)) -> u8 {
@@ -208,14 +215,20 @@ impl World {
     }
 
     fn fill_senses(&self, sc: &mut AiScratch) {
-        sc.targets.fill(0);
+        for t in &mut sc.targets {
+            t.fill(0);
+        }
         sc.occupied.fill(0);
         for p in self.players.values().filter(|p| p.alive) {
             let (x, y) = p.cell();
             let i = self.map.idx(x, y);
             sc.occupied[i] = sc.occupied[i].saturating_add(1);
             if p.invulnerable_until <= self.tick {
-                sc.targets[i] = sc.targets[i].saturating_add(1);
+                for (team, t) in sc.targets.iter_mut().enumerate() {
+                    if team == 0 || p.team != team as u8 {
+                        t[i] = t[i].saturating_add(1);
+                    }
+                }
             }
         }
         self.fill_danger(&mut sc.danger, &mut sc.bombs, &mut sc.bomb_index);
@@ -239,6 +252,9 @@ impl World {
         for b in self.bombs.values() {
             let t = b.explode_at.saturating_sub(self.tick).min(SAFE as u64 - 1) as u16;
             let t = if danger[self.map.idx(b.x, b.y)] == 0 { 0 } else { t };
+            // A remote bomb can go off whenever its owner likes; treat it like
+            // a freshly lit one.
+            let t = if b.remote { t.min(REMOTE_ASSUMED_TICKS) } else { t };
             index.insert(b.id, bombs.len());
             bombs.push((b.x, b.y, b.range, b.pierce, t));
         }
@@ -250,12 +266,11 @@ impl World {
                 let (x, y, range, pierce, t) = bombs[k];
                 self.trace_blast(x, y, range, false, pierce, |_, _, cx, cy| {
                     let id = self.bomb_grid[self.map.idx(cx, cy)];
-                    if let Some(&j) = index.get(&id) {
-                        if bombs[j].4 > t {
+                    if let Some(&j) = index.get(&id)
+                        && bombs[j].4 > t {
                             bombs[j].4 = t;
                             changed = true;
                         }
-                    }
                 });
             }
             if !changed {
@@ -284,7 +299,9 @@ impl World {
             spt: p.speed(self.tick) * DT,
             range: p.range,
             pierce: p.pierce,
-            can_bomb: p.can_bomb(self.tick),
+            can_bomb: p.can_bomb(self.tick) && self.bomb_at(p.cell().0, p.cell().1).is_none(),
+            team: p.team as usize,
+            remote_out: p.remote && p.active_bombs > 0,
             vulnerable: p.invulnerable_until <= self.tick,
             max_bombs: p.max_bombs,
             speed_lvl: p.speed_lvl,
@@ -318,7 +335,7 @@ impl World {
             } else {
                 brain.escaping = false;
                 // Reflex: an enemy is in the line of fire right now.
-                if me.can_bomb && self.blast_value(cur, &sc.targets, &me).1 > 0 {
+                if me.can_bomb && self.blast_value(cur, &sc.targets[me.team], &me).1 > 0 {
                     if self.bomb_escape(sc, &me, &mut brain.path) {
                         want_bomb = true;
                         brain.escaping = true;
@@ -359,6 +376,17 @@ impl World {
         p.input_dir = dir;
         p.input_alt = 0;
         p.want_bomb |= want_bomb;
+        // Safely clear of its remote bombs: set them off.
+        if me.remote_out && !in_danger && !want_bomb && !brain.escaping {
+            p.want_act = true;
+        }
+    }
+
+    /// Cells a bot may stop on: belts would carry it off and pads would
+    /// teleport it away.
+    fn rest_ok(&self, c: (i32, i32)) -> bool {
+        let t = self.map.get(c.0, c.1);
+        t.conveyor_dir() == 0 && t != Tile::Teleport
     }
 
     fn walkable(&self, c: (i32, i32), start: (i32, i32)) -> bool {
@@ -372,7 +400,7 @@ impl World {
             let d = danger[self.map.idx(c.0, c.1)];
             d == SAFE || d as f32 > (dist as f32 + 1.0) / spt + ESCAPE_MARGIN
         });
-        match search.nodes.iter().position(|n| danger[self.map.idx(n.cell.0, n.cell.1)] == SAFE) {
+        match search.nodes.iter().position(|n| danger[self.map.idx(n.cell.0, n.cell.1)] == SAFE && self.rest_ok(n.cell)) {
             Some(k) => {
                 search.path_to(k, path);
                 true
@@ -410,7 +438,7 @@ impl World {
         let mut safe_cells = 0;
         let mut nearest = None;
         for (k, n) in nodes.iter().enumerate().skip(1) {
-            if hyp[self.map.idx(n.cell.0, n.cell.1)] != SAFE {
+            if hyp[self.map.idx(n.cell.0, n.cell.1)] != SAFE || !self.rest_ok(n.cell) {
                 continue;
             }
             safe_cells += 1;
@@ -454,7 +482,7 @@ impl World {
         let mut hit = targets[self.map.idx(c.0, c.1)] as u32;
         let mut hits_self = c == me.cur;
         self.trace_blast(c.0, c.1, me.range, true, me.pierce, |_, _, x, y| {
-            if self.map.get(x, y) == Tile::Crate {
+            if self.map.get(x, y).is_breakable() {
                 crates += 1;
             }
             hit += targets[self.map.idx(x, y)] as u32;
@@ -477,6 +505,7 @@ impl World {
             Item::Shield if !me.shielded => 4.0,
             // A gamble: usually good, sometimes a curse.
             Item::Mystery => 4.0,
+            Item::Remote | Item::Punch | Item::LineBomb | Item::Ghost => 3.0,
             _ => 1.0,
         }
     }
@@ -498,13 +527,12 @@ impl World {
                     best = Some((score, k, bomb));
                 }
             };
-            if k > 0 {
-                if let Some(item) = Item::from_u8(self.items[i]) {
+            if k > 0
+                && let Some(item) = Item::from_u8(self.items[i]) {
                     consider(self.item_value(item, me), false);
                 }
-            }
-            if me.can_bomb && n.dist <= BOMB_SPOT_RANGE {
-                let (crates, enemies) = self.blast_value(n.cell, &sc.targets, me);
+            if me.can_bomb && n.dist <= BOMB_SPOT_RANGE && self.rest_ok(n.cell) {
+                let (crates, enemies) = self.blast_value(n.cell, &sc.targets[me.team], me);
                 consider(crates as f32 + 4.0 * enemies as f32, true);
             }
         }
@@ -520,6 +548,8 @@ impl World {
             let far = nodes.last().unwrap().dist.saturating_sub(2);
             let first_far = nodes.iter().position(|n| n.dist >= far).unwrap();
             let k = first_far + self.rng.below((nodes.len() - first_far) as u32) as usize;
+            // Prefer somewhere it can stand still.
+            let k = (k..nodes.len()).chain(first_far..k).find(|&j| self.rest_ok(nodes[j].cell)).unwrap_or(k);
             sc.search.path_to(k, &mut brain.path);
         }
     }
@@ -612,20 +642,27 @@ mod tests {
 
     #[test]
     fn bots_play_well() {
-        let mut rng = Rng::new(11);
-        let map = Map::generate(41, 41, 0.45, &mut rng);
-        let mut w = World::with_map(map, rng, 64);
-        for _ in 0..10 {
-            w.add_bot();
+        // Three worlds (with every biome hazard) smooth out run-to-run noise.
+        let (mut crates, mut items, mut suicides) = (0, 0, 0);
+        for seed in [11, 12, 13] {
+            let mut rng = Rng::new(seed);
+            let map = Map::generate(41, 41, 0.45, &mut rng);
+            let mut w = World::with_map(map, rng, 64);
+            for _ in 0..10 {
+                w.add_bot();
+            }
+            for _ in 0..2000 {
+                w.step();
+            }
+            let s = w.stats;
+            eprintln!("seed {seed}: {s:?}");
+            crates += s.crates_destroyed;
+            items += s.items_picked;
+            suicides += s.suicides;
         }
-        for _ in 0..2000 {
-            w.step();
-        }
-        let s = w.stats;
-        eprintln!("{s:?}");
-        assert!(s.crates_destroyed >= 150, "bots should farm crates: {s:?}");
-        assert!(s.items_picked >= 20, "bots should collect power-ups: {s:?}");
-        // 10 bots x 100 s: well under one suicide per bot per minute.
-        assert!(s.suicides <= 8, "too many suicides: {s:?}");
+        assert!(crates >= 450, "bots should farm crates: {crates}");
+        assert!(items >= 60, "bots should collect power-ups: {items}");
+        // 3 x 10 bots x 100 s: well under one suicide per bot per minute.
+        assert!(suicides <= 21, "too many suicides: {suicides}");
     }
 }
