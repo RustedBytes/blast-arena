@@ -29,15 +29,26 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Gamepad | Stick or d-pad moves, A bomb, X action, shoulder buttons zoom |
 | Touch | Drag on the left to steer (floating joystick), bomb and action buttons, pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, **tile style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Tile style is **Pixel art** by default: crisp 16×16 tiles generated in code (`static/js/pixelart.js`). **Classic** brings back the original vector tiles. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `static/js/pixelart.js` and sprites in `static/js/pixelsprites.js`, sharing `static/js/pixelkit.js`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 
-The pixel tiles follow a few rules:
+The pixel art follows a few rules:
 - **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).
 - **Floors:** quiet and seamless, with variants per region, so players and items stand out.
 - **Walls and crates:** raised blocks in 3/4 view, casting soft shadows onto the floor.
 - **Regions:** each has its own walls (mossy stone, snow-capped blocks with icicles, limestone with gold inlays, obsidian with lava veins), and neighbouring regions blend along a wavy border.
+- **Sprites:** everything you interact with has a dark outline.
+  - **Bombs:** shaded iron spheres with a glint and a ground shadow. Pierce bombs are red with spikes, and remote bombs get a blinking antenna.
+  - **Fire:** a fireball with white-hot, yellow, orange and red bands, flickering through three frames.
+  - **Power-ups:** one family of bevelled tokens. The frame colour shows rarity and the glyph shows the effect.
+  - **Players:** helmeted bombers in their team or player colour, with walk frames and pixel hats.
+  - **Particles:** in pixel style they snap to the same pixel grid.
 
-The **Tile Lab** at http://localhost:3000/tiles.html previews the whole set on a sample map using the real renderer. You can reroll the generator seed there and compare with the classic tiles.
+The **Tile Lab** at http://localhost:3000/tiles.html has three parts:
+- a live scene animated by the game's renderer: walking players with hats, all three bomb types, a flickering explosion and power-ups
+- a sample map of all four regions
+- a sheet of every generated tile and sprite
+
+You can reroll the tile seed there and compare with the classic art.
 
 ## Configuration
 

@@ -34,6 +34,8 @@ export class Particles {
     this.freeTop = capacity;
     for (let i = 0; i < capacity; i++) this.free[i] = capacity - 1 - i;
     this.count = 0;
+    /** Draw as pixel art (set by the renderer from the art style). */
+    this.pixel = false;
   }
 
   /** Positions and sizes are in tiles; velocities in tiles per second. */
@@ -77,6 +79,37 @@ export class Particles {
     }
   }
 
+  /**
+   * Pixel-art particles: squares snapped to the art-pixel grid (16 per
+   * tile), shrinking in whole art pixels, so effects match the sprites.
+   */
+  pixelParticle(ctx, k, t, px, py, size, T, life) {
+    const u = T / 16;
+    const cx = Math.round(px / u) * u, cy = Math.round(py / u) * u;
+    if (k === P_STAR) {
+      // A plus sign that twinkles.
+      ctx.globalAlpha = t * (0.6 + 0.4 * Math.sin(life * 30));
+      const n = t > 0.5 ? 2 : 1;
+      ctx.fillRect(cx - u / 2, cy - (n + 0.5) * u, u, (2 * n + 1) * u);
+      ctx.fillRect(cx - (n + 0.5) * u, cy - u / 2, (2 * n + 1) * u, u);
+      return;
+    }
+    // Everything else is a square, sized in whole art pixels.
+    let n;
+    if (k === P_SMOKE) {
+      ctx.globalAlpha = t * 0.5;
+      n = size * 16 * (1.6 - t) * 1.4;
+    } else if (k === P_DEBRIS) {
+      ctx.globalAlpha = Math.min(1, t * 2);
+      n = size * 16;
+    } else {
+      ctx.globalAlpha = k === P_CURSE ? t * 0.8 : t;
+      n = size * 16 * (k === P_SPARK ? t : 1) * 1.6;
+    }
+    const s = Math.max(1, Math.round(n)) * u;
+    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+  }
+
   /** Draws normal-blended particles, then additive ones in a second pass. */
   draw(ctx, camX, camY, T) {
     if (this.count === 0) return;
@@ -97,6 +130,10 @@ export class Particles {
       const t = life[i] / maxLife[i]; // 1 → 0
       const px = x[i] * T - camX, py = y[i] * T - camY;
       ctx.fillStyle = COLORS[color[i]];
+      if (this.pixel) {
+        this.pixelParticle(ctx, k, t, px, py, size[i], T, life[i]);
+        continue;
+      }
       if (k === P_SMOKE) {
         ctx.globalAlpha = t * 0.55;
         const r = size[i] * T * (1.6 - t);

@@ -25,6 +25,9 @@ const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08
   '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff'];
 export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
 const TRAIL_COLORS = [0, 10, 8, 9];
+// Where the fuse ends on each bomb sprite, in tiles from the cell centre.
+const FUSE_TIP = [0.34, -0.36];
+const FUSE_TIP_PIXEL = [0.28, -0.47];
 
 /** Picks one of `n` tile variants from a coordinate hash; the first is the most common. */
 function variant(h, n) {
@@ -139,6 +142,16 @@ export class Renderer {
   }
 
   // ------------------------------------------------------------- tiles
+
+  /** The pixel-art set when that style is on, otherwise null. */
+  pixelArt() {
+    return this.tileStyle === 'pixel' ? this.assets.pixel : null;
+  }
+
+  /** A sprite in the current art style (pixel art falls back to the classic one). */
+  art(name) {
+    return this.pixelArt()?.[name] ?? this.assets.sprite(name);
+  }
 
   invalidateTile(map, x, y) {
     // A tile's shadow falls on its east and south neighbours, which may be
@@ -367,7 +380,7 @@ export class Renderer {
     this.drawHills(state.hills, camX, camY, T, sec);
 
     // Scorch marks fade out over a few seconds.
-    const scorch = this.assets.sprite('scorch');
+    const scorch = this.art('scorch');
     for (let i = 0; i < DECALS; i++) {
       const age = now - this.decalT[i];
       if (age >= DECAL_LIFE) continue;
@@ -393,6 +406,7 @@ export class Renderer {
     }
     for (let i = 0; i < f.nPlayers; i++) this.drawPlayer(ps[i], camX, camY, T, sec, dt, state);
 
+    this.particles.pixel = this.tileStyle === 'pixel';
     this.particles.draw(ctx, camX, camY, T);
     this.drawEffects(now, camX, camY, T);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
@@ -476,7 +490,7 @@ export class Renderer {
     for (const [x, y, kind] of items) {
       const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
       if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
-      const s = this.assets.sprite(ITEM_SPRITES[kind]);
+      const s = this.art(ITEM_SPRITES[kind]);
       if (!s) continue;
       const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
       const pulse = 1 + 0.08 * Math.sin(sec * 3 + x * 2);
@@ -507,6 +521,7 @@ export class Renderer {
 
   drawBombs(f, camX, camY, T, sec, dt) {
     const { ctx } = this;
+    const pix = this.pixelArt();
     for (let i = 0; i < f.nBombs; i++) {
       const b = f.bombs[i];
       const urgency = b.remote ? 0 : 1 - Math.min(1, b.fuse / 50);
@@ -518,8 +533,10 @@ export class Renderer {
         px += (Math.random() - 0.5) * T * 0.06;
         py += (Math.random() - 0.5) * T * 0.06;
       }
-      ctx.drawImage(this.assets.sprite(b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
-      if (b.remote) {
+      ctx.drawImage(this.art(b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
+      if (b.remote && pix) {
+        ctx.drawImage(pix.antenna[Math.floor(sec * 4) % 2], px - size / 2, py - size / 2, size, size);
+      } else if (b.remote) {
         // Remote bombs: antenna with a blinking LED.
         ctx.strokeStyle = '#9fb0c8';
         ctx.lineWidth = T * 0.03;
@@ -541,7 +558,8 @@ export class Renderer {
       }
       // Fuse sparks fly off the tip.
       if (!b.remote && Math.random() < dt * 30) {
-        this.particles.emit(P_SPARK, b.x + 0.5 + 0.34 * pulse, b.y + 0.5 - 0.36 * pulse,
+        const [tx, ty] = pix ? FUSE_TIP_PIXEL : FUSE_TIP;
+        this.particles.emit(P_SPARK, b.x + 0.5 + tx * pulse, b.y + 0.5 + ty * pulse,
           (Math.random() - 0.5) * 2, -Math.random() * 2, 0.25, 0.04, 1);
       }
     }
@@ -549,11 +567,20 @@ export class Renderer {
 
   drawExplosions(explosions, camX, camY, T) {
     const { ctx } = this;
-    const center = this.assets.sprite('flame_center');
-    const arm = this.assets.sprite('flame_arm');
-    const end = this.assets.sprite('flame_end');
+    const pix = this.pixelArt();
+    // Pixel flames flicker through three frames; each explosion starts on its own.
+    const tick = Math.floor(performance.now() / 70);
+    let center = this.assets.sprite('flame_center');
+    let arm = this.assets.sprite('flame_arm');
+    let end = this.assets.sprite('flame_end');
     for (let k = 0; k < explosions.length; k++) {
       const [ex, ey, arms, left] = explosions[k];
+      if (pix) {
+        const fr = (tick + ex * 7 + ey * 3) % 3;
+        center = pix.flames.center[fr];
+        arm = pix.flames.arm[fr];
+        end = pix.flames.end[fr];
+      }
       const life = left / 10; // 1 when fresh, 0 when gone
       ctx.globalAlpha = Math.min(1, life * 2.2);
       const thick = 0.75 + 0.25 * Math.sin(Math.min(1, (1 - life) * 3) * Math.PI / 2);
@@ -597,9 +624,10 @@ export class Renderer {
     return playerColors(id, r?.team ?? 0, this.colorblind);
   }
 
-  drawSprite(colors, facing, px, py, T, sxs, sys) {
+  /** `frame`: 0 standing, 1 and 2 the walk steps (pixel art only). */
+  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0) {
     const view = facing === 1 ? 'player_up' : facing === 3 ? 'player_down' : 'player_side';
-    const sprite = this.assets.player(colors, view);
+    const sprite = this.pixelArt() ? this.assets.pixelPlayer(colors, view.slice(7), frame) : this.assets.player(colors, view);
     const { ctx } = this;
     ctx.save();
     ctx.translate(px, py);
@@ -618,10 +646,13 @@ export class Renderer {
     const { ctx } = this;
     const info = state.rosterInfo.get(p.id);
     const colors = this.colorsFor(p.id, state);
-    // Two-step walk cycle: a hop with squash and stretch.
+    // Two-step walk cycle: a hop with squash and stretch. Pixel art steps
+    // its legs instead and hops by whole art pixels, so the grid never warps.
+    const pixel = this.pixelArt() !== null;
     const phase = p.moving ? Math.abs(Math.sin(sec * 12 + p.id)) : 0;
-    const bob = -phase * T * 0.07;
-    const sxs = 1 + phase * 0.05, sys = 1 - phase * 0.06;
+    const bob = pixel ? -Math.round(phase) * T / 16 : -phase * T * 0.07;
+    const sxs = pixel ? 1 : 1 + phase * 0.05, sys = pixel ? 1 : 1 - phase * 0.06;
+    const step = p.moving ? (Math.floor((sec * 12 + p.id) / Math.PI) % 2 ? 1 : 2) : 0;
     const px = p.x * T - camX, py = p.y * T - camY;
     if (p.id === state.myId) {
       ctx.fillStyle = 'rgba(255,211,74,0.3)';
@@ -652,9 +683,10 @@ export class Renderer {
       ctx.stroke();
     }
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
-    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys);
+    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step);
     ctx.globalAlpha = 1;
-    this.drawHat(info?.hat ?? 0, px, py - T * 0.16 + bob, T, p.facing);
+    if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);
+    else this.drawHat(info?.hat ?? 0, px, py - T * 0.16 + bob, T, p.facing);
     if (p.shield) {
       // Rotating hexagonal shield bubble.
       const r = T * (0.56 + 0.03 * Math.sin(sec * 6));
@@ -685,6 +717,23 @@ export class Renderer {
       ctx.moveTo(px, cy - r * 1.5); ctx.lineTo(px, cy + r * 1.5);
       ctx.stroke();
     }
+  }
+
+  /**
+   * Pixel-art hat sitting on the helmet. `top` is the sprite's top edge;
+   * hats overlap the helmet by two art pixels, and the halo floats above.
+   */
+  drawPixelHat(hat, x, top, T, facing) {
+    const h = hat && this.assets.pixel.hats[hat];
+    if (!h) return;
+    const u = T / 16;
+    const y = hat === 4 ? top - (h.rows + 1) * u : top + (2 - h.rows) * u;
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    if (facing === 4) ctx.scale(-1, 1);
+    ctx.drawImage(h.canvas, -T / 2, 0, T, T);
+    ctx.restore();
   }
 
   /** Hats are drawn in code on top of the helmet. `y` is the head centre. */

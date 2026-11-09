@@ -17,7 +17,10 @@
 // tile set. `buildPixelTiles(seed)` returns every tile plus the overlays the
 // renderer composes per cell: block shadows and soft biome borders.
 
-const N = 16;
+import {
+  LAVA, N, Pix, SHADOW, STEEL, at, clamp, crack, field, int, line, pick, relief, rng, wrap,
+} from './pixelkit.js';
+
 /** Rows 0..TOP-1 are a block's top face; rows TOP..N-2 its front face. */
 const TOP = 11;
 
@@ -28,7 +31,6 @@ const GRASS = ['#1b3a30', '#24523a', '#2e6a3c', '#3c8240', '#539b45', '#78b74e',
 const SNOW = ['#56688f', '#7489b2', '#9db1d3', '#c3d3e8', '#e3ecf6', '#ffffff'];
 const SAND = ['#6e4128', '#93603a', '#b7824c', '#d2a160', '#e6bf7c', '#f5dca2'];
 const ASH = ['#120e17', '#1d1621', '#2a1f2b', '#382934', '#4a3842', '#5e4a50'];
-const LAVA = ['#5c140e', '#a8281a', '#e8541c', '#ff9a2e', '#ffd66b', '#fff4c2'];
 const STONE = ['#191a28', '#272b3e', '#383f58', '#4d5772', '#67748f', '#8796ae', '#aebbcd', '#d8e0ea'];
 const MOSS = ['#203a26', '#2f5530', '#46753a', '#679a45', '#8fbd57'];
 const SANDSTONE = ['#3d2220', '#5e3428', '#844c33', '#a86843', '#c78a57', '#e0ac70', '#f2cf94'];
@@ -37,146 +39,12 @@ const SANDSTONE = ['#3d2220', '#5e3428', '#844c33', '#a86843', '#c78a57', '#e0ac
 const LIMESTONE = ['#2a2433', '#4a4257', '#6e6577', '#968b94', '#bdb0a8', '#dccfbf', '#f3ead8'];
 const OBSIDIAN = ['#08060c', '#130e1b', '#1f1729', '#2e2240', '#45345e', '#5d4b7d', '#7a68a3'];
 const WOOD = ['#2e1712', '#4f2a1b', '#743f23', '#98582c', '#b8733a', '#d4974f', '#ecbd72', '#f8dea0'];
-const STEEL = ['#16181f', '#272b36', '#3c4352', '#5a6475', '#808ca0', '#aeb9c9', '#e1e8f0'];
 const ICE = ['#1f4c82', '#2f6fae', '#4f98d4', '#7fc0ea', '#b2e2f8', '#e2f7ff', '#ffffff'];
 const RUBBER = ['#0e0f14', '#17191f', '#22252d', '#2e323c', '#3d4250'];
 const PORTAL = ['#1a0d33', '#2f1763', '#4c2a99', '#7448d6', '#a07cff', '#cdb8ff', '#f2ecff'];
 const FLOWERS = [['#fff7e8', '#ffd75e'], ['#ff9ec4', '#fff1a8'], ['#9fd2ff', '#ffffff']];
 const HAZARD = ['#f2c230', '#a8861f', '#26262e', '#15151b'];
 const RUNE = '#7ff6ff';
-/** Translucent cool shadow: tints instead of blackening what it covers. */
-const SHADOW = '#140c2e66';
-
-// ------------------------------------------------------------------- basics
-
-function rng(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const wrap = (v) => ((v % N) + N) % N;
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-const lerp = (a, b, t) => a + (b - a) * t;
-const smooth = (t) => t * t * (3 - 2 * t);
-const int = (rand, n) => Math.floor(rand() * n);
-
-const rgbCache = new Map();
-/** '#rrggbb' or '#rrggbbaa' as [r, g, b, a]. */
-function rgb(hex) {
-  let c = rgbCache.get(hex);
-  if (!c) {
-    const n = parseInt(hex.slice(1), 16);
-    c = hex.length === 9
-      ? [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]
-      : [(n >>> 16) & 255, (n >>> 8) & 255, n & 255, 255];
-    rgbCache.set(hex, c);
-  }
-  return c;
-}
-
-/** A 16x16 RGBA pixel buffer. */
-class Pix {
-  constructor() {
-    this.d = new Uint8ClampedArray(N * N * 4);
-  }
-
-  set(x, y, hex) {
-    if (x < 0 || y < 0 || x >= N || y >= N || !hex) return;
-    const c = rgb(hex), i = (y * N + x) * 4;
-    this.d[i] = c[0]; this.d[i + 1] = c[1]; this.d[i + 2] = c[2]; this.d[i + 3] = c[3];
-  }
-
-  /** Sets a pixel, wrapping around the edges (for seamless floors). */
-  wset(x, y, hex) {
-    this.set(wrap(x), wrap(y), hex);
-  }
-
-  filled(x, y) {
-    return x >= 0 && y >= 0 && x < N && y < N && this.d[(y * N + x) * 4 + 3] > 0;
-  }
-
-  canvas() {
-    const c = document.createElement('canvas');
-    c.width = c.height = N;
-    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(this.d), N, N), 0, 0);
-    return c;
-  }
-}
-
-// 4x4 ordered dither, centred on zero.
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const bayer = (x, y) => BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.46875;
-
-/**
- * Picks a ramp colour for a value in 0..1, mapped onto ramp[lo..hi].
- * Ordered dithering softens the steps between shades.
- */
-function pick(ramp, v, x, y, lo = 0, hi = ramp.length - 1, dither = 1) {
-  const k = lo + v * (hi - lo) + bayer(x, y) * dither;
-  return ramp[clamp(Math.round(k), lo, hi)];
-}
-
-/**
- * Seamless value noise on the 16x16 torus: octaves of [cells, weight],
- * normalised to 0..1. Wrapping the lattice makes every tile tile.
- */
-function field(rand, octaves = [[2, 0.5], [4, 0.3], [8, 0.2]]) {
-  const out = new Float32Array(N * N);
-  for (const [L, w] of octaves) {
-    const g = Array.from({ length: L * L }, rand);
-    const cell = N / L;
-    for (let y = 0; y < N; y++) {
-      for (let x = 0; x < N; x++) {
-        const fx = x / cell, fy = y / cell;
-        const ix = Math.floor(fx), iy = Math.floor(fy);
-        const tx = smooth(fx - ix), ty = smooth(fy - iy);
-        const x1 = (ix + 1) % L, y1 = (iy + 1) % L;
-        const top = lerp(g[iy * L + ix], g[iy * L + x1], tx);
-        const bottom = lerp(g[y1 * L + ix], g[y1 * L + x1], tx);
-        out[y * N + x] += w * lerp(top, bottom, ty);
-      }
-    }
-  }
-  let lo = Infinity, hi = -Infinity;
-  for (const v of out) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-  for (let i = 0; i < out.length; i++) out[i] = (out[i] - lo) / (hi - lo || 1);
-  return out;
-}
-
-const at = (f, x, y) => f[wrap(y) * N + wrap(x)];
-/** Slope towards the light: positive where the surface faces the top left. */
-const relief = (f, x, y) => at(f, x + 1, y + 1) - at(f, x - 1, y - 1);
-
-/** Pixels on a straight line, inclusive. */
-function line(x0, y0, x1, y1, plot) {
-  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
-  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-  let err = dx + dy;
-  for (;;) {
-    plot(x0, y0);
-    if (x0 === x1 && y0 === y1) return;
-    const e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x0 += sx; }
-    if (e2 <= dx) { err += dx; y0 += sy; }
-  }
-}
-
-/** A wandering crack of `len` steps, heading mostly down and right. */
-function crack(rand, x, y, len, plot) {
-  for (let i = 0; i < len; i++) {
-    plot(x, y, i);
-    const r = rand();
-    if (r < 0.45) x++;
-    else if (r < 0.9) y++;
-    else { x++; y++; }
-  }
-}
 
 // ------------------------------------------------------------------- floors
 

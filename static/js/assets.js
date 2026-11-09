@@ -1,8 +1,10 @@
 // Loads the SVG artwork once and rasterises it at a fixed resolution.
 // Sprites are scaled at draw time, so zooming never re-rasterises anything.
-// Map tiles also come in a pixel-art style (see pixelart.js).
+// Everything also comes in a pixel-art style, generated in code (see
+// pixelart.js for tiles and pixelsprites.js for sprites).
 
 import { buildPixelTiles } from './pixelart.js';
+import { buildPixelSprites, pixelPlayer } from './pixelsprites.js';
 
 const STATIC = [
   'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash',
@@ -64,6 +66,7 @@ export class Assets {
     this.sprites = {};      // name -> canvas
     this.templates = {};    // player view -> SVG text with colour placeholders
     this.players = new Map(); // `${body}:${view}` -> canvas | 'loading'
+    this.pixelPlayers = new Map(); // `${body}:${shade}:${view}:${frame}` -> canvas
     this.glow = null;
   }
 
@@ -74,7 +77,21 @@ export class Assets {
       ...PLAYER_VIEWS.map(async (n) => { this.templates[n] = await fetchText(n); }),
     ]);
     this.glow = this.makeGlow();
-    this.pixel = buildPixelTiles();
+    this.setPixelSeed(1);
+  }
+
+  /** (Re)generates the pixel-art tiles from a seed; sprites never change. */
+  setPixelSeed(seed) {
+    this.pixelSprites ??= buildPixelSprites();
+    this.pixel = { ...buildPixelTiles(seed), ...this.pixelSprites };
+  }
+
+  /** Pixel-art player sprite, built once per colour, view and walk frame. */
+  pixelPlayer(colors, view, frame) {
+    const key = `${colors[0]}:${colors[1]}:${view}:${frame}`;
+    let c = this.pixelPlayers.get(key);
+    if (!c) this.pixelPlayers.set(key, (c = pixelPlayer(colors, view, frame)));
+    return c;
   }
 
   /** A map tile in the chosen style: 'pixel' art or the 'classic' vector look. */
