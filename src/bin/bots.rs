@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
+use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -16,7 +17,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 #[serde(tag = "t", rename_all = "lowercase")]
 enum Out<'a> {
     Join { name: &'a str },
-    In { d: u8 },
+    In { d: u8, s: u8 },
+    View { w: u16, h: u16 },
     Bomb,
     Ping { c: f64 },
 }
@@ -45,13 +47,19 @@ struct Stats {
     disconnects: AtomicU64,
 }
 
-fn arg<T: std::str::FromStr>(name: &str, default: T) -> T {
-    let args: Vec<String> = std::env::args().collect();
-    args.iter()
-        .position(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+/// Network load tester for the Blast Arena server.
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+    /// Number of bot connections to open.
+    #[arg(long, default_value_t = 150)]
+    count: u32,
+    /// WebSocket endpoint of the server.
+    #[arg(long, default_value = "ws://127.0.0.1:3000/ws")]
+    url: String,
+    /// Stop after this many seconds (0 runs forever).
+    #[arg(long, default_value_t = 0)]
+    secs: u64,
 }
 
 /// Tiny per-bot PRNG so the bots don't need a dependency.
@@ -71,6 +79,10 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
     let (mut tx, mut rx) = ws.split();
     let name = format!("bot-{n}");
     if tx.send(frame(&Out::Join { name: &name })).await.is_err() {
+        return;
+    }
+    // Ask for a typical zoomed-out view, like a browser on a large screen.
+    if tx.send(frame(&Out::View { w: 20, h: 13 })).await.is_err() {
         return;
     }
 
@@ -98,7 +110,7 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 let r = next_rand(&mut seed);
                 let mut out = Vec::new();
                 if r % 3 == 0 {
-                    out.push(Out::In { d: ((r >> 8) % 5) as u8 });
+                    out.push(Out::In { d: ((r >> 8) % 5) as u8, s: ((r >> 16) % 5) as u8 });
                 }
                 if r % 23 == 0 {
                     out.push(Out::Bomb);
@@ -123,9 +135,7 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
 
 #[tokio::main]
 async fn main() {
-    let count: u32 = arg("--count", 150);
-    let url: String = arg("--url", "ws://127.0.0.1:3000/ws".to_string());
-    let secs: u64 = arg("--secs", 0);
+    let Args { count, url, secs } = Args::parse();
     let stats = Arc::new(Stats::default());
     let epoch = Instant::now();
 

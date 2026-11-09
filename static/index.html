@@ -12,33 +12,71 @@
 
   <div id="hud" class="hidden">
     <div id="stats" class="panel">
-      <div class="stat"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
-      <div class="stat"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
-      <div class="stat"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
-      <div class="stat" id="st-kick-wrap"><img src="assets/pu_kick.svg" alt=""><span id="st-kick">–</span></div>
+      <div class="stat" title="Bombs available"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
+      <div class="stat" title="Blast range"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
+      <div class="stat" title="Speed level"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
+      <div class="stat off" id="st-kick" title="Kick bombs"><img src="assets/pu_kick.svg" alt=""></div>
+      <div class="stat off" id="st-pierce" title="Pierce: blasts go through crates"><img src="assets/pu_pierce.svg" alt=""></div>
+      <div class="stat timer hidden" id="st-shield" title="Shield"><img src="assets/pu_shield.svg" alt=""><span></span></div>
+      <div class="stat timer curse hidden" id="st-curse" title="Cursed"><img src="assets/pu_mystery.svg" alt=""><span></span></div>
       <div class="stat score">Score <b id="st-score">0</b></div>
     </div>
     <div id="side">
       <div id="leaderboard" class="panel">
         <div class="panel-title">Top blasters <span id="online"></span></div>
         <ol id="lb-list"></ol>
+        <div class="lb-hint">Hold <kbd>Tab</kbd> for details</div>
       </div>
       <div id="killfeed"></div>
     </div>
+    <div id="toasts"></div>
     <canvas id="minimap" class="panel"></canvas>
-    <div id="netinfo"></div>
+    <div id="perf" class="panel">
+      <div id="fps">– FPS</div>
+      <div id="netinfo"></div>
+    </div>
+    <button id="gear" class="panel" aria-label="Settings" title="Settings (Esc)">⚙</button>
     <div id="dead" class="hidden">
       <div id="dead-msg"></div>
       <div id="dead-timer"></div>
     </div>
     <div id="touch" class="hidden">
-      <div id="dpad">
-        <button data-dir="1" class="up" aria-label="Up">▲</button>
-        <button data-dir="4" class="left" aria-label="Left">◀</button>
-        <button data-dir="2" class="right" aria-label="Right">▶</button>
-        <button data-dir="3" class="down" aria-label="Down">▼</button>
-      </div>
+      <div id="joy-zone"></div>
+      <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
+    </div>
+  </div>
+
+  <div id="settings" class="overlay hidden">
+    <div class="card settings-card">
+      <h2>Settings</h2>
+      <label class="row">Music <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
+      <label class="row">Sound effects <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
+      <label class="row">Zoom <input type="range" id="set-zoom" min="0.4" max="2.2" step="0.05"></label>
+      <label class="row check"><input type="checkbox" id="set-muted"> Mute all sound <kbd>M</kbd></label>
+      <label class="row check"><input type="checkbox" id="set-fps"> Show FPS <kbd>F</kbd></label>
+      <h3>Controls</h3>
+      <div class="controls">
+        <span><kbd>WASD</kbd> <kbd>Arrows</kbd></span><span>Move (hold two keys to queue a turn)</span>
+        <span><kbd>Space</kbd> <kbd>Enter</kbd></span><span>Drop bomb</span>
+        <span><kbd>Wheel</kbd> <kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></span><span>Zoom in / out / reset</span>
+        <span><kbd>Tab</kbd></span><span>Leaderboard details</span>
+        <span><kbd>Esc</kbd></span><span>This menu</span>
+        <span>Gamepad</span><span>Stick / d-pad move, A bomb, shoulders zoom</span>
+        <span>Touch</span><span>Drag on the left to steer, tap the bomb, pinch to zoom</span>
+      </div>
+      <h3>Power-ups</h3>
+      <div class="legend">
+        <span><img src="assets/pu_bomb.svg" alt="">+1 bomb</span>
+        <span><img src="assets/pu_range.svg" alt="">+1 range</span>
+        <span><img src="assets/pu_speed.svg" alt="">Speed</span>
+        <span><img src="assets/pu_kick.svg" alt="">Kick bombs</span>
+        <span><img src="assets/pu_shield.svg" alt="">Shield (6 s)</span>
+        <span><img src="assets/pu_pierce.svg" alt="">Pierce crates</span>
+        <span><img src="assets/pu_fullfire.svg" alt="">Max range</span>
+        <span><img src="assets/pu_mystery.svg" alt="">Secret box: random, maybe a curse!</span>
+      </div>
+      <button id="settings-close" class="primary">Back to game</button>
     </div>
   </div>
 
@@ -47,11 +85,13 @@
       <img src="assets/logo.svg" alt="Blast Arena" class="logo">
       <p class="tagline">One giant arena. Hundreds of players. Lots of bombs.</p>
       <input id="name" maxlength="16" placeholder="Your nickname" autocomplete="off" autofocus>
-      <button type="submit" id="play">Play</button>
+      <button type="submit" id="play" class="primary">Play</button>
       <p id="join-error" class="error"></p>
       <div class="help">
         <span><kbd>WASD</kbd>/<kbd>Arrows</kbd> move</span>
-        <span><kbd>Space</kbd> drop bomb</span>
+        <span><kbd>Space</kbd> bomb</span>
+        <span><kbd>Wheel</kbd> zoom</span>
+        <span><kbd>Esc</kbd> settings</span>
       </div>
     </form>
   </div>

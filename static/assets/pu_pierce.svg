@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="pfl" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff3b0a" stop-opacity="0.3"/><stop offset="0.5" stop-color="#ff7a1a"/><stop offset="1" stop-color="#fff27a"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="10" fill="#a8261c" stroke="#ffd34a" stroke-width="4"/>
+  <rect x="8" y="8" width="48" height="16" rx="6" fill="#ffffff" opacity="0.2"/>
+  <g transform="translate(22 22)">
+    <rect x="0" y="0" width="20" height="20" rx="2" fill="#c98a4b" stroke="#5c3412" stroke-width="2"/>
+    <path d="M3 3 L17 17 M17 3 L3 17" stroke="#8a5426" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <path d="M9 32 C14 26 20 27 26 29 L44 29 L44 23 L56 32 L44 41 L44 35 L26 35 C20 37 14 38 9 32 Z" fill="url(#pfl)" stroke="#5a0d06" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M28 32 H48" stroke="#fffbe0" stroke-width="2.5" stroke-linecap="round"/>
+  <g stroke="#ffd34a" stroke-width="2.5" stroke-linecap="round">
+    <line x1="34" y1="18" x2="36" y2="14"/><line x1="40" y1="20" x2="44" y2="17"/><line x1="34" y1="46" x2="36" y2="50"/><line x1="40" y1="44" x2="44" y2="47"/>
+  </g>
+</svg>

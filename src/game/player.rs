@@ -1,5 +1,4 @@
-use axum::body::Bytes;
-use tokio::sync::mpsc;
+use super::link::ClientLink;
 
 /// Direction vectors indexed by the protocol direction code:
 /// 0 = none, 1 = up, 2 = right, 3 = down, 4 = left.
@@ -12,6 +11,13 @@ pub const MAX_RANGE: u8 = 8;
 pub const MAX_SPEED_LVL: u8 = 6;
 const BASE_SPEED: f32 = 3.5; // tiles per second
 const SPEED_STEP: f32 = 0.6;
+/// Speed while under the slow curse.
+const CURSED_SPEED: f32 = 2.2;
+/// Default half extents of the area a client receives updates for, and the
+/// range a client may request when zooming.
+pub const AOI_DEFAULT: (i32, i32) = (16, 12);
+pub const AOI_MIN: (i32, i32) = (6, 5);
+pub const AOI_MAX: (i32, i32) = (26, 18);
 
 /// How far off a lane the player must be before corner assist kicks in.
 const CORNER_ASSIST_MIN: f32 = 0.12;
@@ -19,11 +25,18 @@ const CORNER_ASSIST_MIN: f32 = 0.12;
 pub struct Player {
     pub id: u32,
     pub name: String,
-    pub tx: mpsc::Sender<Bytes>,
+    /// Connection to the client; `None` for server-side bots.
+    pub link: Option<ClientLink>,
     /// Centre of the player in tile units (tile (3,4) spans 3.0..4.0).
     pub x: f32,
     pub y: f32,
     pub input_dir: u8,
+    /// Fallback direction tried when `input_dir` is blocked (turn buffering).
+    pub input_alt: u8,
+    /// Bomb presses seen so far from the client's input slot.
+    pub bomb_presses: u32,
+    /// Half extents of this player's area of interest.
+    pub aoi: (i32, i32),
     pub facing: u8,
     pub moving: bool,
     pub want_bomb: bool,
@@ -35,6 +48,9 @@ pub struct Player {
     pub range: u8,
     pub speed_lvl: u8,
     pub kick: bool,
+    pub pierce: bool,
+    pub slow_until: u64,
+    pub nobomb_until: u64,
     pub active_bombs: u8,
     pub score: i32,
     pub kills: u32,
@@ -42,14 +58,17 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(id: u32, name: String, tx: mpsc::Sender<Bytes>) -> Self {
+    pub fn new(id: u32, name: String, link: Option<ClientLink>) -> Self {
         Player {
             id,
             name,
-            tx,
+            link,
             x: 1.5,
             y: 1.5,
             input_dir: 0,
+            input_alt: 0,
+            bomb_presses: 0,
+            aoi: AOI_DEFAULT,
             facing: 3,
             moving: false,
             want_bomb: false,
@@ -61,6 +80,9 @@ impl Player {
             range: BASE_RANGE,
             speed_lvl: 0,
             kick: false,
+            pierce: false,
+            slow_until: 0,
+            nobomb_until: 0,
             active_bombs: 0,
             score: 0,
             kills: 0,
@@ -72,8 +94,28 @@ impl Player {
         (self.x.floor() as i32, self.y.floor() as i32)
     }
 
-    pub fn speed(&self) -> f32 {
-        BASE_SPEED + SPEED_STEP * self.speed_lvl as f32
+    /// Tiles per second at game tick `tick`, accounting for the slow curse.
+    pub fn speed(&self, tick: u64) -> f32 {
+        if self.slow_until > tick {
+            CURSED_SPEED
+        } else {
+            BASE_SPEED + SPEED_STEP * self.speed_lvl as f32
+        }
+    }
+
+    pub fn can_bomb(&self, tick: u64) -> bool {
+        self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick
+    }
+
+    /// Curse shown to clients: 0 none, 1 slow, 2 no bombs; plus ticks left.
+    pub fn curse(&self, tick: u64) -> (u8, u64) {
+        if self.slow_until > tick {
+            (1, self.slow_until - tick)
+        } else if self.nobomb_until > tick {
+            (2, self.nobomb_until - tick)
+        } else {
+            (0, 0)
+        }
     }
 
     pub fn reset_stats(&mut self) {
@@ -81,6 +123,14 @@ impl Player {
         self.range = BASE_RANGE;
         self.speed_lvl = 0;
         self.kick = false;
+        self.pierce = false;
+        self.slow_until = 0;
+        self.nobomb_until = 0;
+    }
+
+    /// Applies a client's requested view half-extents, clamped to the limits.
+    pub fn set_aoi(&mut self, w: i32, h: i32) {
+        self.aoi = (w.clamp(AOI_MIN.0, AOI_MAX.0), h.clamp(AOI_MIN.1, AOI_MAX.1));
     }
 }
 

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="bp" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#d0646a"/><stop offset="0.45" stop-color="#6a1418"/><stop offset="1" stop-color="#220406"/>
+    </radialGradient>
+    <radialGradient id="bpglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.7" stop-color="#ff2a1a" stop-opacity="0"/><stop offset="0.82" stop-color="#ff3b1f" stop-opacity="0.7"/><stop offset="1" stop-color="#ff3b1f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bpspark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fffbe0"/><stop offset="0.4" stop-color="#ffd23f"/><stop offset="1" stop-color="#ff6a00" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="30" cy="59" rx="16" ry="3.5" fill="#000" opacity="0.25"/>
+  <circle cx="30" cy="38" r="25" fill="url(#bpglow)"/>
+  <circle cx="30" cy="38" r="20" fill="url(#bp)"/>
+  <circle cx="30" cy="38" r="19" fill="none" stroke="#ff4a2a" stroke-width="2" opacity="0.85"/>
+  <rect x="34" y="14" width="10" height="8" rx="2" transform="rotate(35 39 18)" fill="#5a2026" stroke="#1e0507" stroke-width="1.2"/>
+  <path d="M42 14 q6 -8 12 -4" stroke="#c9a46a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <circle cx="54" cy="10" r="8" fill="url(#bpspark)"/>
+  <g stroke="#fff3b0" stroke-width="1.5" stroke-linecap="round">
+    <line x1="54" y1="3" x2="54" y2="6"/><line x1="61" y1="10" x2="58" y2="10"/><line x1="49" y1="5" x2="51" y2="7"/><line x1="59" y1="5" x2="57" y2="7"/>
+  </g>
+  <path d="M20 42 L36 42 L36 38 L42 44 L36 50 L36 46 L20 46 Z" fill="#ff7a3a" opacity="0.8"/>
+  <ellipse cx="22" cy="30" rx="6" ry="4" transform="rotate(-35 22 30)" fill="#ffffff" opacity="0.35"/>
+</svg>

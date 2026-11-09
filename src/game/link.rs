@@ -1,0 +1,141 @@
+//! The connection between a client's socket tasks and the game task.
+//!
+//! Input flows through an [`InputSlot`] of atomics: the socket reader
+//! overwrites it, and the game reads it once per tick. There is no queue,
+//! no allocation and no backlog; for a held direction only the newest
+//! value matters anyway. Output goes through a bounded queue for reliable
+//! events plus a one-slot [`SnapshotSlot`], so a client that falls behind
+//! skips stale snapshots instead of building up a queue of them.
+
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
+
+use bytes::Bytes;
+use tokio::sync::{Notify, mpsc};
+
+#[derive(Default)]
+pub struct InputSlot {
+    /// Bits 0..3 held direction, bits 3..6 fallback direction.
+    dirs: AtomicU32,
+    /// Running count of bomb presses.
+    bombs: AtomicU32,
+    /// Requested view half extents as `w << 16 | h`; 0 when never set.
+    view: AtomicU32,
+}
+
+pub fn pack_dirs(dir: u8, alt: u8) -> u32 {
+    dir.min(4) as u32 | (alt.min(4) as u32) << 3
+}
+
+pub fn unpack_dirs(v: u32) -> (u8, u8) {
+    ((v & 7) as u8, (v >> 3 & 7) as u8)
+}
+
+impl InputSlot {
+    pub fn set_dirs(&self, dir: u8, alt: u8) {
+        self.dirs.store(pack_dirs(dir, alt), Relaxed);
+    }
+
+    pub fn dirs(&self) -> (u8, u8) {
+        unpack_dirs(self.dirs.load(Relaxed))
+    }
+
+    pub fn press_bomb(&self) {
+        self.bombs.fetch_add(1, Relaxed);
+    }
+
+    pub fn bomb_presses(&self) -> u32 {
+        self.bombs.load(Relaxed)
+    }
+
+    pub fn set_view(&self, w: u16, h: u16) {
+        self.view.store((w as u32) << 16 | h as u32, Relaxed);
+    }
+
+    pub fn view(&self) -> Option<(i32, i32)> {
+        match self.view.load(Relaxed) {
+            0 => None,
+            v => Some(((v >> 16) as i32, (v & 0xffff) as i32)),
+        }
+    }
+}
+
+/// Holds only the newest snapshot for one client.
+#[derive(Default)]
+pub struct SnapshotSlot {
+    latest: Mutex<Option<Bytes>>,
+    notify: Notify,
+}
+
+impl SnapshotSlot {
+    /// Replaces any snapshot the client hasn't sent yet.
+    pub fn publish(&self, snapshot: Bytes) {
+        *self.latest.lock().unwrap() = Some(snapshot);
+        self.notify.notify_one();
+    }
+
+    /// Takes the pending snapshot, if any, without waiting.
+    pub fn take(&self) -> Option<Bytes> {
+        self.latest.lock().unwrap().take()
+    }
+
+    /// Waits for the next snapshot.
+    pub async fn next(&self) -> Bytes {
+        loop {
+            let taken = self.latest.lock().unwrap().take();
+            if let Some(snapshot) = taken {
+                return snapshot;
+            }
+            self.notify.notified().await;
+        }
+    }
+}
+
+/// Reliable messages buffered per client. A client that falls this far
+/// behind on events (not snapshots, which are coalesced) is disconnected.
+pub const EVENT_QUEUE: usize = 256;
+
+/// The game's handle on one connected client.
+pub struct ClientLink {
+    /// Reliable messages (welcome, joins, kills, leaderboard, effects).
+    pub events: mpsc::Sender<Bytes>,
+    pub snapshot: Arc<SnapshotSlot>,
+    pub input: Arc<InputSlot>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dirs_round_trip() {
+        for d in 0..=4 {
+            for a in 0..=4 {
+                assert_eq!(unpack_dirs(pack_dirs(d, a)), (d, a));
+            }
+        }
+        assert_eq!(unpack_dirs(pack_dirs(9, 200)), (4, 4), "out of range values are clamped");
+    }
+
+    #[test]
+    fn input_slot_tracks_latest_state() {
+        let slot = InputSlot::default();
+        assert_eq!(slot.view(), None);
+        slot.set_dirs(2, 1);
+        slot.set_dirs(3, 2);
+        slot.press_bomb();
+        slot.press_bomb();
+        slot.set_view(20, 14);
+        assert_eq!(slot.dirs(), (3, 2));
+        assert_eq!(slot.bomb_presses(), 2);
+        assert_eq!(slot.view(), Some((20, 14)));
+    }
+
+    #[tokio::test]
+    async fn snapshot_slot_keeps_only_newest() {
+        let slot = SnapshotSlot::default();
+        slot.publish(Bytes::from_static(b"old"));
+        slot.publish(Bytes::from_static(b"new"));
+        assert_eq!(&slot.next().await[..], b"new");
+    }
+}

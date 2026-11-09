@@ -1,13 +1,18 @@
-// Loads the SVG artwork once and keeps rasterised copies at the current
-// tile size, so drawing a frame is just a series of cheap drawImage calls.
+// Loads the SVG artwork once and rasterises it at a fixed resolution.
+// Sprites are scaled at draw time, so zooming never re-rasterises anything.
 
 const STATIC = [
-  'floor', 'pillar', 'crate', 'bomb',
+  'floor', 'floor_b', 'floor_c', 'pillar', 'crate', 'bomb', 'bomb_pierce', 'scorch',
   'flame_center', 'flame_arm', 'flame_end',
-  'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick',
+  'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery',
 ];
 const PLAYER_VIEWS = ['player_down', 'player_up', 'player_side'];
 const HUE_BUCKETS = 24;
+/** Pixels per tile for every rasterised sprite. */
+export const SPRITE_PX = 96;
+
+/** Item kind (protocol code) → sprite name. */
+export const ITEM_SPRITES = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery'];
 
 function svgImage(text) {
   return new Promise((resolve, reject) => {
@@ -20,8 +25,8 @@ function svgImage(text) {
 
 function rasterize(img, size) {
   const c = document.createElement('canvas');
-  c.width = c.height = Math.max(1, Math.round(size));
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  c.width = c.height = size;
+  c.getContext('2d').drawImage(img, 0, 0, size, size);
   return c;
 }
 
@@ -32,30 +37,37 @@ export function playerHue(id) {
 
 export class Assets {
   constructor() {
-    this.images = {};       // name -> Image (vector source)
+    this.sprites = {};      // name -> canvas
     this.templates = {};    // player view -> SVG text with colour placeholders
-    this.sprites = {};      // name -> canvas at current tile size
     this.players = new Map(); // `${hue}:${view}` -> canvas | 'loading'
-    this.size = 0;
+    this.glow = null;
   }
 
   async load() {
     const fetchText = (n) => fetch(`assets/${n}.svg`).then((r) => r.text());
     await Promise.all([
-      ...STATIC.map(async (n) => { this.images[n] = await svgImage(await fetchText(n)); }),
+      ...STATIC.map(async (n) => { this.sprites[n] = rasterize(await svgImage(await fetchText(n)), SPRITE_PX); }),
       ...PLAYER_VIEWS.map(async (n) => { this.templates[n] = await fetchText(n); }),
     ]);
-  }
-
-  setTileSize(size) {
-    if (size === this.size) return;
-    this.size = size;
-    for (const n of STATIC) this.sprites[n] = rasterize(this.images[n], size);
-    this.players.clear();
+    this.glow = this.makeGlow();
   }
 
   sprite(name) {
     return this.sprites[name];
+  }
+
+  /** Soft radial light used for additive glows. */
+  makeGlow() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,220,140,0.9)');
+    grad.addColorStop(0.35, 'rgba(255,140,40,0.45)');
+    grad.addColorStop(1, 'rgba(255,60,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return c;
   }
 
   /** Tinted player sprite; returns null while the variant is being built. */
@@ -65,13 +77,10 @@ export class Assets {
     if (c && c !== 'loading') return c;
     if (!c) {
       this.players.set(key, 'loading');
-      const size = this.size;
       const svg = this.templates[view]
         .replaceAll('#BODYDARK', `hsl(${hue},70%,34%)`)
         .replaceAll('#BODY', `hsl(${hue},78%,54%)`);
-      svgImage(svg).then((img) => {
-        if (this.size === size) this.players.set(key, rasterize(img, size));
-      });
+      svgImage(svg).then((img) => this.players.set(key, rasterize(img, SPRITE_PX)));
     }
     return null;
   }
