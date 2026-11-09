@@ -8,9 +8,9 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Instant;
 
-use bomberman_multiplayer::game::map::Map;
-use bomberman_multiplayer::game::rng::Rng;
-use bomberman_multiplayer::game::{World, test_link};
+use blast_arena::game::map::Map;
+use blast_arena::game::rng::Rng;
+use blast_arena::game::{World, test_link};
 use clap::Parser;
 
 /// Counts every heap allocation made by the process.
@@ -88,7 +88,7 @@ fn main() {
             if joined < args.clients {
                 let (link, rx) = test_link();
                 let (input, snapshot) = (link.input.clone(), link.snapshot.clone());
-                world.join(bomberman_multiplayer::game::plain_join(&format!("client-{joined}")), link).expect("room for every client");
+                world.join(blast_arena::game::plain_join(&format!("client-{joined}")), link).expect("room for every client");
                 input.set_view(20, 13);
                 clients.push((input, snapshot, rx));
                 joined += 1;

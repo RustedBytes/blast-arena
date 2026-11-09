@@ -4,7 +4,7 @@
     {
       "name": "blast-arena",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--release", "--bin", "bomberman-multiplayer"],
+      "runtimeArgs": ["run", "--release", "--bin", "blast-arena"],
       "port": 3000
     }
   ]

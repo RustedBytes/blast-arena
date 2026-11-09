@@ -64,6 +64,16 @@ enum Op {
     Top { limit: u32, reply: oneshot::Sender<Vec<Profile>> },
 }
 
+impl Op {
+    fn kind(&self) -> &'static str {
+        match self {
+            Op::Load { .. } => "load",
+            Op::Save(_) => "save",
+            Op::Top { .. } => "top",
+        }
+    }
+}
+
 /// Cheap, cloneable handle to the profile database.
 #[derive(Clone)]
 pub struct Db {
@@ -91,15 +101,19 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS profiles_xp ON profiles(xp DESC);",
         )?;
+        let profiles: i64 = conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?;
+        log::info!("profile database {path} opened with {profiles} profiles");
         let (tx, mut rx) = mpsc::channel::<Op>(4096);
         std::thread::Builder::new()
             .name("profile-db".into())
             .spawn(move || {
                 while let Some(op) = rx.blocking_recv() {
+                    let kind = op.kind();
                     if let Err(e) = run(&conn, op) {
-                        tracing::warn!("profile db error: {e}");
+                        log::error!("profile db {kind} failed: {e}");
                     }
                 }
+                log::debug!("profile db thread stopped");
             })
             .expect("spawn db thread");
         Ok(Db { tx })
@@ -113,7 +127,9 @@ impl Db {
 
     /// Queues a save without waiting; dropped if the queue is full.
     pub fn save(&self, profile: Profile) {
-        let _ = self.tx.try_send(Op::Save(profile));
+        if let Err(e) = self.tx.try_send(Op::Save(profile)) {
+            log::warn!("profile save dropped: {}", if matches!(e, mpsc::error::TrySendError::Full(_)) { "queue full" } else { "db closed" });
+        }
     }
 
     pub async fn top(&self, limit: u32) -> Vec<Profile> {
@@ -148,6 +164,7 @@ fn run(conn: &Connection, op: Op) -> rusqlite::Result<()> {
             let p = conn
                 .query_row(&format!("SELECT {COLUMNS} FROM profiles WHERE token = ?1"), [&token], row_to_profile)
                 .optional()?;
+            log::debug!("profile loaded: {}", if p.is_some() { "existing" } else { "new player" });
             let _ = reply.send(p);
         }
         Op::Save(p) => {
@@ -169,6 +186,7 @@ fn run(conn: &Connection, op: Op) -> rusqlite::Result<()> {
                     p.trail
                 ],
             )?;
+            log::debug!("profile saved for {} (level {}, xp {})", p.name, p.level(), p.xp);
         }
         Op::Top { limit, reply } => {
             let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM profiles ORDER BY xp DESC, kills DESC LIMIT ?1"))?;

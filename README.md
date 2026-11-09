@@ -45,11 +45,29 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
 | `--static-dir` | `STATIC_DIR` | `./static` | Client files |
+| `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
+| `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
 Without `--arena` the server runs three arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
+
+### Logging
+
+The server logs with `tracing`. Records from the `log` crate are bridged into the same output, and the profile database logs that way.
+
+| Level | Events |
+|---|---|
+| info | Startup and arena config; each player's join and disconnect, with the reason, duration and message counts; reconnects that resume a parked player; round results; tick stats every 10 s; shutdown |
+| warn | Rate-limited or too-slow clients; dropped profile saves |
+| debug | Handshake failures, socket errors, bot top-ups, profile loads and saves, and HTTP requests with their latency (`tower_http=debug`) |
+
+Each session's lines carry a span with the arena, the peer address and the player id. Each game line carries its arena. Profile tokens are never logged.
+
+```bash
+RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
+```
 
 ## Gameplay
 
@@ -204,7 +222,8 @@ Open the game with `?debug` to get `window.__blast` (state, predictor stats, net
 
 ```
 src/main.rs           server entry point: arenas, routes, config
-src/lib.rs            library root
+src/lib.rs            library root (crate blast_arena)
+src/logging.rs        tracing subscriber setup and the log-crate bridge
 src/net.rs            WebSocket sessions (arena choice, profile load, reader/writer)
 src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /metrics
 src/db.rs             SQLite profiles, levels and cosmetic unlocks

@@ -419,6 +419,7 @@ impl World {
             let Some(&bot) = self.bot_ids.first() else {
                 return Err("server is full, try again later");
             };
+            tracing::debug!(bot, "arena full, a bot steps out for a human");
             self.leave(bot);
         }
         let parked = req.token.as_ref().and_then(|t| self.parked.remove(t)).filter(|p| p.expires > self.tick);
@@ -434,6 +435,7 @@ impl World {
         p.token = req.token;
         p.profile = req.profile;
         if let Some(pk) = parked {
+            tracing::info!(id, score = pk.score, kills = pk.kills, "player resumed their parked state");
             (p.score, p.kills, p.deaths, p.streak) = (pk.score, pk.kills, pk.deaths, pk.streak);
             (p.max_bombs, p.range, p.speed_lvl) = (pk.max_bombs, pk.range, pk.speed_lvl);
             [p.kick, p.pierce, p.remote, p.line, p.punch] = pk.flags;
@@ -521,8 +523,12 @@ impl World {
 
     /// Tops the bot population back up to the target while there's room.
     fn maintain_bots(&mut self) {
+        let before = self.bots.len();
         while self.bots.len() < self.target_bots && self.players.len() < self.max_players {
             self.add_bot();
+        }
+        if self.bots.len() > before {
+            tracing::debug!(added = self.bots.len() - before, bots = self.bots.len(), "bots topped up");
         }
     }
 
@@ -1103,6 +1109,20 @@ impl World {
             Mode::Teams if teams.1 > teams.0 => 2,
             _ => 0,
         };
+        match ranked.first().filter(|p| p.score > 0) {
+            Some(mvp) => tracing::info!(
+                round = self.stats.rounds,
+                mvp = %mvp.name,
+                score = mvp.score,
+                kills = mvp.kills,
+                red = teams.0,
+                blue = teams.1,
+                winner,
+                players = ranked.len(),
+                "round ended"
+            ),
+            None => tracing::info!(round = self.stats.rounds, players = ranked.len(), "round ended without a winner"),
+        }
         let top = ranked.iter().take(3).map(|p| (p.id, p.name.as_str(), p.score, p.kills));
         let round_secs = (self.round_ticks / TICK_RATE as u64) as u32;
         let msg = protocol::encode_round(self.event_arenas.current(), top, teams, winner, round_secs);
@@ -1132,13 +1152,18 @@ impl World {
         let tick = self.tick;
         self.parked.retain(|_, p| p.expires > tick);
         let Some(db) = &self.db else { return };
+        let mut saved = 0;
         for p in self.players.values_mut() {
             if p.profile_dirty {
                 if let Some(prof) = &p.profile {
                     db.save(prof.clone());
+                    saved += 1;
                 }
                 p.profile_dirty = false;
             }
+        }
+        if saved > 0 {
+            tracing::debug!(saved, "profiles queued for saving");
         }
     }
 
@@ -1400,7 +1425,7 @@ impl World {
     pub fn drop_lagging_clients(&mut self) {
         let dropped = std::mem::take(&mut self.scratch.dropped);
         for &id in &dropped {
-            tracing::info!(id, "dropping slow or closed client");
+            tracing::warn!(id, "dropping a client whose event queue overflowed (too slow or closed)");
             self.leave(id);
         }
         self.scratch.dropped = dropped;
@@ -1433,9 +1458,10 @@ pub fn aoi_rect(cx: i32, cy: i32, (hw, hh): (i32, i32)) -> (i32, i32, i32, i32) 
     (cx - hw, cy - hh, cx + hw, cy + hh)
 }
 
+#[tracing::instrument(name = "arena", skip_all, fields(arena = %cfg.name))]
 pub async fn run(cfg: Config, mut events: mpsc::Receiver<GameEvent>, live: Arc<ArenaStats>, db: Option<Db>) {
     let mut world = World::new(&cfg, live, db);
-    tracing::info!(arena = %cfg.name, mode = cfg.mode.as_str(), w = cfg.map_w, h = cfg.map_h, bots = world.bots.len(), "arena ready");
+    tracing::info!(mode = cfg.mode.as_str(), w = cfg.map_w, h = cfg.map_h, bots = world.bots.len(), "arena ready");
     let mut interval = tokio::time::interval(Duration::from_millis(1000 / TICK_RATE as u64));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -1450,6 +1476,7 @@ pub async fn run(cfg: Config, mut events: mpsc::Receiver<GameEvent>, live: Arc<A
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
                     world.save_all();
+                    tracing::info!(players = world.players.len(), "arena stopped, profiles saved");
                     return;
                 }
             }
@@ -1467,7 +1494,6 @@ pub async fn run(cfg: Config, mut events: mpsc::Receiver<GameEvent>, live: Arc<A
         }
         if stats_since.elapsed() >= Duration::from_secs(10) {
             tracing::info!(
-                arena = %world.name,
                 players = world.players.len(),
                 bots = world.bots.len(),
                 bombs = world.bombs.len(),

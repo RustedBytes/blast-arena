@@ -1,15 +1,20 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
 use axum::Router;
 use axum::routing::get;
-use bomberman_multiplayer::db::Db;
-use bomberman_multiplayer::game::{self, Mode};
-use bomberman_multiplayer::metrics::ArenaStats;
-use bomberman_multiplayer::{api, net};
+use blast_arena::db::Db;
+use blast_arena::game::{self, Mode};
+use blast_arena::metrics::ArenaStats;
+use blast_arena::logging::{self, LogFormat};
+use blast_arena::{api, net};
 use clap::Parser;
 use tokio::sync::mpsc;
+use tower_http::LatencyUnit;
 use tower_http::services::ServeDir;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 /// Blast Arena game server.
 #[derive(Parser)]
@@ -42,6 +47,13 @@ struct Args {
     /// Directory with the browser client.
     #[arg(long, env = "STATIC_DIR", default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/static"))]
     static_dir: String,
+    /// Log filter, e.g. "info" or "info,blast_arena::net=debug".
+    /// RUST_LOG, when set, takes precedence.
+    #[arg(long, env = "LOG_LEVEL", default_value = "info")]
+    log_level: String,
+    /// Log output format.
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value_t = LogFormat::Compact)]
+    log_format: LogFormat,
 }
 
 fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> {
@@ -58,8 +70,9 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().with_target(false).init();
     let args = Args::parse();
+    logging::init(&args.log_level, args.log_format);
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), log_level = %args.log_level, log_format = %args.log_format, "starting Blast Arena");
 
     let base = game::Config { max_players: args.max_players, round_secs: args.round_secs.max(30), ..Default::default() };
     let specs = if args.arenas.is_empty() {
@@ -70,18 +83,22 @@ async fn main() {
     let configs: Vec<game::Config> = match specs.iter().map(|s| parse_arena(s, &base)).collect() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{e}");
+            tracing::error!(error = %e, "invalid --arena setting");
             std::process::exit(2);
         }
     };
+    for c in &configs {
+        tracing::info!(arena = %c.name, mode = c.mode.as_str(), size = c.map_w, bots = c.bots, max_players = c.max_players, round_secs = c.round_secs, "arena configured");
+    }
 
     let db = if args.db.is_empty() {
+        tracing::warn!("profile persistence disabled (--db \"\")");
         None
     } else {
         match Db::open(&args.db) {
             Ok(db) => Some(db),
             Err(e) => {
-                tracing::warn!("profiles disabled, can't open {}: {e}", args.db);
+                tracing::error!(path = %args.db, error = %e, "can't open profile database; profiles disabled");
                 None
             }
         }
@@ -115,11 +132,49 @@ async fn main() {
         .route("/api/profile", get(api::profile))
         .route("/api/stats", get(api::stats))
         .route("/metrics", get(api::metrics))
-        .fallback_service(ServeDir::new(args.static_dir))
-        .with_state(state);
+        .fallback_service(ServeDir::new(&args.static_dir))
+        .with_state(state)
+        // One span per HTTP request; visible with RUST_LOG=tower_http=debug.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
+                .on_response(DefaultOnResponse::new().level(Level::DEBUG).latency_unit(LatencyUnit::Micros)),
+        );
 
     let port = args.port;
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await.expect("bind port");
-    tracing::info!("Blast Arena listening on http://localhost:{port}");
-    axum::serve(listener, app).await.expect("server error");
+    let listener = match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!(port, error = %e, "can't bind the port");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!(static_dir = %args.static_dir, "Blast Arena listening on http://localhost:{port}");
+    let server = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown_signal());
+    if let Err(e) = server.await {
+        tracing::error!(error = %e, "server error");
+    }
+    tracing::info!("server stopped");
+}
+
+/// Resolves on Ctrl+C (or SIGTERM on Unix), so the server stops gracefully.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("Ctrl+C received, shutting down"),
+        _ = terminate => tracing::info!("SIGTERM received, shutting down"),
+    }
 }
