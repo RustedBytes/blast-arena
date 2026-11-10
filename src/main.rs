@@ -3,13 +3,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::Router;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use blast_arena::db::Db;
 use blast_arena::game::rng::{derive_seed, random_seed};
 use blast_arena::game::{self, Mode};
 use blast_arena::metrics::ArenaStats;
 use blast_arena::logging::{self, LogFormat};
-use blast_arena::{api, net};
+use blast_arena::{api, net, page};
 use clap::Parser;
 use tokio::sync::mpsc;
 use tower_http::LatencyUnit;
@@ -67,6 +69,12 @@ struct Args {
     /// source tree's `static/`.
     #[arg(long, env = "STATIC_DIR")]
     static_dir: Option<String>,
+    /// The site's public address, e.g. "<https://blastarena.fun>", used for
+    /// link previews, the canonical link and the sitemap. Without it, the
+    /// address is taken from each request (`Host`, or a proxy's
+    /// `X-Forwarded-Proto` and `X-Forwarded-Host`).
+    #[arg(long, env = "PUBLIC_URL")]
+    public_url: Option<String>,
     /// Log filter, e.g. "info" or "`info,blast_arena::net=debug`".
     /// `RUST_LOG`, when set, takes precedence.
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
@@ -108,6 +116,7 @@ fn load_tuning(path: Option<&str>) -> std::sync::Arc<game::ability_config::Tunin
 async fn main() {
     let args = Args::parse();
     logging::init(&args.log_level, args.log_format);
+    let public_url = checked_public_url(args.public_url.as_deref());
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log_level = %args.log_level, log_format = %args.log_format, "starting Blast Arena");
 
     let tuning = load_tuning(args.abilities.as_deref());
@@ -177,7 +186,8 @@ async fn main() {
         .route("/api/profile", get(api::profile))
         .route("/api/stats", get(api::stats))
         .route("/metrics", get(api::metrics));
-    // The browser client: a directory, or the files built into the binary.
+    let routes = site_routes(routes, &args, public_url);
+    // The rest of the browser client: a directory, or the files built into the binary.
     #[cfg(not(debug_assertions))]
     let (routes, client) = match &args.static_dir {
         Some(dir) => (routes.fallback_service(ServeDir::new(dir)), dir.clone()),
@@ -233,4 +243,70 @@ async fn shutdown_signal() {
         () = ctrl_c => tracing::info!("Ctrl+C received, shutting down"),
         () = terminate => tracing::info!("SIGTERM received, shutting down"),
     }
+}
+
+/// `--public-url`, checked; exits on an invalid one.
+fn checked_public_url(url: Option<&str>) -> Option<String> {
+    match url.filter(|u| !u.trim().is_empty()).map(page::public_url) {
+        None => None,
+        Some(Ok(url)) => Some(url),
+        Some(Err(e)) => {
+            tracing::error!(error = %e, "invalid --public-url");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// The game page (with this site's address filled in), robots.txt and the sitemap.
+fn site_routes(routes: Router<net::AppState>, args: &Args, public_url: Option<String>) -> Router<net::AppState> {
+    #[cfg(not(debug_assertions))]
+    let index = match &args.static_dir {
+        Some(dir) => IndexSource::Dir(dir.into()),
+        None => IndexSource::Embedded(embedded::file("index.html").expect("index.html is embedded")),
+    };
+    #[cfg(debug_assertions)]
+    let index = IndexSource::Dir(args.static_dir.clone().unwrap_or_else(|| DEV_STATIC_DIR.to_owned()).into());
+    let site = Arc::new(Site { index, public_url });
+    routes
+        .route("/", get(index_page).with_state(site.clone()))
+        .route("/index.html", get(index_page).with_state(site.clone()))
+        .route("/robots.txt", get(robots_txt).with_state(site.clone()))
+        .route("/sitemap.xml", get(sitemap_xml).with_state(site))
+}
+
+/// Where `index.html` comes from: the binary, or a directory (read on each
+/// request, so edits show up on reload).
+enum IndexSource {
+    #[cfg_attr(debug_assertions, allow(dead_code))]
+    Embedded(&'static [u8]),
+    Dir(std::path::PathBuf),
+}
+
+struct Site {
+    index: IndexSource,
+    public_url: Option<String>,
+}
+
+type SiteState = axum::extract::State<Arc<Site>>;
+
+async fn index_page(axum::extract::State(site): SiteState, headers: HeaderMap) -> Response {
+    let html = match &site.index {
+        IndexSource::Embedded(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+        IndexSource::Dir(dir) => match tokio::fs::read_to_string(dir.join("index.html")).await {
+            Ok(html) => html,
+            Err(_) => return (StatusCode::NOT_FOUND, "not found").into_response(),
+        },
+    };
+    let body = page::render(&html, &page::origin(&headers, site.public_url.as_deref()));
+    ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], body).into_response()
+}
+
+async fn robots_txt(axum::extract::State(site): SiteState, headers: HeaderMap) -> Response {
+    let body = page::robots(&page::origin(&headers, site.public_url.as_deref()));
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
+}
+
+async fn sitemap_xml(axum::extract::State(site): SiteState, headers: HeaderMap) -> Response {
+    let body = page::sitemap(&page::origin(&headers, site.public_url.as_deref()));
+    ([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], body).into_response()
 }

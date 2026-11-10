@@ -3,12 +3,80 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Blast Arena</title>
+  <title>Blast Arena: free multiplayer bomb-maze game in your browser</title>
+  <!-- {{ORIGIN}} is replaced by the server with this site's address (see src/page.rs). -->
+  <meta name="description" content="Blast Arena is a free massively multiplayer bomb-maze game you play in the browser. Drop bombs, blast crates, grab power-ups and battle hundreds of players and bots in free-for-all, team, battle royale and worm arenas. No download, no sign-up.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="{{ORIGIN}}/">
   <meta name="theme-color" content="#1b2a17">
+  <meta name="color-scheme" content="dark">
+  <meta name="application-name" content="Blast Arena">
+  <meta name="apple-mobile-web-app-title" content="Blast Arena">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- Link previews: Open Graph (Facebook, LinkedIn, Discord, Telegram, Slack, WhatsApp...) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Blast Arena">
+  <meta property="og:title" content="Blast Arena: one giant arena, hundreds of players, lots of bombs">
+  <meta property="og:description" content="A free multiplayer bomb-maze game in your browser. Drop bombs, blast crates, grab power-ups and battle hundreds of players. No download, no sign-up.">
+  <meta property="og:url" content="{{ORIGIN}}/">
+  <meta property="og:image" content="{{ORIGIN}}/og-image.jpg">
+  <meta property="og:image:secure_url" content="{{ORIGIN}}/og-image.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Blast Arena logo over a pixel-art maze of crates and stone pillars">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="uk_UA">
+  <meta property="og:locale:alternate" content="de_DE">
+  <meta property="og:locale:alternate" content="fr_FR">
+  <meta property="og:locale:alternate" content="es_ES">
+  <meta property="og:locale:alternate" content="it_IT">
+  <meta property="og:locale:alternate" content="pl_PL">
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Blast Arena: one giant arena, hundreds of players, lots of bombs">
+  <meta name="twitter:description" content="A free multiplayer bomb-maze game in your browser. Drop bombs, blast crates, grab power-ups and battle hundreds of players.">
+  <meta name="twitter:image" content="{{ORIGIN}}/og-image.jpg">
+  <meta name="twitter:image:alt" content="Blast Arena logo over a pixel-art maze of crates and stone pillars">
+  <!-- Structured data for search engines -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Blast Arena",
+    "url": "{{ORIGIN}}/",
+    "image": "{{ORIGIN}}/og-image.jpg",
+    "description": "A free massively multiplayer bomb-maze game for the browser: drop bombs, blast crates, grab power-ups and battle hundreds of players and bots.",
+    "genre": ["Action", "Arcade", "Multiplayer", "Battle royale"],
+    "playMode": ["MultiPlayer", "SinglePlayer"],
+    "gamePlatform": "Web browser",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any",
+    "inLanguage": ["en", "uk", "de", "fr", "es", "it", "pl"],
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <noscript>
+    <main class="noscript">
+      <h1>Blast Arena</h1>
+      <p>One giant arena. Hundreds of players. Lots of bombs.</p>
+      <p>Blast Arena is a free massively multiplayer bomb-maze game for the browser. Drop bombs, blast crates,
+        collect power-ups such as kick, remote bombs, rockets, drones and atomic bombs, and battle players and
+        bots in free-for-all, Red vs Blue, battle royale and worm arenas. Play with a keyboard, a gamepad or
+        touch controls, in English, Ukrainian, German, French, Spanish, Italian or Polish.</p>
+      <p>Please enable JavaScript to play.</p>
+    </main>
+  </noscript>
   <canvas id="game"></canvas>
   <div id="vignette" class="hidden"></div>
   <div id="storm-tint"></div>

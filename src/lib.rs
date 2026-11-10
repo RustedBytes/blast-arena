@@ -7,4 +7,5 @@ pub mod game;
 pub mod logging;
 pub mod metrics;
 pub mod net;
+pub mod page;
 pub mod protocol;

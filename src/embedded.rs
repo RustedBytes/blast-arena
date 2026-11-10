@@ -16,6 +16,8 @@ fn content_type(path: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "json" => "application/json",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webmanifest" => "application/manifest+json",
         "ico" => "image/x-icon",
         "woff2" => "font/woff2",
         "txt" => "text/plain; charset=utf-8",
@@ -47,6 +49,12 @@ pub async fn serve(uri: Uri, headers: HeaderMap) -> Response {
     }
     let ty = HeaderValue::from_static(content_type(path));
     ([(header::CONTENT_TYPE, ty), (header::ETAG, tag), cache], body).into_response()
+}
+
+/// An embedded file's contents by its path under `static/`.
+#[must_use]
+pub fn file(path: &str) -> Option<&'static [u8]> {
+    lookup(path).map(|(_, body, _)| body)
 }
 
 /// How many files are embedded (for the startup log).

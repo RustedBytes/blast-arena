@@ -47,9 +47,10 @@ fn main() {
 /// than its output.
 fn check_client(manifest: &Path) {
     let out = manifest.join("static/js");
-    if !out.join("main.js").is_file() {
-        panic!("the browser client isn't built: run `npm ci && npm run build` first (compiles client/*.ts into static/js/)");
-    }
+    assert!(
+        out.join("main.js").is_file(),
+        "the browser client isn't built: run `npm ci && npm run build` first (compiles client/*.ts into static/js/)"
+    );
     let Ok(sources) = fs::read_dir(manifest.join("client")) else { return };
     for src in sources.flatten().map(|e| e.path()) {
         if src.extension().is_none_or(|e| e != "ts") {

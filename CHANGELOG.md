@@ -6,6 +6,19 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-10
+
+### Added
+
+- Link previews and search: shared links show a card with the logo,
+  tagline and a pixel-art map (`static/og-image.jpg`) through Open Graph
+  and X/Twitter tags. The page has a proper title and description, a
+  canonical link, schema.org `VideoGame` data, a web app manifest with
+  PNG icons, and a `<noscript>` description; the Tile Lab and dashboard
+  are `noindex`. The server fills in the site's absolute address
+  (`src/page.rs`), from the new `--public-url` / `PUBLIC_URL` or the
+  request, and serves `/robots.txt` and `/sitemap.xml`.
+
 ### Changed
 
 - The browser client is now TypeScript (`client/*.ts`, strict mode), compiled
@@ -335,6 +348,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.8.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.8.0
 [0.7.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.7.0
 [0.6.1]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.6.1
 [0.6.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.6.0

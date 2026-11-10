@@ -1,0 +1,17 @@
+{
+  "name": "Blast Arena",
+  "short_name": "Blast Arena",
+  "description": "A free massively multiplayer bomb-maze game for the browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b2a17",
+  "theme_color": "#1b2a17",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

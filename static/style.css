@@ -518,3 +518,8 @@ body.touch .alerts-toasts { bottom: calc(var(--bottom) + 188px); }
 @media (min-width: 3000px) and (min-height: 1700px) { :root { --ui: 1.8; } }
 #stats, #roundbar, #side, #perf, #hud-buttons, #emote-wheel, #dead, #tutorial,
 .alerts-top, .alerts-status, .alerts-toasts, .overlay > .card, .overlay > .lobby { zoom: var(--ui); }
+
+/* Shown only without JavaScript (and read by crawlers). */
+.noscript { position: fixed; inset: 0; z-index: 10; overflow: auto; padding: 32px 20px; background: #1b2a17; color: #e8edf5; font: 16px/1.5 system-ui, sans-serif; text-align: center; }
+.noscript h1 { color: #ffb02e; }
+.noscript p { max-width: 640px; margin: 12px auto; }

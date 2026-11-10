@@ -76,6 +76,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
 | `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
 | `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `npm run watch` running to recompile the TypeScript). |
+| `--public-url` | `PUBLIC_URL` | from the request | The site's public address (e.g. `https://blastarena.fun`) for link previews, the canonical link, `robots.txt` and `sitemap.xml`. Without it the address comes from each request (`Host`, or a proxy's `X-Forwarded-Proto` and `X-Forwarded-Host`). |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
@@ -222,6 +223,7 @@ DOMAIN=play.example.com docker compose up -d
 Tested with Docker 29 and `docker-compose` 1.29 (in WSL), running `DOMAIN=localhost docker-compose up -d --build`:
 - The image builds, and the server starts all arenas as a non-root user.
 - Caddy serves the page and API over HTTPS, and redirects plain HTTP to HTTPS (308).
+- Shared links show a preview card (Open Graph and X/Twitter tags, `static/og-image.jpg`, 1200×630). The page also has a description, a canonical link, schema.org `VideoGame` data, a web app manifest and icons, and the server answers `/robots.txt` and `/sitemap.xml`. `docker-compose.yml` sets `PUBLIC_URL` from `DOMAIN`.
 - The WebSocket upgrade over `wss://` returns 101.
 - `/metrics` returns 404 from outside but works inside the Docker network.
 - The profile database is written to the `blast-data` volume.

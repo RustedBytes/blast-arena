@@ -11,6 +11,8 @@ services:
     environment:
       BOTS: "10"
       ROUND_SECS: "300"
+      # The address used in link previews, the canonical link and the sitemap.
+      PUBLIC_URL: https://${DOMAIN:-blastarena.fun}
       # Optional: ARENAS: "Main:ffa:81:10,Teams:teams:61:8,Mini:ffa:31:4"
     volumes:
       - blast-data:/data
