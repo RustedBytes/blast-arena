@@ -6,7 +6,7 @@ import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
 import { meObject } from './protocol.js';
-import { EMOTES, Renderer } from './render.js';
+import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
 
@@ -200,8 +200,16 @@ const net = new Net({
       if (!seenExplosions.has(key)) {
         const dx = e[0] + 0.5 - state.focus.x, dy = e[1] + 0.5 - state.focus.y;
         const d = Math.hypot(dx, dy);
-        renderer.explosion(e[0], e[1], e[2], now, d);
-        audio.explosion(d, Math.max(-1, Math.min(1, dx / 10)));
+        const pan = Math.max(-1, Math.min(1, dx / 10));
+        if (e[4]) {
+          // Atomic blast; `age` > 0 if it went off before we could see it.
+          const age = Math.max(0, NUKE_SHOW_TICKS - e[3] - 1) * state.tickMs / 1000;
+          renderer.nuke(e[0], e[1], e[4], now, d, state.map, age);
+          if (age < 0.5) audio.nuke(d, pan);
+        } else {
+          renderer.explosion(e[0], e[1], e[2], now, d);
+          audio.explosion(d, pan);
+        }
       }
     }
     [seenExplosions, nextExplosions] = [nextExplosions, seenExplosions];
@@ -241,7 +249,7 @@ const net = new Net({
     if (!state) return;
     const what = t('items')[m.f] ?? '?';
     const curse = m.f >= 30 && m.f !== 32;
-    const icon = m.f <= 12 ? ITEM_SPRITES[m.f] : 'pu_mystery';
+    const icon = m.f < ITEM_SPRITES.length ? ITEM_SPRITES[m.f] : 'pu_mystery';
     toast(m.m ? t('secretBox', { what }) : what, icon, m.m ? (curse ? 'curse' : 'mystery') : '');
     renderer.sparkle(state.self.x, state.self.y, m.m);
     if (curse) audio.curse();
@@ -445,7 +453,8 @@ addEventListener('resize', resize);
 let hudKey = '';
 function updateHud(me) {
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
-    me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, getLanguage()].join();
+    me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
+    getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
   $('st-bombs').textContent = `${me.bombs - me.active}/${me.bombs}`;
@@ -453,6 +462,8 @@ function updateHud(me) {
   $('st-speed').textContent = me.speed;
   for (const k of ['kick', 'pierce', 'remote', 'line', 'punch']) $(`st-${k}`).classList.toggle('off', !me[k]);
   $('st-score').textContent = me.score;
+  $('st-nuke').classList.toggle('hidden', !me.nukes);
+  $('st-nuke').lastChild.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
   const tickS = state.tickMs / 1000;
   timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
   timer($('st-ghost'), me.ghost > 0, me.ghost * tickS, 6);

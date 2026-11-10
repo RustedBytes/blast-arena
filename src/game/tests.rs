@@ -23,6 +23,22 @@ fn aoi_only_includes_nearby_players() {
 }
 
 #[test]
+fn snapshot_carries_atomic_bombs_and_blasts() {
+    let mut w = test_world(Map::empty(21, 21));
+    let me = w.spawn_test_player(7.5, 7.5);
+    World::grant(w.players.get_mut(&me).unwrap(), Item::Nuke, 0);
+    let snap: serde_json::Value = w.full_snapshot(me);
+    assert_eq!(me_obj(&snap)["nukes"], 1);
+    w.place_bomb(me);
+    let snap: serde_json::Value = w.full_snapshot(me);
+    assert_eq!(snap["b"][0][4].as_u64().unwrap() & 4, 4, "flag bit 2 marks a nuke");
+    assert_eq!(me_obj(&snap)["nukes"], 0);
+    w.explode(w.bomb_at(7, 7).unwrap());
+    let snap: serde_json::Value = w.full_snapshot(me);
+    assert_eq!(snap["e"][0], serde_json::json!([7, 7, [0, 0, 0, 0], bomb::NUKE_SHOW_TICKS, bomb::NUKE_RADIUS]));
+}
+
+#[test]
 fn snapshot_has_every_field() {
     let mut map = Map::empty(21, 21);
     map.set(5, 5, Tile::Crate);

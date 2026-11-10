@@ -175,6 +175,7 @@ struct Scratch {
     chain: Vec<u32>,
     blast: Vec<(usize, u8, i32, i32)>,
     drops: Vec<(i32, i32, Item)>,
+    nuke_cells: Vec<(i32, i32, u16)>,
     victims: Vec<(u32, u32)>,
     broadcasts: Vec<Bytes>,
     dropped: Vec<u32>,
@@ -194,6 +195,9 @@ pub struct World {
     pub bomb_grid: Vec<u32>,
     pub next_bomb_id: u32,
     pub items: Vec<u8>,
+    /// Fire burns in a cell from `flame_from` (inclusive) to `flame_until`
+    /// (exclusive); an atomic blast lights far cells a few ticks later.
+    pub flame_from: Vec<u64>,
     pub flame_until: Vec<u64>,
     pub flame_owner: Vec<u32>,
     pub explosions: Vec<Explosion>,
@@ -239,6 +243,7 @@ pub struct WorldStats {
     pub crates_destroyed: u64,
     pub items_picked: u64,
     pub mysteries_opened: u64,
+    pub nukes: u64,
     pub rounds: u64,
 }
 
@@ -288,6 +293,7 @@ impl World {
             bomb_grid: vec![0; n],
             next_bomb_id: 0,
             items: vec![0; n],
+            flame_from: vec![0; n],
             flame_until: vec![0; n],
             flame_owner: vec![0; n],
             explosions: Vec::new(),

@@ -5,6 +5,7 @@
 
 import { ITEM_SPRITES, playerColors } from './assets.js';
 import { P_CURSE, P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from './particles.js';
+import { t } from './i18n.js';
 import { FRINGE_RANK } from './pixelart.js';
 
 export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9;
@@ -17,6 +18,7 @@ export const INTERP_TICKS = 2;
 const CHUNK = 8;            // tiles per chunk side
 const CHUNK_PX = 64;        // pixels per tile inside a chunk canvas
 const MAX_CHUNKS = 48;      // chunk canvases kept (LRU)
+const REPAINTS_PER_FRAME = 2; // changed chunks repainted per frame
 const DECALS = 512;         // scorch marks ring buffer
 const DECAL_LIFE = 4000;    // ms
 const POOL = 512;           // pooled entities per frame
@@ -24,7 +26,32 @@ const MINIMAP_CSS = 170;    // minimap size in CSS px (see style.css)
 const MINIMAP_MS = 250;     // minimap overlay refresh period
 // Item halo colour by rarity.
 const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08bff', '#ffd34a', '#ff7af0',
-  '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff'];
+  '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff', '#9dff5a'];
+// Atomic bomb, mirroring the server (src/game/bomb.rs): fuse, how long each
+// cell burns after the shockwave reaches it, how long the blast is shown,
+// and shockwave speed in cells per second.
+const NUKE_FUSE_TICKS = 70;
+const NUKE_FLAME_S = 0.8;
+export const NUKE_SHOW_TICKS = 60;
+const NUKE_WAVE_CPS = 20;
+const NUKE_LIFE_S = 3.2;
+const NUKE_RADIUS = 6;
+/** Whether offset (dx, dy) from ground zero is inside the atomic disc (as on the server). */
+const inNukeDisc = (dx, dy) => dx * dx + dy * dy <= NUKE_RADIUS * NUKE_RADIUS + NUKE_RADIUS;
+// The disc's cells and the outline around them (cell edges between inside
+// and outside), as offsets from ground zero.
+const NUKE_DISC = [];
+const NUKE_OUTLINE = []; // x0, y0, x1, y1 per edge, in cell units from the cell corner
+for (let dy = -NUKE_RADIUS; dy <= NUKE_RADIUS; dy++) {
+  for (let dx = -NUKE_RADIUS; dx <= NUKE_RADIUS; dx++) {
+    if (!inNukeDisc(dx, dy)) continue;
+    NUKE_DISC.push(dx, dy);
+    if (!inNukeDisc(dx, dy - 1)) NUKE_OUTLINE.push(dx, dy, dx + 1, dy);
+    if (!inNukeDisc(dx, dy + 1)) NUKE_OUTLINE.push(dx, dy + 1, dx + 1, dy + 1);
+    if (!inNukeDisc(dx - 1, dy)) NUKE_OUTLINE.push(dx, dy, dx, dy + 1);
+    if (!inNukeDisc(dx + 1, dy)) NUKE_OUTLINE.push(dx + 1, dy, dx + 1, dy + 1);
+  }
+}
 export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
 const TRAIL_COLORS = [0, 10, 8, 9];
 const PLAYER_VIEWS = ['player_up', 'player_down', 'player_side'];
@@ -77,6 +104,10 @@ export class Renderer {
     this.decalHead = 0;
     this.halos = {};
     this.effects = []; // death animations and spawn beams (event-driven, short-lived)
+    this.nukes = []; // atomic blasts being shown: { x, y, r, start, cells }
+    this.flash = 0; // strength of the current atomic flash (0..1)
+    this.flashAt = -1e9;
+    this.puffs = null; // soft cloud sprites, built on first use
     this.specials = []; // [x, y, tile] of animated tiles (conveyors, pads)
     this.highContrast = false;
     this.colorblind = false;
@@ -86,7 +117,7 @@ export class Renderer {
     this.frame = {
       players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false })),
       nPlayers: 0,
-      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false })),
+      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false })),
       nBombs: 0,
     };
     this.prev = new Map();
@@ -206,7 +237,11 @@ export class Renderer {
       }
       c.key = -1;
     }
-    if (stale || c.key !== key) {
+    // A cached chunk whose tiles changed is repainted within a per-frame
+    // budget (an atomic blast can change dozens of chunks at once); the
+    // rest keep showing their old picture for a frame or two.
+    const mustPaint = c.key !== key;
+    if (mustPaint || (stale && this.repaintBudget-- > 0)) {
       this.paintChunk(c, map, cx, cy);
       c.key = key;
       this.dirty.delete(key);
@@ -310,7 +345,237 @@ export class Renderer {
       }
     }
     // Screen shake falls off with distance from the camera focus.
-    this.shake = Math.min(0.35, this.shake + 0.3 / (1 + distance * distance * 0.05));
+    this.shake = Math.max(this.shake, Math.min(0.35, this.shake + 0.3 / (1 + distance * distance * 0.05)));
+  }
+
+  /**
+   * An atomic blast at cell (x, y) of `radius`, detonated `age` seconds ago
+   * (non-zero when we only learn of it late). Sets up the flash, shockwave,
+   * fire, mushroom cloud, fallout and a heavy screen shake.
+   */
+  nuke(x, y, radius, now, distance, map, age = 0) {
+    const start = now - age * 1000;
+    // The disc of cells the fire covers (same shape as the server's), with
+    // the time the shockwave reaches each.
+    const cells = [];
+    const r = radius;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r * r + r) continue;
+        const cx = x + dx, cy = y + dy;
+        if (cx < 0 || cy < 0 || cx >= map.w || cy >= map.h || map.tiles[cy * map.w + cx] === T_WALL) continue;
+        cells.push(cx, cy, Math.floor(Math.sqrt(d2)) / NUKE_WAVE_CPS);
+      }
+    }
+    this.nukes.push({ x: x + 0.5, y: y + 0.5, r, start, cells });
+    if (age > 0.5) return; // joined late: just show what's left of it
+    for (let i = 0; i < cells.length; i += 3) this.decal(cells[i], cells[i + 1], now + cells[i + 2] * 1000);
+    const p = this.particles, cx = x + 0.5, cy = y + 0.5;
+    p.burst(P_SPARK, cx, cy, 70, 14, 0.7, 0.1, 0, 3);
+    p.burst(P_DEBRIS, cx, cy, 50, 9, 1.4, 0.12, 6, 2);
+    p.burst(P_STAR, cx, cy, 20, 6, 0.9, 0.2, 9, 2);
+    // A ground-hugging dust surge racing outward.
+    for (let k = 0; k < 64; k++) {
+      const a = (k / 64) * Math.PI * 2 + Math.random() * 0.1;
+      const s = NUKE_WAVE_CPS * (0.25 + Math.random() * 0.1);
+      p.emit(P_SMOKE, cx + Math.cos(a) * 0.6, cy + Math.sin(a) * 0.6, Math.cos(a) * s, Math.sin(a) * s,
+        1.2 + Math.random() * 0.8, 0.45, 4 + (k % 2));
+    }
+    const near = 1 / (1 + distance * distance * 0.004);
+    this.shake = Math.max(this.shake, 1.1 * near);
+    this.flash = Math.max(near, 0.35);
+    this.flashAt = now;
+  }
+
+  /** Soft round sprites the mushroom cloud is built from. */
+  buildPuffs() {
+    const make = (stops) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      for (const [o, col] of stops) grad.addColorStop(o, col);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 128, 128);
+      return c;
+    };
+    this.puffs = {
+      fire: make([[0, '#fffbe6'], [0.25, '#fff08a'], [0.5, 'rgba(255,170,40,0.95)'], [0.78, 'rgba(230,70,10,0.55)'], [1, 'rgba(160,30,0,0)']]),
+      smoke: make([[0, 'rgba(150,128,112,0.95)'], [0.55, 'rgba(104,88,80,0.85)'], [0.85, 'rgba(70,60,58,0.35)'], [1, 'rgba(50,44,44,0)']]),
+      dark: make([[0, 'rgba(70,58,54,0.9)'], [0.6, 'rgba(48,40,40,0.6)'], [1, 'rgba(30,26,26,0)']]),
+      dust: make([[0, 'rgba(176,150,120,0.75)'], [0.6, 'rgba(140,118,96,0.45)'], [1, 'rgba(120,100,80,0)']]),
+    };
+  }
+
+  /** Ground layer of atomic blasts (under players): burning disc, shockwave, embers. */
+  drawNukeGround(now, camX, camY, T) {
+    if (this.nukes.length === 0) return;
+    const { ctx } = this;
+    const pix = this.pixelArt();
+    const glow = this.assets.glow;
+    const tick = Math.floor(now / 70);
+    let keep = 0;
+    for (let n = 0; n < this.nukes.length; n++) {
+      const nk = this.nukes[n];
+      const t = (now - nk.start) / 1000;
+      if (t >= NUKE_LIFE_S) continue;
+      this.nukes[keep++] = nk;
+      const px = nk.x * T - camX, py = nk.y * T - camY;
+      // Embers: the whole disc glows red and cools down.
+      const ember = Math.max(0, Math.min(1, t * 4) * (1 - t / NUKE_LIFE_S));
+      if (ember > 0) {
+        const R = (nk.r + 0.5) * T;
+        const g = ctx.createRadialGradient(px, py, 0, px, py, R);
+        g.addColorStop(0, `rgba(255,120,30,${0.55 * ember})`);
+        g.addColorStop(0.6, `rgba(200,40,10,${0.35 * ember})`);
+        g.addColorStop(1, 'rgba(120,10,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, R, 0, 6.2832);
+        ctx.fill();
+      }
+      // Each cell burns once the shockwave gets there.
+      const cells = nk.cells;
+      for (let i = 0; i < cells.length; i += 3) {
+        const age = t - cells[i + 2];
+        if (age < 0 || age > NUKE_FLAME_S) continue;
+        const life = 1 - age / NUKE_FLAME_S;
+        const cx = (cells[i] + 0.5) * T - camX, cy = (cells[i + 1] + 0.5) * T - camY;
+        ctx.globalAlpha = Math.min(1, life * 2);
+        const s = T * (0.85 + 0.3 * life);
+        const sprite = pix ? pix.flames.center[(tick + cells[i] * 7 + cells[i + 1] * 3) % 3] : this.assets.sprite('flame_center');
+        ctx.drawImage(sprite, cx - s / 2, cy - s / 2, s, s);
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < cells.length; i += 3) {
+        const age = t - cells[i + 2];
+        if (age < 0 || age > NUKE_FLAME_S) continue;
+        ctx.globalAlpha = 0.6 * (1 - age / NUKE_FLAME_S);
+        const cx = (cells[i] + 0.5) * T - camX, cy = (cells[i + 1] + 0.5) * T - camY, g = T * 1.6;
+        ctx.drawImage(glow, cx - g / 2, cy - g / 2, g, g);
+      }
+      // The shockwave: a bright ring racing out to the edge of the blast,
+      // then a fading pressure ring beyond it.
+      const rr = t * NUKE_WAVE_CPS;
+      const edge = nk.r + 3;
+      if (rr < edge) {
+        const fade = 1 - rr / edge;
+        ctx.globalAlpha = fade;
+        ctx.strokeStyle = '#ff9a2e';
+        ctx.lineWidth = T * (0.55 * fade + 0.1);
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(1, rr * T), 0, 6.2832);
+        ctx.stroke();
+        ctx.strokeStyle = '#fffbe6';
+        ctx.lineWidth = T * 0.12 * fade + 1;
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    this.nukes.length = keep;
+  }
+
+  /** Sky layer of atomic blasts (over players): fireball and mushroom cloud. */
+  drawNukeCloud(now, camX, camY, T) {
+    if (this.nukes.length === 0) return;
+    if (!this.puffs) this.buildPuffs();
+    const { ctx } = this;
+    const P = this.puffs;
+    const puff = (img, x, y, size, alpha) => {
+      if (alpha <= 0.01) return;
+      ctx.globalAlpha = Math.min(1, alpha);
+      ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
+    };
+    for (let n = 0; n < this.nukes.length; n++) {
+      const nk = this.nukes[n];
+      const t = (now - nk.start) / 1000;
+      if (t >= NUKE_LIFE_S) continue;
+      const gx = nk.x * T - camX, gy = nk.y * T - camY;
+      const p = Math.max(0, (t - 0.12) / (NUKE_LIFE_S - 0.12)); // cloud progress 0..1
+      const rise = 1 - (1 - p) ** 3; // fast up, then hanging
+      const fadeOut = p < 0.7 ? 1 : (1 - p) / 0.3;
+      const heat = Math.max(0, 1 - p * 1.4); // fire shows through early on
+      const scale = nk.r / 6;
+
+      // Base surge: a flat ring of dust rolling outward along the ground.
+      const baseR = T * (1 + nk.r * 0.75 * rise);
+      for (let k = 0; k < 14; k++) {
+        const a = (k / 14) * Math.PI * 2 + t * 0.4;
+        puff(P.dust, gx + Math.cos(a) * baseR, gy + Math.sin(a) * baseR * 0.45, T * (1.6 + rise) * scale, 0.55 * fadeOut);
+      }
+
+      // The fireball, swelling in the first moments, then lifting into the cap.
+      const fb = Math.min(1, t / 0.3);
+      const capY = gy - T * (0.8 + 5.6 * rise) * scale;
+      if (t < 1.2) {
+        const fy = gy + (capY - gy) * Math.min(1, t / 1.2);
+        ctx.globalCompositeOperation = 'lighter';
+        puff(P.fire, gx, fy, T * (1.2 + 3.4 * fb) * scale, 1.2 - t);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      if (p <= 0) continue;
+
+      // The stem: a column of smoke from the ground up to the cap, glowing at the root.
+      const stemTop = capY + T * 0.8 * scale;
+      for (let k = 0; k < 8; k++) {
+        const f = k / 7;
+        const sy = gy + (stemTop - gy) * f;
+        const w = T * (1.5 - 0.6 * Math.sin(f * Math.PI * 0.9)) * scale * (0.6 + 0.4 * rise);
+        const wob = Math.sin(t * 3 + k) * T * 0.08;
+        puff(P.smoke, gx + wob, sy, w * 1.5, fadeOut * Math.min(1, p * 6));
+      }
+      if (heat > 0) {
+        // The stem's glowing core.
+        ctx.globalCompositeOperation = 'lighter';
+        for (let k = 0; k < 5; k++) {
+          const sy = gy + (stemTop - gy) * (k / 4);
+          puff(P.fire, gx, sy, T * 1.1 * scale, heat * 0.55);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      // The cap: a rolling ring of puffs (the torus), dark on top, fire underneath.
+      const capW = T * (1.6 + 3.4 * rise) * scale, capH = capW * 0.45;
+      const size = T * (1.8 + 2.4 * rise) * scale;
+      // Back half of the rolling ring first, then the dome, then the front half.
+      for (let pass = 0; pass < 2; pass++) {
+        for (let k = 0; k < 14; k++) {
+          const a = (k / 14) * Math.PI * 2 + t * 1.3;
+          const oy = Math.sin(a);
+          if ((oy < 0) !== (pass === 0)) continue;
+          puff(pass === 0 ? P.dark : P.smoke, gx + Math.cos(a) * capW * 0.55, capY + oy * capH * 0.5, size, fadeOut);
+        }
+        if (pass === 0) {
+          puff(P.smoke, gx, capY - capH * 0.45, size * 1.6, fadeOut);
+          puff(P.dark, gx - capW * 0.15, capY - capH * 0.75, size * 1.1, 0.8 * fadeOut);
+          puff(P.smoke, gx + capW * 0.2, capY - capH * 0.7, size * 1.0, 0.8 * fadeOut);
+        }
+      }
+      if (heat > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        puff(P.fire, gx, capY + capH * 0.25, size * 1.6, heat);
+        puff(P.fire, gx, gy - T * 0.2, T * 2.2 * scale, heat * 0.8);
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2 + t * 1.3;
+          puff(P.fire, gx + Math.cos(a) * capW * 0.5, capY + Math.abs(Math.sin(a)) * capH * 0.4, size * 0.7, heat * 0.8);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** The blinding flash of a nearby atomic blast, over everything. */
+  drawFlash(now, W, H) {
+    const t = (now - this.flashAt) / 1000;
+    if (t > 0.6 || this.flash <= 0) return;
+    const { ctx } = this;
+    const k = this.flash * (1 - t / 0.6) ** 2;
+    ctx.globalAlpha = Math.min(1, k);
+    ctx.fillStyle = t < 0.08 ? '#ffffff' : '#fff6d8';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
   }
 
   decal(x, y, now) {
@@ -375,6 +640,7 @@ export class Renderer {
     }
 
     // Tile chunks.
+    this.repaintBudget = REPAINTS_PER_FRAME;
     const cpx = CHUNK * T;
     const cx0 = Math.max(0, Math.floor(camX / cpx)), cy0 = Math.max(0, Math.floor(camY / cpx));
     const cx1 = Math.min(Math.ceil(map.w / CHUNK) - 1, Math.floor((camX + W) / cpx));
@@ -394,7 +660,7 @@ export class Renderer {
     const scorch = this.art('scorch');
     for (let i = 0; i < DECALS; i++) {
       const age = now - this.decalT[i];
-      if (age >= DECAL_LIFE) continue;
+      if (age >= DECAL_LIFE || age < 0) continue; // (an atomic blast schedules marks ahead)
       const x = this.decalX[i], y = this.decalY[i];
       const t = map.tiles[y * map.w + x];
       if (t === T_WALL || t === T_CRATE || t === T_ARMORED) continue;
@@ -403,9 +669,11 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
 
+    const inZone = this.drawNukeZones(state, f, camX, camY, T, sec);
     this.drawItems(state.items, camX, camY, T, sec, W, H);
     this.drawBombs(f, camX, camY, T, sec, dt);
     this.drawExplosions(state.explosions, camX, camY, T);
+    this.drawNukeGround(now, camX, camY, T);
 
     // Players back to front (insertion sort on the pooled slice: no garbage).
     const ps = f.players;
@@ -420,7 +688,11 @@ export class Renderer {
     this.particles.pixel = this.tileStyle === 'pixel';
     this.particles.draw(ctx, camX, camY, T);
     this.drawEffects(now, camX, camY, T);
+    this.drawNukeCloud(now, camX, camY, T);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
+    this.drawNukeCountdowns(f, camX, camY, T);
+    if (inZone) this.drawRunWarning(state, inZone, camX, camY, T, sec, W);
+    this.drawFlash(now, W, H);
 
     // (The vignette is a CSS overlay: the compositor blends it for free.)
 
@@ -549,16 +821,16 @@ export class Renderer {
     const pix = this.pixelArt();
     for (let i = 0; i < f.nBombs; i++) {
       const b = f.bombs[i];
-      const urgency = b.remote ? 0 : 1 - Math.min(1, b.fuse / 50);
+      const urgency = b.remote ? 0 : 1 - Math.min(1, b.fuse / (b.nuke ? NUKE_FUSE_TICKS : 50));
       const pulse = 1 + Math.sin(sec * (6 + urgency * 18)) * (0.05 + urgency * 0.06);
-      const size = T * 0.95 * pulse;
+      const size = T * (b.nuke ? 1.15 : 0.95) * pulse;
       let px = (b.x + 0.5) * T - camX, py = (b.y + 0.5) * T - camY;
       const late = !b.remote && b.fuse < 15;
       if (late) {
         px += (Math.random() - 0.5) * T * 0.06;
         py += (Math.random() - 0.5) * T * 0.06;
       }
-      ctx.drawImage(this.art(b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
+      ctx.drawImage(this.art(b.nuke ? 'bomb_nuke' : b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
       if (b.remote && pix) {
         ctx.drawImage(pix.antenna[Math.floor(sec * 4) % 2], px - size / 2, py - size / 2, size, size);
       } else if (b.remote) {
@@ -590,6 +862,118 @@ export class Renderer {
     }
   }
 
+  /**
+   * Danger zones of ticking atomic bombs, under everything else: every cell
+   * the blast will burn is tinted red (pulsing faster as the fuse runs
+   * out), with a bold line where safety starts. Returns the zone the local
+   * player stands in (the bomb), or null.
+   */
+  drawNukeZones(state, f, camX, camY, T, sec) {
+    let mine = null;
+    const { ctx } = this;
+    const { map } = state;
+    const me = state.me?.alive ? state.self : null;
+    for (let i = 0; i < f.nBombs; i++) {
+      const b = f.bombs[i];
+      if (!b.nuke) continue;
+      const bx = Math.round(b.x), by = Math.round(b.y);
+      const urgency = 1 - Math.min(1, b.fuse / NUKE_FUSE_TICKS);
+      const beat = 0.5 + 0.5 * Math.sin(sec * (4 + urgency * 20));
+      // Cells that will burn (walls don't).
+      ctx.fillStyle = `rgba(255,40,20,${0.14 + 0.08 * beat + 0.12 * urgency})`;
+      ctx.beginPath();
+      for (let k = 0; k < NUKE_DISC.length; k += 2) {
+        const x = bx + NUKE_DISC[k], y = by + NUKE_DISC[k + 1];
+        if (x < 0 || y < 0 || x >= map.w || y >= map.h || map.tiles[y * map.w + x] === T_WALL) continue;
+        ctx.rect(x * T - camX, y * T - camY, T, T);
+      }
+      ctx.fill();
+      // The border of the zone: dark underlay for contrast, then bright.
+      ctx.beginPath();
+      for (let k = 0; k < NUKE_OUTLINE.length; k += 4) {
+        ctx.moveTo((bx + NUKE_OUTLINE[k]) * T - camX, (by + NUKE_OUTLINE[k + 1]) * T - camY);
+        ctx.lineTo((bx + NUKE_OUTLINE[k + 2]) * T - camX, (by + NUKE_OUTLINE[k + 3]) * T - camY);
+      }
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = Math.max(4, T * 0.16);
+      ctx.stroke();
+      ctx.strokeStyle = `rgb(255,${Math.round(220 - 170 * urgency)},40)`;
+      ctx.lineWidth = Math.max(2, T * 0.08);
+      ctx.globalAlpha = 0.65 + 0.35 * beat;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'butt';
+      if (me && inNukeDisc(Math.floor(me.x) - bx, Math.floor(me.y) - by)) {
+        if (!mine || b.fuse < mine.fuse) mine = b;
+      }
+    }
+    return mine;
+  }
+
+  /** Seconds left over each atomic bomb, above players and names. */
+  drawNukeCountdowns(f, camX, camY, T) {
+    const { ctx } = this;
+    for (let i = 0; i < f.nBombs; i++) {
+      const b = f.bombs[i];
+      if (!b.nuke) continue;
+      const px = (b.x + 0.5) * T - camX, py = (b.y + 0.5) * T - camY - T * 0.75;
+      const fs = Math.max(Math.round(14 * this.dpr), Math.round(T * 0.45));
+      ctx.font = this.font(fs, 800);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const label = `☢ ${Math.ceil(b.fuse * 0.05)}`;
+      ctx.lineWidth = Math.max(3, fs * 0.22);
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(label, px, py);
+      ctx.fillStyle = b.fuse < 20 ? '#ff5a3a' : '#ffd23f';
+      ctx.fillText(label, px, py);
+    }
+  }
+
+  /**
+   * The local player is inside an atomic bomb's zone: an arrow points the
+   * way out (straight away from ground zero) and a banner says to run.
+   */
+  drawRunWarning(state, b, camX, camY, T, sec, W) {
+    const { ctx } = this;
+    const sx = state.self.x, sy = state.self.y;
+    let dx = sx - (b.x + 0.5), dy = sy - (b.y + 0.5);
+    const len = Math.hypot(dx, dy);
+    if (len < 0.05) { dx = 0; dy = -1; } else { dx /= len; dy /= len; }
+    const px = sx * T - camX, py = sy * T - camY;
+    const bob = (0.5 + 0.5 * Math.sin(sec * 10)) * T * 0.15;
+    const ax = px + dx * (T * 0.9 + bob), ay = py + dy * (T * 0.9 + bob);
+    const s = T * 0.45;
+    // Arrowhead pointing away from the bomb.
+    ctx.beginPath();
+    ctx.moveTo(ax + dx * s, ay + dy * s);
+    ctx.lineTo(ax - dy * s * 0.6, ay + dx * s * 0.6);
+    ctx.lineTo(ax + dy * s * 0.6, ay - dx * s * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = '#ffd23f';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = Math.max(2, T * 0.05);
+    ctx.fill();
+    ctx.stroke();
+    // Banner at the top of the screen.
+    const fs = Math.round(18 * this.dpr);
+    ctx.font = this.font(fs, 800);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const text = `☢ ${t('nukeRun', { n: Math.ceil(b.fuse * 0.05) })}`;
+    const w = ctx.measureText(text).width + fs * 1.4, h = fs * 1.9;
+    const y = Math.round(90 * this.dpr);
+    ctx.globalAlpha = 0.8 + 0.2 * Math.sin(sec * 10);
+    ctx.fillStyle = 'rgba(160,20,10,0.9)';
+    roundRect(ctx, W / 2 - w / 2, y - h / 2, w, h, h / 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, W / 2, y);
+    ctx.globalAlpha = 1;
+  }
+
   drawExplosions(explosions, camX, camY, T) {
     const { ctx } = this;
     const pix = this.pixelArt();
@@ -599,7 +983,8 @@ export class Renderer {
     let arm = this.assets.sprite('flame_arm');
     let end = this.assets.sprite('flame_end');
     for (let k = 0; k < explosions.length; k++) {
-      const [ex, ey, arms, left] = explosions[k];
+      const [ex, ey, arms, left, nuke] = explosions[k];
+      if (nuke) continue; // atomic blasts have their own effect (drawNuke*)
       if (pix) {
         const fr = (tick + ex * 7 + ey * 3) % 3;
         center = pix.flames.center[fr];
@@ -627,7 +1012,8 @@ export class Renderer {
     ctx.globalCompositeOperation = 'lighter';
     const glow = this.assets.glow;
     for (let k = 0; k < explosions.length; k++) {
-      const [ex, ey, arms, left] = explosions[k];
+      const [ex, ey, arms, left, nuke] = explosions[k];
+      if (nuke) continue;
       ctx.globalAlpha = Math.min(1, left / 10) * 0.8;
       const g = T * 2.2;
       ctx.drawImage(glow, (ex + 0.5) * T - camX - g / 2, (ey + 0.5) * T - camY - g / 2, g, g);
@@ -1032,6 +1418,19 @@ export class Renderer {
       c.fillStyle = 'rgba(255,211,74,0.8)';
       for (const [hx, hy] of state.hills) c.fillRect((hx - 1) * scale, (hy - 1) * scale, 3 * scale, 3 * scale);
     }
+    // Ticking atomic bombs: their danger zones.
+    const fb = this.frame;
+    for (let i = 0; i < fb.nBombs; i++) {
+      const b = fb.bombs[i];
+      if (!b.nuke) continue;
+      c.beginPath();
+      c.arc((Math.round(b.x) + 0.5) * scale, (Math.round(b.y) + 0.5) * scale, (NUKE_RADIUS + 0.5) * scale, 0, 6.2832);
+      c.fillStyle = 'rgba(255,40,20,0.35)';
+      c.fill();
+      c.strokeStyle = '#ff5a3a';
+      c.lineWidth = this.dpr * 1.5;
+      c.stroke();
+    }
     const T = this.T;
     c.strokeStyle = 'rgba(255,255,255,0.7)';
     c.lineWidth = this.dpr;
@@ -1101,6 +1500,7 @@ export class Renderer {
       o.fuse = q[3];
       o.pierce = (q[4] & 1) !== 0;
       o.remote = (q[4] & 2) !== 0;
+      o.nuke = (q[4] & 4) !== 0;
     }
     f.nBombs = m;
     state.explosions = latest.e;

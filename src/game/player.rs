@@ -12,6 +12,8 @@ pub const BASE_RANGE: u8 = 2;
 pub const MAX_BOMBS: u8 = 8;
 pub const MAX_RANGE: u8 = 8;
 pub const MAX_SPEED_LVL: u8 = 6;
+/// Atomic bombs a player can carry at once.
+pub const MAX_NUKES: u8 = 2;
 pub const BASE_SPEED: f32 = 3.5; // tiles per second
 pub const SPEED_STEP: f32 = 0.6;
 /// Speed while under the slow curse.
@@ -77,6 +79,8 @@ pub struct Player {
     pub remote: bool,
     pub line: bool,
     pub punch: bool,
+    /// Atomic bombs carried: the next bombs placed are nukes.
+    pub nukes: u8,
     pub ghost_until: u64,
     pub slow_until: u64,
     pub nobomb_until: u64,
@@ -135,6 +139,7 @@ impl Player {
             remote: false,
             line: false,
             punch: false,
+            nukes: 0,
             ghost_until: 0,
             slow_until: 0,
             nobomb_until: 0,
@@ -203,6 +208,7 @@ impl Player {
         self.remote = false;
         self.line = false;
         self.punch = false;
+        self.nukes = 0;
         self.ghost_until = 0;
         self.slow_until = 0;
         self.nobomb_until = 0;

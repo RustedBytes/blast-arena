@@ -54,6 +54,8 @@ kbd { background: #263247; border-radius: 4px; padding: 1px 6px; font-family: in
 .stat { display: flex; align-items: center; gap: 5px; position: relative; }
 .stat img { width: 26px; height: 26px; }
 .stat.off { opacity: 0.25; filter: grayscale(1); }
+.stat.nuke { color: #ffd23f; font-weight: 700; animation: nuke-armed 0.9s ease-in-out infinite alternate; }
+@keyframes nuke-armed { to { filter: drop-shadow(0 0 6px #ffd23f); } }
 .stat.timer span { font-size: 14px; font-variant-numeric: tabular-nums; }
 .stat.timer::after {
   content: ""; position: absolute; left: -3px; top: -3px; width: 32px; height: 32px; border-radius: 50%;

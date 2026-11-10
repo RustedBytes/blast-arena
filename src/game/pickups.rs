@@ -4,7 +4,7 @@ use crate::protocol;
 
 use super::World;
 use super::items::{self, Item, Mystery};
-use super::player::{MAX_BOMBS, MAX_RANGE, MAX_SPEED_LVL, Player};
+use super::player::{MAX_BOMBS, MAX_NUKES, MAX_RANGE, MAX_SPEED_LVL, Player};
 
 impl World {
     /// Gives a power-up's effect to a player.
@@ -21,6 +21,7 @@ impl World {
             Item::LineBomb => p.line = true,
             Item::Punch => p.punch = true,
             Item::Ghost => p.ghost_until = p.ghost_until.max(tick + items::GHOST_TICKS),
+            Item::Nuke => p.nukes = (p.nukes + 1).min(MAX_NUKES),
             Item::Mystery => {}
         }
     }

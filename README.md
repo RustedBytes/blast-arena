@@ -123,6 +123,7 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
   | line bomb | Lay a row of bombs |
   | punch | Throw a bomb over obstacles |
   | ghost | Walk through crates for 6 s |
+  | **atomic bomb** | Rare (1%). Your next bomb is a nuke: a 3.5 s fuse, then a shockwave that burns a disc of radius 6 over a few ticks. Pillars give no cover; crates (armored too) and items are vaporized. While it ticks, every cell it will burn is shown in red with a countdown, also on the minimap |
   | **secret box** | A random outcome when opened (see below) |
 
 - **Secret box.** Opening it gives one of:

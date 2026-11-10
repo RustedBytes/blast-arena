@@ -4,6 +4,7 @@ use bytes::{Bytes, BytesMut};
 
 use crate::protocol::{self, MeState, Wire};
 
+use super::bomb::NUKE_RADIUS;
 use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
 use super::{BUCKET, LEADERBOARD_EVERY, World};
@@ -62,16 +63,23 @@ impl World {
         }));
         cur.players.sort_unstable_by_key(|e| e.0);
         cur.bombs.clear();
-        let (bx0, by0, bx1, by1) = (x0.max(0), y0.max(0), x1.min(self.map.w - 1), y1.min(self.map.h - 1));
+        // Atomic bombs a little outside the view are sent too: their danger
+        // zone reaches into it.
+        let margin = i32::from(NUKE_RADIUS);
+        let (bx0, by0) = ((x0 - margin).max(0), (y0 - margin).max(0));
+        let (bx1, by1) = ((x1 + margin).min(self.map.w - 1), (y1 + margin).min(self.map.h - 1));
         for y in by0..=by1 {
             for x in bx0..=bx1 {
                 let id = self.bomb_grid[self.map.idx(x, y)];
                 if id != 0 {
                     let b = &self.bombs[&id];
+                    if !b.nuke && (x < x0 || x > x1 || y < y0 || y > y1) {
+                        continue;
+                    }
                     // The absolute detonation tick never changes, so a resting
                     // bomb is identical from one snapshot to the next.
                     let at = if b.remote { 0 } else { b.explode_at };
-                    cur.bombs.push((id, x, y, at, u8::from(b.pierce) | u8::from(b.remote) << 1));
+                    cur.bombs.push((id, x, y, at, u8::from(b.pierce) | u8::from(b.remote) << 1 | u8::from(b.nuke) << 2));
                 }
             }
         }
@@ -95,6 +103,12 @@ impl World {
             if n > 0 {
                 w.len(n);
                 for e in self.explosions.iter().filter(in_range) {
+                    if e.nuke > 0 {
+                        // Arms never reach 15, so 0xFF marks an atomic blast;
+                        // the next byte is its radius.
+                        w.coord(e.x).coord(e.y).u8(NUKE_MARK).u8(e.nuke).uvar(e.until.saturating_sub(tick));
+                        continue;
+                    }
                     // Arm lengths are at most MAX_RANGE, so they fit in a nibble.
                     let a = e.arms.map(|r| r.min(15));
                     w.coord(e.x).coord(e.y).u8(a[0] | a[1] << 4).u8(a[2] | a[3] << 4).uvar(e.until.saturating_sub(tick));
@@ -189,7 +203,10 @@ impl World {
     }
 }
 
-const _: () = assert!(MAX_RANGE <= 15, "flame arms are sent as nibbles");
+const _: () = assert!(MAX_RANGE < 15, "flame arms are sent as nibbles; 15 | 15 << 4 marks a nuke");
+const _: () = assert!(NUKE_RADIUS <= MAX_RANGE, "explosions are sent to clients within MAX_RANGE of their view");
+/// First arm byte of an atomic blast in the flames section.
+pub const NUKE_MARK: u8 = 0xFF;
 
 /// The player's own state in `protocol::ME_FIELDS` order.
 fn me_state(p: &Player, tick: u64, spectating: Option<u32>) -> MeState {
@@ -220,6 +237,7 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>) -> MeState {
         i64::from(p.aoi.1),
         i64::from(p.team),
         i64::from(p.streak),
+        i64::from(p.nukes),
     ]
 }
 

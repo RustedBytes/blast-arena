@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use super::bomb::FUSE_TICKS;
+use super::bomb::{Blast, FUSE_TICKS, NUKE_FUSE_TICKS};
 use super::items::Item;
 use super::map::Tile;
 use super::player::{DIRS, MAX_BOMBS, MAX_RANGE};
@@ -140,6 +140,18 @@ impl Search {
     }
 }
 
+/// A bomb as the danger map sees it: where, what blast, and ticks until it
+/// goes off (chain reactions included).
+#[derive(Clone, Copy)]
+struct DangerBomb {
+    x: i32,
+    y: i32,
+    range: u8,
+    pierce: bool,
+    nuke: bool,
+    t: u16,
+}
+
 /// Per-tick view of the world shared by all bots, plus search buffers.
 #[derive(Default)]
 pub struct AiScratch {
@@ -150,7 +162,7 @@ pub struct AiScratch {
     targets: [Vec<u8>; 3],
     /// Living players per cell.
     occupied: Vec<u8>,
-    bombs: Vec<(i32, i32, u8, bool, u16)>,
+    bombs: Vec<DangerBomb>,
     bomb_index: HashMap<u32, usize>,
     search: Search,
 }
@@ -170,6 +182,13 @@ impl AiScratch {
     }
 }
 
+impl Me {
+    /// The blast of the next bomb this bot would drop.
+    fn blast(&self) -> Blast {
+        Blast { range: self.range, pierce: self.pierce, nuke: self.nuke }
+    }
+}
+
 /// What a bot knows about itself while deciding.
 #[allow(clippy::struct_excessive_bools, reason = "independent facts a bot weighs")]
 struct Me {
@@ -178,6 +197,8 @@ struct Me {
     spt: f32,
     range: u8,
     pierce: bool,
+    /// The next bomb dropped is an atomic one.
+    nuke: bool,
     can_bomb: bool,
     vulnerable: bool,
     max_bombs: u8,
@@ -247,32 +268,36 @@ impl World {
         danger
     }
 
-    fn fill_danger(&self, danger: &mut [u16], bombs: &mut Vec<(i32, i32, u8, bool, u16)>, index: &mut HashMap<u32, usize>) {
-        for (d, &until) in danger.iter_mut().zip(&self.flame_until) {
-            *d = if until > self.tick { 0 } else { SAFE };
+    fn fill_danger(&self, danger: &mut [u16], bombs: &mut Vec<DangerBomb>, index: &mut HashMap<u32, usize>) {
+        // Burning now is 0; fire an atomic shockwave hasn't reached yet
+        // counts down to when it will.
+        for ((d, &until), &from) in danger.iter_mut().zip(&self.flame_until).zip(&self.flame_from) {
+            *d = if until > self.tick { from.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16 } else { SAFE };
         }
         bombs.clear();
         index.clear();
         for b in self.bombs.values() {
             let t = b.explode_at.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
-            let t = if danger[self.map.idx(b.x, b.y)] == 0 { 0 } else { t };
+            let t = t.min(danger[self.map.idx(b.x, b.y)]);
             // A remote bomb can go off whenever its owner likes; treat it like
             // a freshly lit one.
             let t = if b.remote { t.min(REMOTE_ASSUMED_TICKS) } else { t };
             index.insert(b.id, bombs.len());
-            bombs.push((b.x, b.y, b.range, b.pierce, t));
+            bombs.push(DangerBomb { x: b.x, y: b.y, range: b.range, pierce: b.pierce, nuke: b.nuke, t });
         }
 
-        // A bomb caught in another's blast goes off no later than that one.
+        // A bomb caught in another's blast goes off no later than the fire
+        // reaches it.
         loop {
             let mut changed = false;
             for k in 0..bombs.len() {
-                let (x, y, range, pierce, t) = bombs[k];
-                self.trace_blast(x, y, range, false, pierce, |_, _, cx, cy| {
+                let DangerBomb { x, y, range, pierce, nuke, t } = bombs[k];
+                self.blast_footprint((x, y), Blast { range, pierce, nuke }, false, |cx, cy, delay| {
                     let id = self.bomb_grid[self.map.idx(cx, cy)];
+                    let at = t.saturating_add(delay);
                     if let Some(&j) = index.get(&id)
-                        && bombs[j].4 > t {
-                            bombs[j].4 = t;
+                        && bombs[j].t > at {
+                            bombs[j].t = at;
                             changed = true;
                         }
                 });
@@ -282,12 +307,12 @@ impl World {
             }
         }
 
-        for &(x, y, range, pierce, t) in bombs.iter() {
+        for &DangerBomb { x, y, range, pierce, nuke, t } in bombs.iter() {
             let i = self.map.idx(x, y);
             danger[i] = danger[i].min(t);
-            self.trace_blast(x, y, range, false, pierce, |_, _, cx, cy| {
+            self.blast_footprint((x, y), Blast { range, pierce, nuke }, false, |cx, cy, delay| {
                 let i = self.map.idx(cx, cy);
-                danger[i] = danger[i].min(t);
+                danger[i] = danger[i].min(t.saturating_add(delay));
             });
         }
     }
@@ -303,6 +328,7 @@ impl World {
             spt: p.speed(self.tick) * DT,
             range: p.range,
             pierce: p.pierce,
+            nuke: p.nukes > 0,
             can_bomb: p.can_bomb(self.tick) && self.bomb_at(p.cell().0, p.cell().1).is_none(),
             team: p.team as usize,
             remote_out: p.remote && p.active_bombs > 0,
@@ -423,11 +449,12 @@ impl World {
         let hyp = &mut sc.hypothetical;
         let ci = self.map.idx(cur.0, cur.1);
         // If another blast reaches this cell first, the new bomb chains with it.
-        let t = (FUSE_TICKS as u16).min(sc.danger[ci]);
+        let fuse = if me.nuke { NUKE_FUSE_TICKS } else { FUSE_TICKS };
+        let t = (fuse as u16).min(sc.danger[ci]);
         hyp[ci] = hyp[ci].min(t);
-        self.trace_blast(cur.0, cur.1, me.range, false, me.pierce, |_, _, x, y| {
+        self.blast_footprint(cur, me.blast(), false, |x, y, delay| {
             let i = self.map.idx(x, y);
-            hyp[i] = hyp[i].min(t);
+            hyp[i] = hyp[i].min(t.saturating_add(delay));
         });
         let (hyp, occupied, spt) = (&sc.hypothetical, &sc.occupied, me.spt);
         sc.search.explore(self, cur, |c, dist| {
@@ -485,7 +512,7 @@ impl World {
         let mut crates = 0;
         let mut hit = u32::from(targets[self.map.idx(c.0, c.1)]);
         let mut hits_self = c == me.cur;
-        self.trace_blast(c.0, c.1, me.range, true, me.pierce, |_, _, x, y| {
+        self.blast_footprint(c, me.blast(), true, |x, y, _| {
             if self.map.get(x, y).is_breakable() {
                 crates += 1;
             }
@@ -509,6 +536,7 @@ impl World {
             Item::Shield if !me.shielded => 4.0,
             // A gamble: usually good, sometimes a curse.
             Item::Mystery => 4.0,
+            Item::Nuke => 5.0,
             Item::Remote | Item::Punch | Item::LineBomb | Item::Ghost => 3.0,
             _ => 1.0,
         }

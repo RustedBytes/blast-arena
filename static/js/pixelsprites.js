@@ -13,6 +13,7 @@ const X4 = 4;
 // Bomb iron: navy shadows, lilac highlights.
 const IRON = ['#0b0a16', '#16162a', '#22233d', '#30344f', '#454c6b', '#6a7394', '#a9b3d1'];
 const RED_IRON = ['#1a0a10', '#3a0f18', '#5c1420', '#82202a', '#ad3236', '#d9584e', '#ffb09a'];
+const URANIUM = ['#1a1400', '#3a2e00', '#6b5600', '#a68600', '#d9b21a', '#ffd23f', '#fff2a8'];
 const FIRE = ['#3a0a12', '#8c1a10', '#d63a12', '#ff7a1a', '#ffb532', '#ffe46b', '#fff9d6'];
 const FUSE = ['#6b4a2a', '#c9a26b', '#e0bd84'];
 
@@ -53,6 +54,16 @@ function bomb(ramp, spiked) {
     for (const [x, y] of [[0, 9], [1, 9], [13, 9], [14, 9], [2, 4], [3, 5], [12, 14], [11, 13]]) p.set(x, y, STEEL[5]);
     p.set(1, 9, STEEL[3]);
     p.set(13, 9, STEEL[3]);
+  }
+  return p;
+}
+
+/** The atomic bomb: a fat yellow bomb with a black radiation trefoil. */
+function nukeBomb() {
+  const p = bomb(URANIUM, false);
+  const cx = 7, cy = 9;
+  for (const [dx, dy] of [[0, 0], [-2, -2], [-1, -2], [-2, -1], [1, -2], [2, -2], [2, -1], [-1, 2], [0, 2], [1, 2]]) {
+    p.set(cx + dx, cy + dy, URANIUM[0]);
   }
   return p;
 }
@@ -320,6 +331,19 @@ function powerUps() {
       ' o#o##o#o ',
       ' oo oo oo ',
     ], { o: '#3a2a6a', '#': '#e8e0ff', '+': '#ffffff', '-': '#a898d8', e: '#2a1f4a' }),
+    // Atomic bomb: the radiation trefoil.
+    token('gold', [
+      '  oooooo  ',
+      ' okkyykko ',
+      'okkkyykkko',
+      'okkyyyykko',
+      'oyyykkyyyo',
+      'oyyykkyyyo',
+      'oyyyyyyyyo',
+      ' oyykkyyo ',
+      '  okkkko  ',
+      '   oooo   ',
+    ], { o: '#3a2a00', y: '#ffd23f', k: '#1a1400' }),
   ];
 }
 
@@ -455,8 +479,9 @@ export function buildPixelSprites() {
   const f = flames();
   const items = powerUps();
   const names = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
-    'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost'];
+    'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke'];
   const out = {
+    bomb_nuke: big(nukeBomb()),
     bomb: big(bomb(IRON, false)),
     bomb_pierce: big(bomb(RED_IRON, true)),
     antenna: [big(antenna(false)), big(antenna(true))],

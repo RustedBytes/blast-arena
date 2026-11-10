@@ -11,7 +11,7 @@ const STATIC = [
   'pillar', 'crate', 'crate_armored', 'ice', 'conveyor', 'teleport',
   'bomb', 'bomb_pierce', 'scorch', 'flame_center', 'flame_arm', 'flame_end',
   'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery',
-  'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost',
+  'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke', 'bomb_nuke',
 ];
 const PLAYER_VIEWS = ['player_down', 'player_up', 'player_side'];
 const HUE_BUCKETS = 24;
@@ -20,7 +20,7 @@ export const SPRITE_PX = 96;
 
 /** Item kind (protocol code) → sprite name. */
 export const ITEM_SPRITES = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
-  'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost'];
+  'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke'];
 
 function svgImage(text) {
   return new Promise((resolve, reject) => {

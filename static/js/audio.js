@@ -244,6 +244,19 @@ export class GameAudio {
     this._voice('sine', 90 + 40 * near, t, 0.3 + 0.3 * near, vol * near, out, null, 30);
   }
 
+  /** An atomic blast: a sharp crack, then a long, deep, rolling rumble. */
+  nuke(distanceTiles = 0, pan = 0) {
+    const t = this._now();
+    if (t === null) return;
+    const d = Math.max(0, Number(distanceTiles) || 0);
+    const near = Math.max(0.25, 1 - d / 40); // heard across the whole arena
+    const out = this._panned(pan * (1 - near * 0.5), t, 4);
+    this._noiseHit(t, 0.4, 'highpass', 1500, 0.7, 0.5 * near, out);
+    this._noiseHit(t, 3.2, 'lowpass', 260 + 500 * near, 0.9, 0.95 * near, out, 60);
+    this._voice('sine', 52, t, 2.6, 0.9 * near, out, null, 24);
+    this._voice('triangle', 38, t + 0.05, 3.0, 0.5 * near, out, 400, 18);
+  }
+
   pickup() {
     const t = this._now();
     if (t === null) return;

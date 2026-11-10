@@ -86,6 +86,7 @@ pub mod cop {
 /// [BOMBS]        n, n × (id gap, x, y, u8 flags, [not remote] ivar fuse ticks)
 /// [BOMBS_GONE]   n, n × id gap
 /// [FLAMES]       n, n × (x, y, u8 arm0 | arm1 << 4, u8 arm2 | arm3 << 4, ticks left)
+///                an atomic blast is (x, y, 0xFF, u8 radius, ticks left)
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -114,9 +115,9 @@ pub mod snap {
 /// browser client has the same list.
 pub const ME_FIELDS: [&str; ME_LEN] = [
     "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
-    "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak",
+    "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
 ];
-pub const ME_LEN: usize = 23;
+pub const ME_LEN: usize = 24;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -695,7 +696,12 @@ pub mod testing {
             if has(snap::FLAMES) {
                 for _ in 0..r.uvar().unwrap() {
                     let (x, y, a, b) = (r.uvar().unwrap(), r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
-                    flames.push(json!([x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar().unwrap()]));
+                    if a == 0xFF {
+                        // Atomic blast: no arms, `b` is its radius.
+                        flames.push(json!([x, y, [0, 0, 0, 0], r.uvar().unwrap(), b]));
+                    } else {
+                        flames.push(json!([x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar().unwrap(), 0]));
+                    }
                 }
             }
             if has(snap::ME) {

@@ -42,6 +42,7 @@ impl World {
         lose(Item::Remote, u8::from(dead.remote));
         lose(Item::LineBomb, u8::from(dead.line));
         lose(Item::Punch, u8::from(dead.punch));
+        lose(Item::Nuke, dead.nukes);
         dead.reset_stats();
         for _ in 0..ITEMS_DROPPED_ON_DEATH.min(count) {
             let pick = self.rng.below(count as u32) as usize;

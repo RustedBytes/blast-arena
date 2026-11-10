@@ -11,12 +11,14 @@ const OP = {
   FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14,
 };
 const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7 };
+const NO_ARMS = Object.freeze([0, 0, 0, 0]);
 const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32 };
 const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
 
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
 export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 'curse_t', 'respawn', 'score', 'bombs',
-  'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak'];
+  'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
+  'nukes'];
 const ME_EMPTY = new Array(ME_FIELDS.length).fill(0);
 
 const textEncoder = new TextEncoder();
@@ -187,7 +189,10 @@ function decodeSnapshot(r, baseFor) {
   const flames = sections & SECTION.FLAMES
     ? r.list(r.uvar(), () => {
       const x = r.uvar(), y = r.uvar(), a = r.u8(), b = r.u8();
-      return [x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar()];
+      // [x, y, arms, ticks left, nuke radius]; arm byte 0xFF marks an
+      // atomic blast, whose second byte is its radius.
+      if (a === 0xff) return [x, y, NO_ARMS, r.uvar(), b];
+      return [x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar(), 0];
     })
     : [];
 

@@ -23,9 +23,11 @@ pub enum Item {
     Punch = 11,
     /// Walk through crates for a while.
     Ghost = 12,
+    /// The next bomb is an atomic bomb (see `bomb::NUKE_RADIUS`).
+    Nuke = 13,
 }
 
-pub const ALL_ITEMS: u8 = 12;
+pub const ALL_ITEMS: u8 = 13;
 pub const CRATE_DROP_CHANCE: f32 = 0.25;
 pub const SHIELD_TICKS: u64 = 6 * 20;
 pub const GHOST_TICKS: u64 = 6 * 20;
@@ -67,7 +69,7 @@ impl Mystery {
         match rng.below(100) {
             0..=54 => {
                 // Any regular power-up, rare ones more likely than from crates.
-                const POOL: [Item; 11] = [
+                const POOL: [Item; 12] = [
                     Item::ExtraBomb,
                     Item::Range,
                     Item::Speed,
@@ -79,6 +81,7 @@ impl Mystery {
                     Item::LineBomb,
                     Item::Punch,
                     Item::Ghost,
+                    Item::Nuke,
                 ];
                 Mystery::Item(POOL[rng.below(POOL.len() as u32) as usize])
             }
@@ -107,25 +110,28 @@ impl Item {
             10 => Item::LineBomb,
             11 => Item::Punch,
             12 => Item::Ghost,
+            13 => Item::Nuke,
             _ => return None,
         })
     }
 
-    /// Weighted random pick: bombs and range are common, full fire is rare.
+    /// Weighted random pick (per 200): bombs and range are common, full
+    /// fire is rare, and the atomic bomb rarest of all (1%).
     pub fn random(rng: &mut Rng) -> Item {
-        match rng.below(100) {
-            0..=23 => Item::ExtraBomb,
-            24..=47 => Item::Range,
-            48..=60 => Item::Speed,
-            61..=66 => Item::Kick,
-            67..=71 => Item::Shield,
-            72..=75 => Item::Pierce,
-            76..=78 => Item::FullFire,
-            79..=84 => Item::Mystery,
-            85..=88 => Item::Remote,
-            89..=92 => Item::LineBomb,
-            93..=96 => Item::Punch,
-            _ => Item::Ghost,
+        match rng.below(200) {
+            0..=47 => Item::ExtraBomb,
+            48..=95 => Item::Range,
+            96..=121 => Item::Speed,
+            122..=133 => Item::Kick,
+            134..=143 => Item::Shield,
+            144..=151 => Item::Pierce,
+            152..=157 => Item::FullFire,
+            158..=169 => Item::Mystery,
+            170..=177 => Item::Remote,
+            178..=185 => Item::LineBomb,
+            186..=193 => Item::Punch,
+            194..=197 => Item::Ghost,
+            _ => Item::Nuke,
         }
     }
 

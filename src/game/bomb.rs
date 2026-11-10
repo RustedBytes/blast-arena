@@ -17,6 +17,15 @@ pub const PUNCH_DISTANCE: i32 = 3;
 const MAX_LINE: i32 = 8;
 const RAIN_BOMBS: usize = 6;
 const RAIN_FUSE_TICKS: u64 = 40;
+/// Atomic bomb: blast radius in cells (a disc, not a cross), fuse, how long
+/// each cell burns once the shockwave reaches it, and how long clients get
+/// to show the mushroom cloud.
+pub const NUKE_RADIUS: u8 = 6;
+pub const NUKE_FUSE_TICKS: u64 = 70; // 3.5 s
+pub const NUKE_FLAME_TICKS: u64 = 16;
+pub const NUKE_SHOW_TICKS: u64 = 60; // 3 s
+/// The shockwave expands this many cells per tick.
+pub const NUKE_WAVE_SPEED: f32 = 1.0;
 
 pub struct Bomb {
     pub id: u32,
@@ -28,6 +37,8 @@ pub struct Bomb {
     pub pierce: bool,
     /// Waits for the owner's action key (or the safety timer).
     pub remote: bool,
+    /// An atomic bomb: a disc of fire of `NUKE_RADIUS` that walls don't stop.
+    pub nuke: bool,
     pub explode_at: u64,
     /// Direction code of a kicked bomb, 0 when resting.
     pub slide_dir: u8,
@@ -40,23 +51,45 @@ pub struct BombKind {
     pub range: u8,
     pub pierce: bool,
     pub remote: bool,
+    pub nuke: bool,
     /// Ticks until it explodes (remote bombs use their safety timer instead).
     pub fuse: u64,
 }
 
 impl BombKind {
-    /// A bomb as `p` would drop it, with the normal fuse.
+    /// A bomb as `p` would drop it: an atomic bomb (on its own long fuse,
+    /// never remote) while they carry one, otherwise a normal one.
     #[must_use]
     pub fn of(p: &Player) -> Self {
-        Self { range: p.range, pierce: p.pierce, remote: p.remote, fuse: FUSE_TICKS }
+        if p.nukes > 0 {
+            return Self { range: NUKE_RADIUS, pierce: true, remote: false, nuke: true, fuse: NUKE_FUSE_TICKS };
+        }
+        Self { range: p.range, pierce: p.pierce, remote: p.remote, nuke: false, fuse: FUSE_TICKS }
     }
+
+    /// A plain bomb (bomb rain, tests).
+    #[must_use]
+    pub fn plain(range: u8, fuse: u64) -> Self {
+        Self { range, pierce: false, remote: false, nuke: false, fuse }
+    }
+}
+
+/// The shape of a bomb's blast: a cross of `range` (through crates with
+/// `pierce`), or an atomic disc.
+#[derive(Clone, Copy)]
+pub struct Blast {
+    pub range: u8,
+    pub pierce: bool,
+    pub nuke: bool,
 }
 
 pub struct Explosion {
     pub x: i32,
     pub y: i32,
-    /// Arm lengths: up, right, down, left.
+    /// Arm lengths: up, right, down, left (all 0 for an atomic blast).
     pub arms: [u8; 4],
+    /// Radius of an atomic blast, 0 for a normal one.
+    pub nuke: u8,
     pub until: u64,
 }
 
@@ -74,7 +107,11 @@ impl World {
 
     #[must_use]
     pub fn flame_active(&self, x: i32, y: i32) -> bool {
-        self.map.in_bounds(x, y) && self.flame_until[self.map.idx(x, y)] > self.tick
+        if !self.map.in_bounds(x, y) {
+            return false;
+        }
+        let i = self.map.idx(x, y);
+        self.flame_from[i] <= self.tick && self.flame_until[i] > self.tick
     }
 
     /// The bomb button: drops a bomb where the player stands, or, with the
@@ -103,13 +140,16 @@ impl World {
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
-        let BombKind { range, pierce, remote, fuse } = kind;
+        let BombKind { range, pierce, remote, nuke, fuse } = kind;
         let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
-        self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, remote, explode_at, slide_dir: 0, next_slide: 0 });
+        self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, remote, nuke, explode_at, slide_dir: 0, next_slide: 0 });
         let i = self.map.idx(x, y);
         self.bomb_grid[i] = id;
         if let Some(p) = self.players.get_mut(&owner) {
             p.active_bombs += 1;
+            if nuke {
+                p.nukes = p.nukes.saturating_sub(1);
+            }
         }
         true
     }
@@ -142,7 +182,7 @@ impl World {
         let tick = self.tick;
         let mut detonated = false;
         for b in self.bombs.values_mut() {
-            if b.owner == id && b.remote {
+            if b.owner == id && b.remote && !b.nuke {
                 b.explode_at = tick;
                 detonated = true;
             }
@@ -198,7 +238,7 @@ impl World {
                 continue;
             }
             let fuse = RAIN_FUSE_TICKS + u64::from(self.rng.below(20));
-            if self.place_bomb_at(0, (bx, by), BombKind { range: 2, pierce: false, remote: false, fuse }) {
+            if self.place_bomb_at(0, (bx, by), BombKind::plain(2, fuse)) {
                 placed += 1;
             }
         }
@@ -286,14 +326,18 @@ impl World {
             if let Some(owner) = self.players.get_mut(&b.owner) {
                 owner.active_bombs = owner.active_bombs.saturating_sub(1);
             }
-            self.set_flame(b.x, b.y, b.owner, flame_until);
+            if b.nuke {
+                self.detonate_nuke(&b, &mut queue);
+                continue;
+            }
+            self.set_flame(b.x, b.y, b.owner, self.tick, flame_until);
 
             cells.clear();
             self.trace_blast(b.x, b.y, b.range, true, b.pierce, |arm, r, x, y| cells.push((arm, r, x, y)));
             let mut arms = [0u8; 4];
             for &(arm, r, x, y) in &cells {
                 arms[arm] = r;
-                self.set_flame(x, y, b.owner, flame_until);
+                self.set_flame(x, y, b.owner, self.tick, flame_until);
                 match self.map.get(x, y) {
                     Tile::Crate => {
                         self.set_tile(x, y, Tile::Floor);
@@ -313,7 +357,7 @@ impl World {
                     }
                 }
             }
-            self.explosions.push(Explosion { x: b.x, y: b.y, arms, until: flame_until });
+            self.explosions.push(Explosion { x: b.x, y: b.y, arms, nuke: 0, until: flame_until });
         }
 
         // Items revealed by crates appear only after the whole chain resolved,
@@ -324,6 +368,79 @@ impl World {
         self.scratch.chain = queue;
         self.scratch.drops = drops;
         self.scratch.blast = cells;
+    }
+
+    /// An atomic blast: a shockwave of fire expands over a disc of
+    /// `NUKE_RADIUS`, one cell per tick. Nothing shelters from it: the fire
+    /// reaches cells behind pillars, vaporizes crates (armored ones too, and
+    /// with nothing left to drop) and items, and sets off every bomb in
+    /// reach when the wave gets there.
+    fn detonate_nuke(&mut self, b: &Bomb, queue: &mut Vec<u32>) {
+        let tick = self.tick;
+        self.stats.nukes += 1;
+        let mut cells = std::mem::take(&mut self.scratch.nuke_cells);
+        cells.clear();
+        self.nuke_cells(b.x, b.y, NUKE_RADIUS, |x, y, delay| cells.push((x, y, delay)));
+        for &(x, y, delay) in &cells {
+            let from = tick + u64::from(delay);
+            self.set_flame(x, y, b.owner, from, from + NUKE_FLAME_TICKS);
+            match self.map.get(x, y) {
+                Tile::Crate | Tile::Armored => {
+                    self.set_tile(x, y, Tile::Floor);
+                    self.stats.crates_destroyed += 1;
+                }
+                _ => {
+                    self.set_item(x, y, 0);
+                    if let Some(other) = self.bomb_at(x, y) {
+                        if delay == 0 {
+                            queue.push(other);
+                        } else if let Some(o) = self.bombs.get_mut(&other) {
+                            // It goes off when the wave arrives.
+                            o.remote = false;
+                            o.explode_at = o.explode_at.min(from);
+                        }
+                    }
+                }
+            }
+        }
+        self.scratch.nuke_cells = cells;
+        self.explosions.push(Explosion { x: b.x, y: b.y, arms: [0; 4], nuke: NUKE_RADIUS, until: tick + NUKE_SHOW_TICKS });
+    }
+
+    /// Cells of an atomic blast of `radius` centred at (x, y), the centre
+    /// included, with the ticks the shockwave takes to reach each:
+    /// `f(x, y, delay)`. A round disc; walls themselves never burn.
+    pub fn nuke_cells(&self, x: i32, y: i32, radius: u8, mut f: impl FnMut(i32, i32, u16)) {
+        let r = i32::from(radius);
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let d2 = dx * dx + dy * dy;
+                if d2 > r * r + r {
+                    continue;
+                }
+                let (cx, cy) = (x + dx, y + dy);
+                if !self.map.in_bounds(cx, cy) || self.map.get(cx, cy) == Tile::Wall {
+                    continue;
+                }
+                f(cx, cy, ((d2 as f32).sqrt() / NUKE_WAVE_SPEED) as u16);
+            }
+        }
+    }
+
+    /// Every cell a bomb's fire reaches, excluding its own cell, with the
+    /// ticks after detonation it catches fire: the cross of `trace_blast`
+    /// (all at once), or an atomic disc (as the shockwave arrives).
+    pub fn blast_footprint(&self, (x, y): (i32, i32), blast: Blast, items_block: bool, mut f: impl FnMut(i32, i32, u16)) {
+        let Blast { range, pierce, nuke } = blast;
+        if nuke {
+            self.nuke_cells(x, y, NUKE_RADIUS, |cx, cy, d| {
+                if (cx, cy) != (x, y) {
+                    f(cx, cy, d);
+                }
+            });
+        } else {
+            self.trace_blast(x, y, range, items_block, pierce, |_, _, cx, cy| f(cx, cy, 0));
+        }
     }
 
     /// Walks the four arms of a blast centred at (x, y), calling
@@ -357,9 +474,17 @@ impl World {
         }
     }
 
-    fn set_flame(&mut self, x: i32, y: i32, owner: u32, until: u64) {
+    /// Fire in a cell from tick `from` until `until`. Overlapping fire
+    /// merges into one continuous window; the newest blast owns the cell.
+    fn set_flame(&mut self, x: i32, y: i32, owner: u32, from: u64, until: u64) {
         let i = self.map.idx(x, y);
-        self.flame_until[i] = until;
+        if self.flame_until[i] > self.tick {
+            self.flame_from[i] = self.flame_from[i].min(from);
+            self.flame_until[i] = self.flame_until[i].max(until);
+        } else {
+            self.flame_from[i] = from;
+            self.flame_until[i] = until;
+        }
         self.flame_owner[i] = owner;
     }
 }
@@ -540,6 +665,95 @@ mod tests {
         w.act(me);
         assert!(w.bomb_at(2, 1).is_none());
         assert!(w.bomb_at(5, 1).is_some(), "lands three cells on, past the crate");
+    }
+
+    /// A world with a player at (7, 7) carrying an atomic bomb.
+    fn nuke_world() -> (World, u32) {
+        let mut w = test_world(Map::empty(21, 21));
+        let id = w.spawn_test_player(7.5, 7.5);
+        World::grant(w.players.get_mut(&id).unwrap(), Item::Nuke, 0);
+        (w, id)
+    }
+
+    #[test]
+    fn nuke_power_up_arms_the_next_bomb_only() {
+        let (mut w, id) = nuke_world();
+        assert_eq!(w.players[&id].nukes, 1);
+        w.players.get_mut(&id).unwrap().max_bombs = 2;
+        assert!(w.place_bomb(id));
+        let b = &w.bombs[&w.bomb_at(7, 7).unwrap()];
+        assert!(b.nuke && !b.remote);
+        assert_eq!(b.explode_at, w.tick + NUKE_FUSE_TICKS);
+        assert_eq!(w.players[&id].nukes, 0, "the charge is used up");
+        w.players.get_mut(&id).unwrap().x = 9.5;
+        assert!(w.place_bomb(id));
+        assert!(!w.bombs[&w.bomb_at(9, 7).unwrap()].nuke, "the next bomb is normal again");
+    }
+
+    #[test]
+    fn nuke_vaporizes_a_disc_through_cover() {
+        let mut map = Map::empty(21, 21);
+        map.set(11, 11, Tile::Armored); // diagonal: no cross-shaped blast gets here
+        map.set(7, 13, Tile::Crate); // 6 cells away: inside the disc
+        map.set(7, 15, Tile::Crate); // 8 cells away: outside
+        let mut w = test_world(map);
+        let id = w.spawn_test_player(7.5, 7.5);
+        World::grant(w.players.get_mut(&id).unwrap(), Item::Nuke, 0);
+        w.set_item(9, 9, Item::Range as u8);
+        w.place_bomb(id);
+        w.explode(w.bomb_at(7, 7).unwrap());
+        assert_eq!(w.map.get(11, 11), Tile::Floor, "armor is no protection");
+        assert_eq!(w.map.get(7, 13), Tile::Floor);
+        assert_eq!(w.map.get(7, 15), Tile::Crate, "beyond the radius");
+        assert_eq!(w.map.get(8, 8), Tile::Wall, "pillars stand");
+        assert_eq!(w.items[w.map.idx(9, 9)], 0, "items vaporized");
+        assert!(w.items.iter().all(|&i| i == 0), "vaporized crates drop nothing");
+        let e = &w.explosions[0];
+        assert_eq!((e.nuke, e.arms), (NUKE_RADIUS, [0; 4]));
+    }
+
+    #[test]
+    fn nuke_shockwave_expands_and_kills() {
+        let (mut w, id) = nuke_world();
+        let far = w.spawn_test_player(12.5, 7.5); // 5 cells east
+        w.place_bomb(id);
+        w.players.get_mut(&id).unwrap().invulnerable_until = u64::MAX;
+        w.explode(w.bomb_at(7, 7).unwrap());
+        assert!(w.flame_active(7, 7), "ground zero burns at once");
+        assert!(!w.flame_active(8, 7), "neighbours a tick later");
+        assert!(!w.flame_active(12, 7), "the wave hasn't arrived yet");
+        w.apply_flame_damage();
+        assert!(w.players[&far].alive);
+        w.tick += 5;
+        assert!(w.flame_active(12, 7));
+        assert!(w.flame_active(9, 9), "behind the pillar at (8, 8) too");
+        w.apply_flame_damage();
+        assert!(!w.players[&far].alive, "caught by the shockwave");
+        w.tick += NUKE_FLAME_TICKS + 1;
+        assert!(!w.flame_active(7, 7), "the fire dies down");
+    }
+
+    #[test]
+    fn nuke_sets_off_bombs_as_the_wave_arrives() {
+        let (mut w, id) = nuke_world();
+        let other = w.spawn_test_player(11.5, 7.5); // 4 cells east
+        w.place_bomb(other);
+        w.place_bomb(id);
+        let t = w.tick;
+        w.explode(w.bomb_at(7, 7).unwrap());
+        let b = &w.bombs[&w.bomb_at(11, 7).unwrap()];
+        assert_eq!(b.explode_at, t + 4);
+    }
+
+    #[test]
+    fn danger_map_sees_the_atomic_disc() {
+        let (mut w, id) = nuke_world();
+        w.place_bomb(id);
+        let d = w.danger_map();
+        assert_eq!(d[w.map.idx(7, 7)], NUKE_FUSE_TICKS as u16);
+        assert_eq!(d[w.map.idx(12, 7)], NUKE_FUSE_TICKS as u16 + 5, "the wave takes 5 ticks to get there");
+        assert_eq!(d[w.map.idx(11, 11)], NUKE_FUSE_TICKS as u16 + 5, "diagonals burn too");
+        assert_eq!(d[w.map.idx(7, 15)], crate::game::ai::SAFE);
     }
 
     #[test]
