@@ -36,13 +36,15 @@ function variant(h, n) {
   return 0;
 }
 
-// Biome regions, mirroring the server's map generator.
-const BIOME_SEEDS = [[0.5, 0.5, 0], [0.2, 0.2, 1], [0.8, 0.2, 2], [0.2, 0.8, 3], [0.8, 0.8, 0]];
+// Biome regions: [x, y, biome] centres as fractions of the map size, sent
+// by the server in the welcome message (`map.biomes`); a cell takes the
+// biome of the nearest centre. Maps without them use the classic layout.
+const DEFAULT_BIOMES = [[0.5, 0.5, 0], [0.2, 0.2, 1], [0.8, 0.2, 2], [0.2, 0.8, 3], [0.8, 0.8, 0]];
 export function biome(map, x, y) {
-  if (map.w < 41 || map.h < 41) return 0;
+  const seeds = map.biomes ?? (map.w < 41 || map.h < 41 ? [] : DEFAULT_BIOMES);
   const fx = x / map.w, fy = y / map.h;
   let best = 0, bd = Infinity;
-  for (const [sx, sy, b] of BIOME_SEEDS) {
+  for (const [sx, sy, b] of seeds) {
     const d = (fx - sx) ** 2 + (fy - sy) ** 2;
     if (d < bd) { bd = d; best = b; }
   }

@@ -5,6 +5,7 @@ use std::time::Instant;
 use axum::Router;
 use axum::routing::get;
 use blast_arena::db::Db;
+use blast_arena::game::rng::{derive_seed, random_seed};
 use blast_arena::game::{self, Mode};
 use blast_arena::metrics::ArenaStats;
 use blast_arena::logging::{self, LogFormat};
@@ -38,6 +39,10 @@ struct Args {
     /// "Mini:ffa:31:4".
     #[arg(long = "arena", env = "ARENAS", value_delimiter = ',')]
     arenas: Vec<String>,
+    /// Map seed. Each start picks a fresh one (and logs it) unless this pins
+    /// it; the same seed with the same arenas rebuilds the same maps.
+    #[arg(long, env = "MAP_SEED")]
+    map_seed: Option<u64>,
     /// Round length in seconds.
     #[arg(long, env = "ROUND_SECS", default_value_t = 300)]
     round_secs: u32,
@@ -80,8 +85,15 @@ async fn main() {
     } else {
         args.arenas.clone()
     };
-    let configs: Vec<game::Config> = match specs.iter().map(|s| parse_arena(s, &base)).collect() {
-        Ok(c) => c,
+    let map_seed = args.map_seed.unwrap_or_else(random_seed);
+    tracing::info!(map_seed, pinned = args.map_seed.is_some(), "map seed (replay this layout with --map-seed {map_seed})");
+    let configs: Vec<game::Config> = match specs.iter().map(|s| parse_arena(s, &base)).collect::<Result<Vec<_>, _>>() {
+        Ok(mut c) => {
+            for (k, cfg) in c.iter_mut().enumerate() {
+                cfg.map_seed = derive_seed(map_seed, k as u64);
+            }
+            c
+        }
         Err(e) => {
             tracing::error!(error = %e, "invalid --arena setting");
             std::process::exit(2);

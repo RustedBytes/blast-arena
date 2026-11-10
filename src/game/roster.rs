@@ -5,7 +5,7 @@ use crate::protocol::{self, Welcome};
 use super::ai;
 use super::link::ClientLink;
 use super::map::Tile;
-use super::player::{AOI_DEFAULT, AOI_MAX, DIRS, Player};
+use super::player::{AOI_DEFAULT, AOI_MAX, Player};
 use super::profiles::profile_view;
 use super::{JoinRequest, Mode, PARK_TICKS, Parked, SPAWN_SHIELD_TICKS, TICK_RATE, World};
 
@@ -65,6 +65,7 @@ impl World {
             w: self.map.w,
             h: self.map.h,
             map: self.map.encode_rle(),
+            biomes: self.map.biomes.iter().map(|s| (s.x, s.y, s.biome as u8)).collect(),
             items,
             rate: TICK_RATE,
             aoi: AOI_DEFAULT,
@@ -201,7 +202,7 @@ impl World {
         if avoid_players && self.players_in_rect(x - 3, y - 3, x + 3, y + 3).any(|p| p.alive) {
             return false;
         }
-        self.open_cells_near(x, y) >= 4
+        self.map.open_cells_near(x, y) >= 4
     }
 
     /// Picks a lane intersection and clears the crates around it.
@@ -227,28 +228,5 @@ impl World {
             }
         }
         false
-    }
-
-    /// Counts floor cells reachable from (x, y) within 3 steps. A breadth-
-    /// first search over a stack array: at most 25 cells are that close.
-    pub(super) fn open_cells_near(&self, x: i32, y: i32) -> usize {
-        let mut seen = [(0i32, 0i32); 25];
-        seen[0] = (x, y);
-        let (mut len, mut start) = (1, 0);
-        for _ in 0..3 {
-            let end = len;
-            for k in start..end {
-                let (cx, cy) = seen[k];
-                for &(dx, dy) in &DIRS[1..] {
-                    let c = (cx + dx, cy + dy);
-                    if !self.map.is_solid(c.0, c.1) && !seen[..len].contains(&c) {
-                        seen[len] = c;
-                        len += 1;
-                    }
-                }
-            }
-            start = end;
-        }
-        len
     }
 }

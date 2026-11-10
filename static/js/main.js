@@ -95,7 +95,7 @@ const net = new Net({
       arenaName: m.arena,
       mode: m.mode,
       team: m.team,
-      map: { w: m.w, h: m.h, tiles },
+      map: { w: m.w, h: m.h, tiles, biomes: m.biomes },
       aoi: m.aoi,
       aoiMax: m.aoi_max ?? m.aoi,
       tickMs: 1000 / m.rate,

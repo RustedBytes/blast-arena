@@ -66,6 +66,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--bots` | `BOTS` | `10` | Bots in the default main arena |
 | `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included |
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
+| `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
 | `--static-dir` | `STATIC_DIR` | `./static` | Client files |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
@@ -75,6 +76,8 @@ Without `--arena` the server runs three arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
+
+Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, or open plazas), optional mirror or rotational symmetry, patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The log shows the seed and a summary of each map (`map generated`). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
 
 ### Logging
 
@@ -95,7 +98,7 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 ## Gameplay
 
 - **Bombs** explode in a cross after 2.5 s. Pillars stop the blast. Crates absorb it and break. Blasts set off other bombs in chain reactions.
-- **Map regions** (on maps of 41×41 and up), each with its own look:
+- **Map regions**, each with its own look. Maps of 41×41 and up mix four to seven regions placed at random; smaller maps get a single random theme:
 
   | Region | Feature |
   |---|---|
@@ -259,7 +262,8 @@ src/protocol.rs       binary wire format (opcodes, varints), encoder, arena ring
 src/game/mod.rs       World state, config and constants
 src/game/             tick (loop), roster (join/leave/spawn), movement, input, combat,
                       pickups, terrain, rounds, profiles, snapshot (AOI, encoding),
-                      delta (delta snapshots), map, bomb, items, player, testing, tests
+                      delta (delta snapshots), map, mapgen (random layouts), bomb,
+                      items, player, testing, tests
 src/game/link.rs      lock-free input slot and snapshot mailbox per client
 src/game/ai.rs        server-side AI bots
 src/bin/bots.rs       network load tester

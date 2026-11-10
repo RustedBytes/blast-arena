@@ -8,6 +8,7 @@ pub mod bomb;
 pub mod items;
 pub mod link;
 pub mod map;
+pub mod mapgen;
 pub mod player;
 pub mod rng;
 
@@ -123,11 +124,13 @@ pub struct Config {
     /// AI bots kept in the arena; they make room for humans when full.
     pub bots: usize,
     pub round_secs: u32,
+    /// Seed for this arena's map; the same seed builds the same map.
+    pub map_seed: u64,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { name: "Main".into(), mode: Mode::Ffa, map_w: 81, map_h: 81, max_players: 256, bots: 10, round_secs: 300 }
+        Config { name: "Main".into(), mode: Mode::Ffa, map_w: 81, map_h: 81, max_players: 256, bots: 10, round_secs: 300, map_seed: 0 }
     }
 }
 
@@ -241,9 +244,20 @@ pub struct WorldStats {
 
 impl World {
     pub fn new(cfg: &Config, live: Arc<ArenaStats>, db: Option<Db>) -> Self {
-        let mut rng = Rng::from_time();
-        let map = Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut rng);
-        let mut world = Self::with_map(map, rng, cfg.max_players);
+        let map = Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed));
+        let s = &map.style;
+        tracing::info!(
+            arena = %cfg.name,
+            map_seed = cfg.map_seed,
+            pillars = ?s.pillars,
+            symmetry = ?s.symmetry,
+            crates = format_args!("{:.2}", s.crate_density),
+            regions = ?map.biomes.iter().map(|b| b.biome).collect::<Vec<_>>(),
+            teleports = map.teleports.len(),
+            "map generated"
+        );
+        // Gameplay randomness stays independent of the map seed.
+        let mut world = Self::with_map(map, Rng::from_time(), cfg.max_players);
         world.name.clone_from(&cfg.name);
         world.mode = cfg.mode;
         world.live = live;

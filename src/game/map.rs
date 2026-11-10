@@ -1,4 +1,4 @@
-use super::rng::Rng;
+use super::mapgen::MapStyle;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
@@ -54,8 +54,9 @@ impl Tile {
     }
 }
 
-/// Map regions with their own look and features.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Map regions with their own look and features. The discriminants are
+/// the region codes the browser uses.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Biome {
     Grass,
     /// Ice patches.
@@ -66,17 +67,26 @@ pub enum Biome {
     Volcano,
 }
 
-/// Biome region centres as fractions of the map size; a cell belongs to
-/// the nearest one. The browser client uses the same table.
-const BIOME_SEEDS: [(f32, f32, Biome); 5] = [
+/// A biome region centre, as fractions of the map size; a cell belongs to
+/// the nearest centre. The welcome message sends these to the browser.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct BiomeSeed {
+    pub x: f32,
+    pub y: f32,
+    pub biome: Biome,
+}
+
+/// The classic region layout, used by `Map::empty` (and by the browser when
+/// a server sends no regions).
+const DEFAULT_BIOMES: [(f32, f32, Biome); 5] = [
     (0.5, 0.5, Biome::Grass),
     (0.2, 0.2, Biome::Snow),
     (0.8, 0.2, Biome::Desert),
     (0.2, 0.8, Biome::Volcano),
     (0.8, 0.8, Biome::Grass),
 ];
-/// Maps smaller than this are all grass: regions would be too cramped.
-const MIN_BIOME_SIZE: i32 = 41;
+/// Maps smaller than this get a single region: several would be too cramped.
+pub const MIN_BIOME_SIZE: i32 = 41;
 
 /// The static part of the world: walls, pillars, crates and special floors.
 pub struct Map {
@@ -85,12 +95,29 @@ pub struct Map {
     tiles: Vec<Tile>,
     /// Linked teleporter pads.
     pub teleports: Vec<((i32, i32), (i32, i32))>,
+    /// Region centres; no centres means the whole map is grass.
+    pub biomes: Vec<BiomeSeed>,
+    /// How the generator built this map (for logs and tests).
+    pub style: MapStyle,
 }
 
 impl Map {
+    /// Border walls and the classic pillar grid, with the classic regions.
     #[must_use]
     pub fn empty(w: i32, h: i32) -> Self {
-        let mut map = Map { w, h, tiles: vec![Tile::Floor; (w * h) as usize], teleports: Vec::new() };
+        let biomes = if w < MIN_BIOME_SIZE || h < MIN_BIOME_SIZE {
+            Vec::new()
+        } else {
+            DEFAULT_BIOMES.iter().map(|&(x, y, biome)| BiomeSeed { x, y, biome }).collect()
+        };
+        let mut map = Map {
+            w,
+            h,
+            tiles: vec![Tile::Floor; (w * h) as usize],
+            teleports: Vec::new(),
+            biomes,
+            style: MapStyle::default(),
+        };
         for y in 0..h {
             for x in 0..w {
                 if map.is_pillar_pos(x, y) {
@@ -99,88 +126,6 @@ impl Map {
             }
         }
         map
-    }
-
-    pub fn generate(w: i32, h: i32, crate_density: f32, rng: &mut Rng) -> Self {
-        let mut map = Self::empty(w, h);
-        for y in 0..h {
-            for x in 0..w {
-                if map.get(x, y) != Tile::Floor {
-                    continue;
-                }
-                let biome = map.biome(x, y);
-                if biome == Biome::Snow && rng.chance(0.3) {
-                    map.set(x, y, Tile::Ice);
-                } else if rng.chance(crate_density) {
-                    let armored = biome == Biome::Volcano && rng.chance(0.4);
-                    map.set(x, y, if armored { Tile::Armored } else { Tile::Crate });
-                }
-            }
-        }
-        map.add_conveyors(rng);
-        map.add_teleports(rng);
-        map
-    }
-
-    /// Short conveyor strips along the open lanes of the desert.
-    fn add_conveyors(&mut self, rng: &mut Rng) {
-        for lane in (1..self.h - 1).step_by(2) {
-            let mut x = 1;
-            while x < self.w - 6 {
-                if self.biome(x, lane) == Biome::Desert && rng.chance(0.12) {
-                    let len = rng.between(3, 5);
-                    let t = if rng.chance(0.5) { Tile::ConveyorRight } else { Tile::ConveyorLeft };
-                    for k in 0..len {
-                        self.set(x + k, lane, t);
-                    }
-                    x += len + 4;
-                } else {
-                    x += 1;
-                }
-            }
-        }
-        for lane in (1..self.w - 1).step_by(2) {
-            let mut y = 1;
-            while y < self.h - 6 {
-                let free = (0..5).all(|k| self.get(lane, y + k).conveyor_dir() == 0);
-                if free && self.biome(lane, y) == Biome::Desert && rng.chance(0.06) {
-                    let len = rng.between(3, 5);
-                    let t = if rng.chance(0.5) { Tile::ConveyorDown } else { Tile::ConveyorUp };
-                    for k in 0..len {
-                        self.set(lane, y + k, t);
-                    }
-                    y += len + 4;
-                } else {
-                    y += 1;
-                }
-            }
-        }
-    }
-
-    /// A few linked pad pairs, placed far apart, on lane intersections.
-    fn add_teleports(&mut self, rng: &mut Rng) {
-        let pairs = ((self.w * self.h) / 1800).clamp(1, 4);
-        let pick = |rng: &mut Rng, map: &Map| {
-            let x = rng.between(0, (map.w - 3) / 2) * 2 + 1;
-            let y = rng.between(0, (map.h - 3) / 2) * 2 + 1;
-            (x, y)
-        };
-        for _ in 0..pairs {
-            let a = pick(rng, self);
-            let mut b = pick(rng, self);
-            for _ in 0..20 {
-                if (a.0 - b.0).abs() + (a.1 - b.1).abs() >= self.w / 2 {
-                    break;
-                }
-                b = pick(rng, self);
-            }
-            if a == b || self.get(a.0, a.1) == Tile::Teleport || self.get(b.0, b.1) == Tile::Teleport {
-                continue;
-            }
-            self.set(a.0, a.1, Tile::Teleport);
-            self.set(b.0, b.1, Tile::Teleport);
-            self.teleports.push((a, b));
-        }
     }
 
     #[must_use]
@@ -198,15 +143,12 @@ impl Map {
 
     #[must_use]
     pub fn biome(&self, x: i32, y: i32) -> Biome {
-        if self.w < MIN_BIOME_SIZE || self.h < MIN_BIOME_SIZE {
-            return Biome::Grass;
-        }
         let (fx, fy) = (x as f32 / self.w as f32, y as f32 / self.h as f32);
         let mut best = (f32::MAX, Biome::Grass);
-        for &(sx, sy, b) in &BIOME_SEEDS {
-            let d = (fx - sx).powi(2) + (fy - sy).powi(2);
+        for s in &self.biomes {
+            let d = (fx - s.x).powi(2) + (fy - s.y).powi(2);
             if d < best.0 {
-                best = (d, b);
+                best = (d, s.biome);
             }
         }
         best.1
@@ -249,6 +191,139 @@ impl Map {
         self.tiles.iter().filter(|&&v| v == t).count()
     }
 
+    /// Counts non-solid cells reachable from (x, y) within 3 steps, the
+    /// start included. A breadth-first search over a stack array: at most
+    /// 25 cells are that close.
+    #[must_use]
+    pub fn open_cells_near(&self, x: i32, y: i32) -> usize {
+        let mut seen = [(0i32, 0i32); 25];
+        seen[0] = (x, y);
+        let (mut len, mut start) = (1, 0);
+        for _ in 0..3 {
+            let end = len;
+            for k in start..end {
+                let (cx, cy) = seen[k];
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    let c = (cx + dx, cy + dy);
+                    if !self.is_solid(c.0, c.1) && !seen[..len].contains(&c) {
+                        seen[len] = c;
+                        len += 1;
+                    }
+                }
+            }
+            start = end;
+        }
+        len
+    }
+
+    /// An open cell (not a pad) with room to dodge a first bomb: the same
+    /// map test the server applies when it spawns a player.
+    #[must_use]
+    pub fn is_spawn_spot(&self, x: i32, y: i32) -> bool {
+        !self.is_solid(x, y) && self.get(x, y) != Tile::Teleport && self.open_cells_near(x, y) >= 4
+    }
+
+    /// True when every non-wall cell can reach every other one. Crates count
+    /// as passable (they can be blasted), so this finds pockets sealed off
+    /// by walls alone.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        let Some(start) = self.tiles.iter().position(|&t| t != Tile::Wall) else {
+            return true;
+        };
+        let mut seen = vec![false; self.tiles.len()];
+        let mut stack = vec![start];
+        seen[start] = true;
+        let mut reached = 1;
+        while let Some(i) = stack.pop() {
+            let (x, y) = (i as i32 % self.w, i as i32 / self.w);
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if self.get(nx, ny) == Tile::Wall {
+                    continue;
+                }
+                let j = self.idx(nx, ny);
+                if !seen[j] {
+                    seen[j] = true;
+                    reached += 1;
+                    stack.push(j);
+                }
+            }
+        }
+        reached == self.tiles.len() - self.count(Tile::Wall)
+    }
+
+    /// How many spawn spots a map of this size must offer.
+    #[must_use]
+    pub fn spawn_target(w: i32, h: i32) -> usize {
+        ((w * h) / 200).max(4) as usize
+    }
+
+    /// Checks the guarantees every playable map keeps: a solid border,
+    /// open lane crossings (cells with two odd coordinates, used for hills,
+    /// pads and emergency spawns), no wall-sealed pockets, teleport pads in
+    /// linked pairs and enough safe spawn spots.
+    ///
+    /// # Errors
+    /// Describes the first broken guarantee.
+    pub fn validate(&self) -> Result<(), String> {
+        for x in 0..self.w {
+            for y in [0, self.h - 1] {
+                if self.get(x, y) != Tile::Wall {
+                    return Err(format!("border gap at ({x}, {y})"));
+                }
+            }
+        }
+        for y in 0..self.h {
+            for x in [0, self.w - 1] {
+                if self.get(x, y) != Tile::Wall {
+                    return Err(format!("border gap at ({x}, {y})"));
+                }
+            }
+        }
+        for y in (1..self.h - 1).step_by(2) {
+            for x in (1..self.w - 1).step_by(2) {
+                if self.get(x, y) == Tile::Wall {
+                    return Err(format!("lane crossing ({x}, {y}) is a wall"));
+                }
+            }
+        }
+        if !self.is_connected() {
+            return Err("some open cells are walled off".into());
+        }
+        let mut pads = Vec::new();
+        for &(a, b) in &self.teleports {
+            if a == b {
+                return Err(format!("teleport {a:?} is linked to itself"));
+            }
+            for p in [a, b] {
+                if self.get(p.0, p.1) != Tile::Teleport {
+                    return Err(format!("teleport {p:?} has no pad"));
+                }
+                if pads.contains(&p) {
+                    return Err(format!("teleport {p:?} is in two pairs"));
+                }
+                pads.push(p);
+            }
+        }
+        if pads.len() != self.count(Tile::Teleport) {
+            return Err("a teleport pad has no partner".into());
+        }
+        let mut spots = 0;
+        for y in 1..self.h - 1 {
+            for x in 1..self.w - 1 {
+                if self.is_spawn_spot(x, y) {
+                    spots += 1;
+                }
+            }
+        }
+        let need = Self::spawn_target(self.w, self.h);
+        if spots < need {
+            return Err(format!("only {spots} spawn spots, need {need}"));
+        }
+        Ok(())
+    }
+
     /// Run-length encoding of the tile grid as `(tile, run)` pairs, row-major.
     #[must_use]
     pub fn encode_rle(&self) -> Vec<(u8, u32)> {
@@ -268,9 +343,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn border_and_pillars_are_walls() {
-        let mut rng = Rng::new(1);
-        let m = Map::generate(15, 13, 0.5, &mut rng);
+    fn empty_map_is_the_classic_grid() {
+        let m = Map::empty(15, 13);
         for x in 0..15 {
             assert_eq!(m.get(x, 0), Tile::Wall);
             assert_eq!(m.get(x, 12), Tile::Wall);
@@ -278,40 +352,33 @@ mod tests {
         assert_eq!(m.get(2, 2), Tile::Wall);
         assert_ne!(m.get(1, 1), Tile::Wall);
         assert_eq!(m.get(-1, 3), Tile::Wall);
+        assert_eq!(m.validate(), Ok(()));
     }
 
     #[test]
-    fn rle_roundtrip_length() {
-        let mut rng = Rng::new(7);
-        let m = Map::generate(21, 21, 0.45, &mut rng);
-        let total: u32 = m.encode_rle().iter().map(|&(_, n)| n).sum();
-        assert_eq!(total, 21 * 21);
-    }
-
-    #[test]
-    fn big_maps_have_every_feature() {
-        let mut rng = Rng::new(3);
-        let m = Map::generate(81, 81, 0.45, &mut rng);
-        assert!(m.count(Tile::Ice) > 20, "snow region has ice");
-        assert!(m.count(Tile::Armored) > 20, "volcano region has armored crates");
-        let conveyors = (4..=7).map(|t| m.count(Tile::from_u8(t))).sum::<usize>();
-        assert!(conveyors > 10, "desert region has conveyors");
-        assert_ne!(m.teleports.len(), 0, "the map has teleporter pairs");
-        for &(a, b) in &m.teleports {
-            assert_eq!(m.get(a.0, a.1), Tile::Teleport);
-            assert_eq!(m.teleport_partner(a.0, a.1), Some(b));
-            assert_eq!(m.teleport_partner(b.0, b.1), Some(a));
-        }
+    fn empty_maps_use_the_classic_regions() {
+        let m = Map::empty(81, 81);
         assert_eq!(m.biome(10, 10), Biome::Snow);
         assert_eq!(m.biome(70, 10), Biome::Desert);
         assert_eq!(m.biome(10, 70), Biome::Volcano);
         assert_eq!(m.biome(40, 40), Biome::Grass);
+        assert_eq!(Map::empty(21, 21).biome(5, 5), Biome::Grass);
     }
 
     #[test]
-    fn small_maps_stay_plain() {
-        let mut rng = Rng::new(3);
-        let m = Map::generate(21, 21, 0.45, &mut rng);
-        assert_eq!(m.count(Tile::Ice) + m.count(Tile::Armored), 0);
+    fn validate_catches_broken_maps() {
+        let mut m = Map::empty(15, 15);
+        m.set(0, 5, Tile::Floor);
+        assert!(m.validate().unwrap_err().contains("border"));
+
+        let mut m = Map::empty(15, 15);
+        // Seal (1, 1) off with walls.
+        m.set(2, 1, Tile::Wall);
+        m.set(1, 2, Tile::Wall);
+        assert!(m.validate().unwrap_err().contains("walled off"));
+
+        let mut m = Map::empty(15, 15);
+        m.set(3, 3, Tile::Teleport);
+        assert!(m.validate().unwrap_err().contains("partner"));
     }
 }

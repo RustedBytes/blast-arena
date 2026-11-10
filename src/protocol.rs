@@ -513,6 +513,9 @@ pub struct Welcome<'a> {
     pub h: i32,
     /// Run-length encoded tiles: (tile, count) pairs, row-major.
     pub map: Vec<(u8, u32)>,
+    /// Region centres: (x, y as fractions of the map size, biome code);
+    /// a cell takes the biome of the nearest centre.
+    pub biomes: Vec<(f32, f32, u8)>,
     /// Every item on the map: (x, y, kind). Later changes come in `w`.
     pub items: Vec<(i32, i32, u8)>,
     pub rate: u32,
