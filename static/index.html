@@ -60,6 +60,7 @@
       <div id="joy-zone"></div>
       <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
       <button id="act-btn" aria-label="Action">E</button>
+      <button id="jump-btn" aria-label="Jump">⤒</button>
       <button id="emote-btn" aria-label="Emote">😀</button>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
     </div>
@@ -98,14 +99,15 @@
         </select>
       </label>
       <label class="row check"><input type="checkbox" id="set-muted"> <span data-i18n="mute">Mute all sound</span> <kbd>M</kbd></label>
-      <label class="row check"><input type="checkbox" id="set-fps"> <span data-i18n="showFps">Show FPS</span> <kbd>F</kbd></label>
+      <label class="row check"><input type="checkbox" id="set-fps"> <span data-i18n="showFps">Show FPS</span> <kbd>P</kbd></label>
       <label class="row check"><input type="checkbox" id="set-colorblind"> <span data-i18n="colorblind">Colour-blind friendly colours</span></label>
       <label class="row check"><input type="checkbox" id="set-contrast"> <span data-i18n="highContrast">High contrast</span></label>
       <button id="tutorial-again" class="link" data-i18n="tutorialAgain">Show the tutorial again</button>
       <h3 data-i18n="controls">Controls</h3>
       <div class="controls">
         <span><kbd>WASD</kbd> <kbd>Arrows</kbd></span><span data-i18n="ctlMove"></span>
-        <span><kbd>Space</kbd> <kbd>Enter</kbd></span><span data-i18n="ctlBomb"></span>
+        <span><kbd>F</kbd> <kbd>Enter</kbd></span><span data-i18n="ctlBomb"></span>
+        <span><kbd>Space</kbd></span><span data-i18n="ctlJump"></span>
         <span><kbd>E</kbd> <kbd>Shift</kbd></span><span data-i18n="ctlAct"></span>
         <span><kbd>Wheel</kbd> <kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></span><span data-i18n="ctlZoom"></span>
         <span><kbd>1</kbd>–<kbd>8</kbd></span><span data-i18n="ctlEmote"></span>
@@ -135,7 +137,8 @@
         <p id="join-error" class="error"></p>
         <div class="help">
           <span><kbd>WASD</kbd> <span data-i18n="helpMove">move</span></span>
-          <span><kbd>Space</kbd> <span data-i18n="helpBomb">bomb</span></span>
+          <span><kbd>F</kbd> <span data-i18n="helpBomb">bomb</span></span>
+          <span><kbd>Space</kbd> <span data-i18n="helpJump">jump</span></span>
           <span><kbd>E</kbd> <span data-i18n="helpAct">action</span></span>
           <span><kbd>Wheel</kbd> <span data-i18n="helpZoom">zoom</span></span>
           <span><kbd>Esc</kbd> <span data-i18n="helpMenu">settings</span></span>

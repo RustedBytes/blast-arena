@@ -95,7 +95,8 @@ impl World {
     pub(super) fn apply_flame_damage(&mut self) {
         let mut victims = std::mem::take(&mut self.scratch.victims);
         victims.clear();
-        victims.extend(self.players.values().filter(|p| p.alive && p.invulnerable_until <= self.tick).filter_map(|p| {
+        // Mid-jump players are above the fire.
+        victims.extend(self.players.values().filter(|p| p.alive && p.invulnerable_until <= self.tick && p.jump_left == 0).filter_map(|p| {
             let (x, y) = p.cell();
             if !self.flame_active(x, y) {
                 return None;

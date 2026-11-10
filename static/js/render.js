@@ -7,6 +7,7 @@ import { ITEM_SPRITES, playerColors } from './assets.js';
 import { P_CURSE, P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from './particles.js';
 import { t } from './i18n.js';
 import { FRINGE_RANK } from './pixelart.js';
+import { hopHeight } from './prediction.js';
 
 export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9;
 const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
@@ -115,7 +116,7 @@ export class Renderer {
     this.tileStyle = 'pixel';
     // Pooled frame data, reused every frame.
     this.frame = {
-      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false })),
+      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0 })),
       nPlayers: 0,
       bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false })),
       nBombs: 0,
@@ -1095,7 +1096,17 @@ export class Renderer {
     const bob = pixel ? -Math.round(phase) * T / 16 : -phase * T * 0.07;
     const sxs = pixel ? 1 : 1 + phase * 0.05, sys = pixel ? 1 : 1 - phase * 0.06;
     const step = p.moving ? (Math.floor((sec * 12 + p.id) / Math.PI) % 2 ? 1 : 2) : 0;
-    const px = p.x * T - camX, py = p.y * T - camY;
+    const px = p.x * T - camX;
+    let py = p.y * T - camY;
+    // A hop over a pillar: a shadow stays on the ground, the player arcs up.
+    const hop = p.jumpDir ? hopHeight(state.map, p.x, p.y, p.jumpDir) : 0;
+    p.lift = hop * T * 0.9;
+    if (hop > 0) {
+      ctx.fillStyle = `rgba(0,0,0,${0.35 - 0.15 * hop})`;
+      ctx.beginPath();
+      ctx.ellipse(px, py + T * 0.38, T * (0.36 - 0.12 * hop), T * (0.12 - 0.04 * hop), 0, 0, 6.2832);
+      ctx.fill();
+    }
     if (p.id === state.myId) {
       ctx.fillStyle = 'rgba(255,211,74,0.3)';
       ctx.beginPath();
@@ -1124,6 +1135,7 @@ export class Renderer {
       ctx.arc(px, py - T * 0.05, T * 0.47, 0, 6.2832);
       ctx.stroke();
     }
+    py -= p.lift;
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
     this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites);
     ctx.globalAlpha = 1;
@@ -1313,7 +1325,7 @@ export class Renderer {
     const { ctx } = this;
     // Minimum sizes are CSS px, so they stay readable on high-DPI screens.
     const fs = Math.max(Math.round((this.highContrast ? 13 : 11) * this.dpr), Math.round(T * (this.highContrast ? 0.28 : 0.24)));
-    const x = p.x * T - camX, y = (p.y - 0.5) * T - camY - T * 0.08;
+    const x = p.x * T - camX, y = (p.y - 0.5) * T - camY - T * 0.08 - p.lift;
     const l = this.label(p, state, fs);
     ctx.drawImage(l.canvas, Math.round(x - l.ax), Math.round(y - l.ay));
     // Emote bubble above the name.
@@ -1482,7 +1494,11 @@ export class Renderer {
       setPlayer(o, q, (p[1] + (q[1] - p[1]) * t) / 100, (p[2] + (q[2] - p[2]) * t) / 100);
     }
     if (state.me?.alive && state.mine) {
-      setPlayer(f.players[n++], state.mine, state.self.x, state.self.y);
+      const o = f.players[n++];
+      setPlayer(o, state.mine, state.self.x, state.self.y);
+      // Our own hop comes from prediction, not the (older) snapshot.
+      o.jumpDir = state.selfJump ?? 0;
+      if (o.jumpDir) o.facing = o.jumpDir;
     }
     f.nPlayers = n;
 
@@ -1517,6 +1533,7 @@ function setPlayer(o, q, x, y) {
   o.cursed = (q[4] & 4) !== 0;
   o.ghost = (q[4] & 8) !== 0;
   o.bounty = (q[4] & 16) !== 0;
+  o.jumpDir = (q[4] & 32) !== 0 ? q[3] : 0;
 }
 
 function clampCam(cam, worldPx, viewPx) {

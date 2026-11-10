@@ -50,7 +50,7 @@ impl World {
 
     /// Simulates the client holding `dir` (with fallback `alt`).
     pub(super) fn hold(&mut self, id: u32, dir: u8, alt: u8) {
-        self.players[&id].link.as_ref().unwrap().input.set_dirs(dir, alt, 0);
+        self.players[&id].link.as_ref().unwrap().input.set_dirs(dir, alt, false, 0);
     }
 
     /// A full (non-delta) snapshot for player `id`, encoded.

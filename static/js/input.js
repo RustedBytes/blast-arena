@@ -1,7 +1,8 @@
 // Keyboard, gamepad and touch input. Movement is sent as the newest held
 // direction plus the previously held one (`s`), which the server uses for
 // turn buffering: hold Right, tap Up early, and the turn happens at the next
-// gap. Only changes are sent.
+// gap. The jump key (Space) is held state too (`j`): while it's down you hop
+// over a stone pillar in front of you. Only changes are sent.
 
 const KEY_DIRS = {
   ArrowUp: 1, KeyW: 1,
@@ -15,7 +16,7 @@ const JOY_RADIUS = 60;
 
 export class Input {
   /**
-   * handlers: onDir(d, s), onBomb(), onAct(), onEmote(e), onZoom(factor),
+   * handlers: onDir(d, s, j), onBomb(), onAct(), onEmote(e), onZoom(factor),
    * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
    * 'menu', 'board', 'emoteWheel'.
    */
@@ -26,11 +27,14 @@ export class Input {
     this.padDir = 0;
     this.padAlt = 0;
     this.padBomb = false;
+    this.padJump = false;
+    this.keyJump = false;
+    this.joyJump = false;
     this.padZoom = 0;
     this.joyDir = 0;
     this.joyAlt = 0;
     this.sent = -1;        // last (d << 3 | s) reported
-    this.current = { d: 0, s: 0 }; // read every prediction step
+    this.current = { d: 0, s: 0, j: false }; // read every prediction step
     this.padAct = false;
 
     addEventListener('keydown', (e) => this.keydown(e));
@@ -54,7 +58,11 @@ export class Input {
       return;
     }
     switch (e.code) {
-      case 'Space': case 'Enter':
+      case 'Space':
+        e.preventDefault();
+        if (!this.keyJump) { this.keyJump = true; this.update(); }
+        break;
+      case 'KeyF': case 'Enter':
         e.preventDefault();
         if (!e.repeat) this.h.onBomb();
         break;
@@ -69,7 +77,7 @@ export class Input {
       case 'Minus': case 'NumpadSubtract': this.h.onZoom(1 / 1.15); break;
       case 'Digit0': case 'Numpad0': this.h.onAction('zoomReset', true); break;
       case 'KeyM': this.h.onAction('mute', true); break;
-      case 'KeyF': this.h.onAction('fps', true); break;
+      case 'KeyP': this.h.onAction('fps', true); break;
       case 'Escape': this.h.onAction('menu', true); break;
       case 'Tab': e.preventDefault(); this.h.onAction('board', true); break;
     }
@@ -80,6 +88,9 @@ export class Input {
     if (d) {
       this.held = this.held.filter((x) => x !== d);
       this.update();
+    } else if (e.code === 'Space') {
+      this.keyJump = false;
+      this.update();
     } else if (e.code === 'Tab') {
       this.h.onAction('board', false);
     }
@@ -89,6 +100,7 @@ export class Input {
     this.held.length = 0;
     this.joyDir = this.joyAlt = 0;
     this.padDir = this.padAlt = 0;
+    this.keyJump = this.padJump = this.joyJump = false;
     this.update();
   }
 
@@ -102,19 +114,21 @@ export class Input {
       d = n ? this.held[n - 1] : 0;
       s = n > 1 ? this.held[n - 2] : 0;
     }
+    const j = this.keyJump || this.padJump || this.joyJump;
     this.current.d = d;
     this.current.s = s;
-    const key = d << 3 | s;
+    this.current.j = j;
+    const key = (d << 3 | s) | (j ? 64 : 0);
     if (key !== this.sent) {
       this.sent = key;
-      this.h.onDir(d, s);
+      this.h.onDir(d, s, j);
     }
   }
 
   /** Call once per frame: reads connected gamepads. */
   pollGamepad() {
     if (!this.enabled || !navigator.getGamepads) return;
-    let dir = 0, alt = 0, bomb = false, act = false, zoom = 0;
+    let dir = 0, alt = 0, bomb = false, act = false, jump = false, zoom = 0;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
       const b = (i) => gp.buttons[i]?.pressed;
@@ -126,7 +140,8 @@ export class Input {
         if (Math.abs(minor) > DEADZONE * 0.75) alt = Math.abs(ax) > Math.abs(ay) ? (ay > 0 ? 3 : 1) : (ax > 0 ? 2 : 4);
       }
       bomb ||= b(0) || b(1);
-      act ||= b(2) || b(3);
+      act ||= b(2);
+      jump ||= b(3);
       if (b(5)) zoom = 1; else if (b(4)) zoom = -1;
       break; // first connected pad only
     }
@@ -135,9 +150,10 @@ export class Input {
     if (act && !this.padAct) this.h.onAct();
     this.padAct = act;
     if (zoom) this.h.onZoom(zoom > 0 ? 1.02 : 1 / 1.02);
-    if (dir !== this.padDir || alt !== this.padAlt) {
+    if (dir !== this.padDir || alt !== this.padAlt || jump !== this.padJump) {
       this.padDir = dir;
       this.padAlt = alt;
+      this.padJump = jump;
       this.update();
     }
   }
@@ -230,6 +246,22 @@ export class Input {
       navigator.vibrate?.(10);
       this.h.onAct();
     });
+    const jumpBtn = document.getElementById('jump-btn');
+    jumpBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      navigator.vibrate?.(10);
+      jumpBtn.classList.add('active');
+      this.joyJump = true;
+      this.update();
+    });
+    const jumpUp = () => {
+      jumpBtn.classList.remove('active');
+      this.joyJump = false;
+      this.update();
+    };
+    jumpBtn.addEventListener('pointerup', jumpUp);
+    jumpBtn.addEventListener('pointercancel', jumpUp);
+    jumpBtn.addEventListener('pointerleave', jumpUp);
     document.getElementById('emote-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);

@@ -98,7 +98,7 @@ fn main() {
         for (input, _, _) in &clients {
             let r = next();
             if r % 10 == 0 {
-                input.set_dirs((r >> 8) as u8 % 5, (r >> 16) as u8 % 5, t as u16);
+                input.set_dirs((r >> 8) as u8 % 5, (r >> 16) as u8 % 5, false, t as u16);
             }
             if r % 97 == 0 {
                 input.press_bomb();

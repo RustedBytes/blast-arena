@@ -257,6 +257,14 @@ export class GameAudio {
     this._voice('triangle', 38, t + 0.05, 3.0, 0.5 * near, out, 400, 18);
   }
 
+  /** A springy hop. */
+  jump() {
+    const t = this._now();
+    if (t === null) return;
+    this._voice('square', 260, t, 0.16, 0.1, this.sfxGain, 2200, 720);
+    this._noiseHit(t, 0.08, 'highpass', 3000, 0.7, 0.05, this.sfxGain);
+  }
+
   pickup() {
     const t = this._now();
     if (t === null) return;

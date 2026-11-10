@@ -330,12 +330,14 @@ select {
 button.link { background: none; border: 0; color: var(--accent); text-align: left; cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
 
 /* ---------- Touch extras ---------- */
-#act-btn, #emote-btn {
+#act-btn, #emote-btn, #jump-btn {
   position: fixed; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.15); color: #fff; font-weight: 800; touch-action: none;
 }
 #act-btn { right: 140px; bottom: 50px; width: 64px; height: 64px; font-size: 22px; }
 #emote-btn { right: 40px; bottom: 160px; width: 52px; height: 52px; font-size: 22px; }
+#jump-btn { right: 130px; bottom: 130px; width: 60px; height: 60px; font-size: 26px; }
+#jump-btn.active { background: rgba(127, 246, 255, 0.45); transform: scale(0.94); }
 
 @media (max-width: 820px) {
   .lobby { flex-direction: column; overflow-y: auto; align-items: center; }

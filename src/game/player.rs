@@ -24,6 +24,15 @@ pub const AOI_DEFAULT: (i32, i32) = (16, 12);
 pub const AOI_MIN: (i32, i32) = (6, 5);
 pub const AOI_MAX: (i32, i32) = (26, 18);
 
+/// Jumping over a stone pillar: the hop takes `JUMP_TICKS` and covers
+/// `JUMP_CELLS` (from the cell centre in front of the pillar to the one
+/// behind it); then there's a cooldown. The player has to be roughly on the
+/// lane (within `JUMP_LANE_SLACK` of its centre line).
+pub const JUMP_TICKS: u8 = 8;
+pub const JUMP_CELLS: f32 = 2.0;
+pub const JUMP_COOLDOWN_TICKS: u64 = 10;
+pub const JUMP_LANE_SLACK: f32 = 0.3;
+
 /// How far off a lane the player must be before corner assist kicks in.
 const CORNER_ASSIST_MIN: f32 = 0.12;
 
@@ -48,6 +57,13 @@ pub struct Player {
     pub input_dir: u8,
     /// Fallback direction tried when `input_dir` is blocked (turn buffering).
     pub input_alt: u8,
+    /// The jump key is held.
+    pub input_jump: bool,
+    /// Direction of the hop in progress (0 on the ground) and ticks left.
+    pub jump_dir: u8,
+    pub jump_left: u8,
+    /// No new jump before this tick.
+    pub jump_ready_at: u64,
     /// Sequence number of the newest input applied, echoed for prediction.
     pub input_seq: u16,
     /// Newest snapshot tick the client says it has decoded (0 = none).
@@ -114,6 +130,10 @@ impl Player {
             y: 1.5,
             input_dir: 0,
             input_alt: 0,
+            input_jump: false,
+            jump_dir: 0,
+            jump_left: 0,
+            jump_ready_at: 0,
             input_seq: 0,
             snap_ack: 0,
             bomb_presses: 0,
@@ -176,7 +196,7 @@ impl Player {
 
     #[must_use]
     pub fn can_bomb(&self, tick: u64) -> bool {
-        self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick
+        self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick && self.jump_left == 0
     }
 
     #[must_use]

@@ -24,14 +24,15 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Input | Action |
 |---|---|
 | WASD / arrow keys | Move. Hold a second direction to queue a turn: hold Right, press Up early, and you turn at the next gap. |
-| Space / Enter | Drop a bomb. Press again while standing on it with the line bomb to lay a row. |
+| F / Enter | Drop a bomb. Press again while standing on it with the line bomb to lay a row. |
+| Space | Jump over the stone pillar in front of you into the free cell behind it (0.4 s hop, 0.5 s cooldown; hold to keep hopping). You're above the fire while airborne, but can't steer, and a bomb pressed mid-air drops on landing. Crates and the map border can't be jumped. |
 | E / Shift | Action: detonate remote bombs, or punch the bomb in front of you |
 | 1–8 | Emotes (also the 😀 button) |
 | Mouse wheel, `+` / `-` / `0` | Zoom in / out / reset |
 | Tab (hold) | Leaderboard with kills and deaths |
-| M / F / Esc | Mute / FPS / settings |
-| Gamepad | Stick or d-pad moves, A bomb, X action, shoulder buttons zoom |
-| Touch | Drag on the left to steer (floating joystick), bomb and action buttons, pinch to zoom |
+| M / P / Esc | Mute / FPS / settings |
+| Gamepad | Stick or d-pad moves, A bomb, Y jump, X action, shoulder buttons zoom |
+| Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒) and action buttons, pinch to zoom |
 
 The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `static/js/pixelart.js` and sprites in `static/js/pixelsprites.js`, sharing `static/js/pixelkit.js`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 

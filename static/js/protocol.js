@@ -18,7 +18,7 @@ const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
 export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 'curse_t', 'respawn', 'score', 'bombs',
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
-  'nukes'];
+  'nukes', 'jump', 'jump_cd'];
 const ME_EMPTY = new Array(ME_FIELDS.length).fill(0);
 
 const textEncoder = new TextEncoder();
@@ -121,7 +121,7 @@ export function encodeClient(m) {
   const w = new Writer().u8(CLIENT_OP[m.t]);
   switch (m.t) {
     case 'join': w.str(m.name).str(m.token ?? '').u8(m.hat ?? 0).u8(m.trail ?? 0).uvar(m.near ?? 0); break;
-    case 'in': w.u8((m.d & 7) | ((m.s & 7) << 3)).uvar(m.q ?? 0).uvar(m.k ?? 0); break;
+    case 'in': w.u8((m.d & 7) | ((m.s & 7) << 3) | (m.j ? 64 : 0)).uvar(m.q ?? 0).uvar(m.k ?? 0); break;
     case 'emote': w.u8(m.e); break;
     case 'ping': w.f64(m.c); break;
     case 'view': w.uvar(m.w).uvar(m.h); break;
@@ -159,7 +159,7 @@ function decodeSnapshot(r, baseFor) {
       const flags = h % 16;
       id += Math.floor(h / 16);
       if (flags & PLAYER.NEW) {
-        const x = r.ivar(), y = r.ivar(), look = r.u8();
+        const x = r.ivar(), y = r.ivar(), look = r.uvar();
         players.set(id, [id, x, y, look & 7, look >> 3]);
       } else {
         const old = players.get(id);
@@ -167,7 +167,7 @@ function decodeSnapshot(r, baseFor) {
         const e = old.slice(); // base entries stay untouched for later deltas
         if (flags & PLAYER.DX) e[1] += r.ivar();
         if (flags & PLAYER.DY) e[2] += r.ivar();
-        if (flags & PLAYER.LOOK) { const look = r.u8(); e[3] = look & 7; e[4] = look >> 3; }
+        if (flags & PLAYER.LOOK) { const look = r.uvar(); e[3] = look & 7; e[4] = look >> 3; }
         players.set(id, e);
       }
     }

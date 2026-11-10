@@ -11,7 +11,8 @@ impl World {
         let tick = self.tick;
         for p in self.players.values_mut() {
             let Some(link) = &p.link else { continue };
-            let (d, s, seq) = link.input.dirs();
+            let (d, s, jump, seq) = link.input.dirs();
+            p.input_jump = jump;
             let reversed = p.reversed_until > tick;
             (p.input_dir, p.input_alt, p.input_seq) =
                 if reversed { (OPPOSITE[d as usize], OPPOSITE[s as usize], seq) } else { (d, s, seq) };

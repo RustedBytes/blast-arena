@@ -15,8 +15,9 @@ use tokio::sync::{Notify, mpsc};
 
 #[derive(Default)]
 pub struct InputSlot {
-    /// Bits 0..3 held direction, bits 3..6 fallback direction, bits 16..32
-    /// the client's input sequence number (echoed back for prediction).
+    /// Bits 0..3 held direction, bits 3..6 fallback direction, bit 6 jump
+    /// held, bits 16..32 the client's input sequence number (echoed back
+    /// for prediction).
     dirs: AtomicU32,
     /// Running count of bomb presses.
     bombs: AtomicU32,
@@ -31,21 +32,22 @@ pub struct InputSlot {
 }
 
 #[must_use]
-pub fn pack_dirs(dir: u8, alt: u8, seq: u16) -> u32 {
-    u32::from(dir.min(4)) | u32::from(alt.min(4)) << 3 | u32::from(seq) << 16
+pub fn pack_dirs(dir: u8, alt: u8, jump: bool, seq: u16) -> u32 {
+    u32::from(dir.min(4)) | u32::from(alt.min(4)) << 3 | u32::from(jump) << 6 | u32::from(seq) << 16
 }
 
+/// (direction, fallback direction, jump held, sequence number).
 #[must_use]
-pub fn unpack_dirs(v: u32) -> (u8, u8, u16) {
-    ((v & 7) as u8, (v >> 3 & 7) as u8, (v >> 16) as u16)
+pub fn unpack_dirs(v: u32) -> (u8, u8, bool, u16) {
+    ((v & 7) as u8, (v >> 3 & 7) as u8, v & 64 != 0, (v >> 16) as u16)
 }
 
 impl InputSlot {
-    pub fn set_dirs(&self, dir: u8, alt: u8, seq: u16) {
-        self.dirs.store(pack_dirs(dir, alt, seq), Relaxed);
+    pub fn set_dirs(&self, dir: u8, alt: u8, jump: bool, seq: u16) {
+        self.dirs.store(pack_dirs(dir, alt, jump, seq), Relaxed);
     }
 
-    pub fn dirs(&self) -> (u8, u8, u16) {
+    pub fn dirs(&self) -> (u8, u8, bool, u16) {
         unpack_dirs(self.dirs.load(Relaxed))
     }
 
@@ -147,25 +149,25 @@ mod tests {
     fn dirs_round_trip() {
         for d in 0..=4 {
             for a in 0..=4 {
-                assert_eq!(unpack_dirs(pack_dirs(d, a, 65535)), (d, a, 65535));
+                assert_eq!(unpack_dirs(pack_dirs(d, a, d % 2 == 0, 65535)), (d, a, d % 2 == 0, 65535));
             }
         }
-        assert_eq!(unpack_dirs(pack_dirs(9, 200, 7)), (4, 4, 7), "out of range values are clamped");
+        assert_eq!(unpack_dirs(pack_dirs(9, 200, false, 7)), (4, 4, false, 7), "out of range values are clamped");
     }
 
     #[test]
     fn input_slot_tracks_latest_state() {
         let slot = InputSlot::default();
         assert_eq!(slot.view(), None);
-        slot.set_dirs(2, 1, 1);
-        slot.set_dirs(3, 2, 2);
+        slot.set_dirs(2, 1, false, 1);
+        slot.set_dirs(3, 2, true, 2);
         slot.press_bomb();
         slot.press_bomb();
         slot.press_act();
         slot.emote(4);
         slot.emote(5);
         slot.set_view(20, 14);
-        assert_eq!(slot.dirs(), (3, 2, 2));
+        assert_eq!(slot.dirs(), (3, 2, true, 2));
         assert_eq!(slot.act_presses(), 1);
         assert_eq!(slot.latest_emote(), (2, 5));
         assert_eq!(slot.bomb_presses(), 2);

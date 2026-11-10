@@ -3,7 +3,7 @@
 # browser client (static/, via build.rs), so each archive is the single
 # executable plus the license files.
 #
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag v0.2.0 && git push origin v0.2.0
 
 name: Release
 
@@ -70,7 +70,7 @@ jobs:
           [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/$BIN$ext" "dist/$name/"
-          cp LICENSE NOTICE README.md "dist/$name/"
+          cp LICENSE NOTICE README.md CHANGELOG.md "dist/$name/"
           cd dist
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             archive="$name.zip"

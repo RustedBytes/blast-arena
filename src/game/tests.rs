@@ -504,7 +504,7 @@ fn world_changes_are_sent_reliably() {
 fn input_sequence_is_echoed_for_prediction() {
     let mut w = test_world(Map::empty(15, 15));
     let id = w.spawn_test_player(1.5, 1.5);
-    w.players[&id].link.as_ref().unwrap().input.set_dirs(2, 0, 4242);
+    w.players[&id].link.as_ref().unwrap().input.set_dirs(2, 0, false, 4242);
     w.step();
     let snap: serde_json::Value = w.full_snapshot(id);
     assert_eq!(me_obj(&snap)["ack"], 4242);
@@ -586,3 +586,67 @@ fn teams_are_balanced_on_join() {
     teams.sort_unstable();
     assert_eq!(teams, [1, 1, 1, 2, 2, 2]);
 }
+
+/// Holds a direction with the jump key down.
+fn hold_jump(w: &World, id: u32, dir: u8) {
+    w.players[&id].link.as_ref().unwrap().input.set_dirs(dir, 0, true, 1);
+}
+
+#[test]
+fn jump_over_a_stone_pillar() {
+    // Map::empty has pillars at even coordinates: (2, 2) is right of (1, 2).
+    let mut w = test_world(Map::empty(15, 15));
+    let id = w.spawn_test_player(1.5, 2.5);
+    hold_jump(&w, id, 2);
+    w.step();
+    let p = &w.players[&id];
+    assert!(p.jump_left > 0 && p.jump_dir == 2, "took off");
+    for _ in 0..3 {
+        w.step();
+    }
+    assert!((w.players[&id].x - 2.5).abs() < 1e-4, "over the pillar halfway through");
+    for _ in 0..4 {
+        w.step();
+    }
+    let p = &w.players[&id];
+    assert_eq!((p.x, p.y, p.jump_left), (3.5, 2.5, 0), "landed behind it");
+    // Holding on: (4, 2) is another pillar, but there's a cooldown first.
+    w.step();
+    assert_eq!(w.players[&id].jump_left, 0);
+    for _ in 0..player::JUMP_COOLDOWN_TICKS {
+        w.step();
+    }
+    assert!(w.players[&id].jump_left > 0, "jumps again after the cooldown");
+}
+
+#[test]
+fn jump_needs_stone_and_a_free_landing() {
+    let mut map = Map::empty(15, 15);
+    map.set(3, 2, Tile::Crate); // landing spot behind the (2, 2) pillar
+    map.set(1, 4, Tile::Crate); // not stone: below (1, 3)
+    let mut w = test_world(map);
+    let a = w.spawn_test_player(1.5, 2.5);
+    let b = w.spawn_test_player(1.5, 3.5);
+    let c = w.spawn_test_player(1.5, 1.5);
+    hold_jump(&w, a, 2); // pillar, but a crate behind it
+    hold_jump(&w, b, 3); // a crate isn't stone
+    hold_jump(&w, c, 4); // the border: nowhere to land
+    w.step();
+    for id in [a, b, c] {
+        assert_eq!(w.players[&id].jump_left, 0, "player {id} must not jump");
+    }
+}
+
+#[test]
+fn jumping_players_are_above_the_fire() {
+    let mut w = test_world(Map::empty(15, 15));
+    let id = w.spawn_test_player(1.5, 2.5);
+    hold_jump(&w, id, 2);
+    w.step();
+    let tick = w.tick;
+    w.flame_until.iter_mut().for_each(|u| *u = tick + 100);
+    w.apply_flame_damage();
+    assert!(w.players[&id].alive, "airborne");
+    assert!(!w.players[&id].can_bomb(w.tick), "no bombs mid-air");
+}
+

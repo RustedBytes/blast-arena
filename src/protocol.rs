@@ -92,8 +92,9 @@ pub mod cop {
 ///
 /// Lists are sorted by id and carry the gap from the previous id. A player
 /// is `varint(gap << 4 | header)`, then by header bit: `NEW` gives ivar x,
-/// ivar y and the look byte (`facing | flags << 3`) in full; otherwise
-/// `DX`/`DY` give ivar position changes and `LOOK` a new look byte.
+/// ivar y and the look (`varint(facing | flags << 3)`) in full; otherwise
+/// `DX`/`DY` give ivar position changes and `LOOK` a new look. Flags:
+/// moving, shield, cursed, ghost, bounty, jumping.
 /// Positions are hundredths of a tile.
 pub mod snap {
     pub const PLAYERS: u8 = 1;
@@ -116,8 +117,9 @@ pub mod snap {
 pub const ME_FIELDS: [&str; ME_LEN] = [
     "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
+    "jump", "jump_cd",
 ];
-pub const ME_LEN: usize = 24;
+pub const ME_LEN: usize = 26;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -246,9 +248,10 @@ pub enum ClientMsg<'a> {
     /// chosen cosmetics, and optionally a friend to spawn next to.
     Join { name: &'a str, token: &'a str, hat: u8, trail: u8, near: u32 },
     /// Held direction plus a fallback direction (0 none, 1 up, 2 right,
-    /// 3 down, 4 left), and the input's sequence number for prediction.
-    /// `k` acknowledges the newest snapshot tick decoded (the delta baseline).
-    In { d: u8, s: u8, q: u16, k: u32 },
+    /// 3 down, 4 left), whether the jump key is held (`j`), and the input's
+    /// sequence number for prediction. `k` acknowledges the newest snapshot
+    /// tick decoded (the delta baseline).
+    In { d: u8, s: u8, j: bool, q: u16, k: u32 },
     Bomb,
     /// Action key: detonate remote bombs, or punch the bomb in front.
     Act,
@@ -281,6 +284,7 @@ impl<'a> ClientMsg<'a> {
                 ClientMsg::In {
                     d: dir(b & 7),
                     s: dir(b >> 3 & 7),
+                    j: b & 64 != 0,
                     q: clamp(r.uvar()?, 0xffff) as u16,
                     k: clamp(r.uvar()?, u64::from(u32::MAX)) as u32,
                 }
@@ -303,8 +307,8 @@ impl<'a> ClientMsg<'a> {
             ClientMsg::Join { name, token, hat, trail, near } => {
                 w.u8(cop::JOIN).str(name).str(token).u8(hat).u8(trail).id(near);
             }
-            ClientMsg::In { d, s, q, k } => {
-                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3).uvar(u64::from(q)).id(k);
+            ClientMsg::In { d, s, j, q, k } => {
+                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3 | u8::from(j) << 6).uvar(u64::from(q)).id(k);
             }
             ClientMsg::Bomb => {
                 w.u8(cop::BOMB);
@@ -661,15 +665,15 @@ pub mod testing {
                     let h = r.uvar().unwrap();
                     prev += (h >> 4) as i64;
                     let mut e = players.iter().find(|e: &&Entry| e[0] == prev).copied().unwrap_or([prev, 0, 0, 0, 0]);
-                    let look = |e: &mut Entry, b: u8| (e[3], e[4]) = (i64::from(b & 7), i64::from(b >> 3));
+                    let look = |e: &mut Entry, b: u64| (e[3], e[4]) = ((b & 7) as i64, (b >> 3) as i64);
                     if h & snap::NEW != 0 {
                         (e[1], e[2]) = (r.ivar().unwrap(), r.ivar().unwrap());
-                        look(&mut e, r.u8().unwrap());
+                        look(&mut e, r.uvar().unwrap());
                     } else {
                         assert!(players.iter().any(|b| b[0] == prev), "delta for unknown player {prev}");
                         if h & snap::DX != 0 { e[1] += r.ivar().unwrap(); }
                         if h & snap::DY != 0 { e[2] += r.ivar().unwrap(); }
-                        if h & snap::LOOK != 0 { look(&mut e, r.u8().unwrap()); }
+                        if h & snap::LOOK != 0 { look(&mut e, r.uvar().unwrap()); }
                     }
                     new_players.push(e);
                 }
@@ -730,8 +734,8 @@ mod tests {
         let msgs = [
             ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 },
             ClientMsg::Join { name: "Bö", token: "", hat: 0, trail: 0, near: 0 },
-            ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 },
-            ClientMsg::In { d: 4, s: 0, q: 65535, k: u32::MAX },
+            ClientMsg::In { d: 3, s: 2, j: false, q: 513, k: 70000 },
+            ClientMsg::In { d: 4, s: 0, j: true, q: 65535, k: u32::MAX },
             ClientMsg::Bomb,
             ClientMsg::Act,
             ClientMsg::Emote { e: 3 },
@@ -741,13 +745,14 @@ mod tests {
         for m in msgs {
             assert_eq!(ClientMsg::decode(&m.encode()), Some(m));
         }
-        assert_eq!(ClientMsg::In { d: 3, s: 2, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
+        assert_eq!(ClientMsg::In { d: 3, s: 2, j: true, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
     }
 
     #[test]
     fn client_messages_are_validated() {
-        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, q: 1, k: 1 }), "bad dirs");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, q: 65535, k: 0 }), "seq clamped");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, j: false, q: 1, k: 1 }), "bad dirs");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, j: false, q: 65535, k: 0 }), "seq clamped");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 64, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: true, q: 1, k: 1 }), "jump bit");
         assert_eq!(ClientMsg::decode(&[cop::EMOTE, 200]), Some(ClientMsg::Emote { e: 15 }));
         assert_eq!(ClientMsg::decode(&[cop::VIEW, 0xff, 0x7f, 5]), Some(ClientMsg::View { w: 1000, h: 5 }));
         assert_eq!(ClientMsg::decode(&[]), None);

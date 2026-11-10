@@ -181,12 +181,12 @@ const net = new Net({
     if (mine && m.me.alive) {
       const mx = mine[1] / 100, my = mine[2] / 100;
       if (!predictor.active || !prevMe?.alive) {
-        predictor.reset(mx, my);
+        predictor.reset(mx, my, mine[3]);
         state.self.x = mx;
         state.self.y = my;
         if (prevMe && !prevMe.alive) renderer.spawnBeam(mx, my, now);
       } else {
-        predictor.reconcile(mx, my, (mine[4] & 1) !== 0, m.me.ack, state, input.current);
+        predictor.reconcile(mx, my, (mine[4] & 1) !== 0, mine[3], m.me.ack, state, input.current);
       }
     } else if (!m.me.alive) {
       predictor.active = false;
@@ -656,7 +656,8 @@ let last = performance.now();
 let perfTime = 0, perfFrames = 0, perfWork = 0;
 // Every input message also acknowledges the newest decoded snapshot (`k`),
 // which the server uses as the base for delta snapshots.
-const sendInput = (d, s, q) => net.send({ t: 'in', d, s, q, k: state?.lastK ?? 0 });
+const sendInput = (d, s, j, q) => net.send({ t: 'in', d, s, j, q, k: state?.lastK ?? 0 });
+predictor.onJump = () => audio.jump();
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
@@ -676,6 +677,7 @@ function frame(now) {
   if (state.me?.alive && predictor.active) {
     const px = state.self.x, py = state.self.y;
     predictor.render(state.self, input.current, state, dt);
+    state.selfJump = predictor.jumpDir;
     tutorial.notify('moved', Math.abs(state.self.x - px) + Math.abs(state.self.y - py));
     state.focus.x = state.self.x;
     state.focus.y = state.self.y;

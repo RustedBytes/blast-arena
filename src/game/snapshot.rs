@@ -58,7 +58,8 @@ impl World {
                 | u8::from(o.invulnerable_until > tick) << 1
                 | u8::from(o.curse(tick).0 != 0) << 2
                 | u8::from(o.ghost(tick)) << 3
-                | u8::from(o.bounty) << 4;
+                | u8::from(o.bounty) << 4
+                | u8::from(o.jump_left > 0) << 5;
             (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
         }));
         cur.players.sort_unstable_by_key(|e| e.0);
@@ -238,6 +239,8 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>) -> MeState {
         i64::from(p.team),
         i64::from(p.streak),
         i64::from(p.nukes),
+        i64::from(p.jump_left),
+        t(p.jump_ready_at.saturating_sub(tick)),
     ]
 }
 

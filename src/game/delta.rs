@@ -111,9 +111,9 @@ fn gone<'a, E: Keyed>(cur: &'a [E], base: &'a [E]) -> impl Iterator<Item = u32> 
     matched(base, cur).filter(|(_, c)| c.is_none()).map(|(b, _)| b.key())
 }
 
-/// Facing (0..=4) and flags (5 bits) in one byte.
-fn look(e: &PlayerEntry) -> u8 {
-    e.3 & 7 | e.4 << 3
+/// Facing (0..=4) and flags (6 bits), sent as a varint.
+fn look(e: &PlayerEntry) -> u64 {
+    u64::from(e.3 & 7) | u64::from(e.4) << 3
 }
 
 /// Writes the delta between `cur` and `base` after the snapshot header:
@@ -147,7 +147,7 @@ pub(super) fn write_delta(w: &mut Wire<'_>, tick: u64, cur: &DeltaScratch, base:
             prev = e.0;
             match b {
                 None => {
-                    w.uvar(gap | snap::NEW).ivar(i64::from(e.1)).ivar(i64::from(e.2)).u8(look(e));
+                    w.uvar(gap | snap::NEW).ivar(i64::from(e.1)).ivar(i64::from(e.2)).uvar(look(e));
                 }
                 Some(b) => {
                     let (dx, dy) = (i64::from(e.1) - i64::from(b.1), i64::from(e.2) - i64::from(b.2));
@@ -161,7 +161,7 @@ pub(super) fn write_delta(w: &mut Wire<'_>, tick: u64, cur: &DeltaScratch, base:
                         w.ivar(dy);
                     }
                     if new_look {
-                        w.u8(look(e));
+                        w.uvar(look(e));
                     }
                 }
             }

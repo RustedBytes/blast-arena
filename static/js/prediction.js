@@ -14,6 +14,9 @@
 // frame. Any jump (a reconcile correction, or the extrapolation switching
 // direction) goes into a visual offset that decays over a few frames
 // instead of snapping.
+//
+// Jumps over stone pillars are part of the input (the held jump key) and
+// are simulated exactly like the server does, so they replay correctly.
 
 const DIRS = [[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]];
 const OPPOSITE = [0, 3, 4, 1, 2];
@@ -23,6 +26,12 @@ const DT = 0.05;
 const HISTORY = 64;
 const T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_ARMORED = 9;
 const CONVEYOR = [0, 0, 0, 0, 1, 2, 3, 4]; // tile code -> direction
+// Jumping, mirroring src/game/player.rs: ticks a hop takes, cells per tick,
+// cooldown after landing, and how far off the lane centre you may be.
+export const JUMP_TICKS = 8;
+const JUMP_STEP = 2 / JUMP_TICKS;
+const JUMP_COOLDOWN_TICKS = 10;
+const JUMP_LANE_SLACK = 0.3;
 const SMOOTH_TAU = 0.06;   // s, decay time of visual corrections
 const SNAP_DIST = 2;       // tiles: larger errors jump instead of gliding
 
@@ -72,25 +81,30 @@ export class Predictor {
     this.hSeq = new Int32Array(HISTORY).fill(-1);
     this.hDir = new Uint8Array(HISTORY);
     this.hAlt = new Uint8Array(HISTORY);
-    this.pos = { x: 0, y: 0, moving: false, slide: 0 };
+    this.hJump = new Uint8Array(HISTORY);
+    this.pos = newState();
     this.acc = 0;
     this.active = false;
-    this.tmp = { x: 0, y: 0, moving: false, slide: 0 };
-    this.ext = { x: 0, y: 0, moving: false, slide: 0 };
+    this.tmp = newState();
+    this.ext = newState();
+    /** Called when a predicted jump takes off (for sound). */
+    this.onJump = null;
     // Visual offset (drawn - predicted), decaying to zero.
     this.offX = 0;
     this.offY = 0;
     // Input the extrapolation used last frame.
     this.lastD = 0;
     this.lastS = 0;
-    this.lastInput = { d: 0, s: 0 };
+    this.lastJ = false;
+    this.lastInput = { d: 0, s: 0, j: false };
     this.stats = { samples: 0, sumError: 0, maxError: 0, corrections: 0 };
   }
 
-  reset(x, y) {
+  reset(x, y, facing = 3) {
+    Object.assign(this.pos, newState());
     this.pos.x = x;
     this.pos.y = y;
-    this.pos.moving = false;
+    this.pos.facing = facing;
     this.offX = this.offY = 0;
     this.hSeq.fill(-1);
     this.active = true;
@@ -107,12 +121,13 @@ export class Predictor {
     this.hSeq[k] = seq;
     this.hDir[k] = input.d;
     this.hAlt[k] = input.s;
-    send(input.d, input.s, seq);
+    this.hJump[k] = input.j ? 1 : 0;
+    send(input.d, input.s, input.j, seq);
   }
 
   /**
    * Advances local time; for every elapsed 50 ms step, sends the current
-   * input (via `send(d, s, seq)`) and applies it locally.
+   * input (via `send(d, s, j, seq)`) and applies it locally.
    */
   update(dt, input, world, send) {
     // Inputs keep flowing while inactive (dead): they also carry snapshot acks.
@@ -122,25 +137,34 @@ export class Predictor {
       this.acc -= DT;
       steps++;
       const seq = this.seq = (this.seq + 1) & 0xffff;
-      send(input.d, input.s, seq);
+      send(input.d, input.s, input.j, seq);
       const k = seq % HISTORY;
       this.hSeq[k] = seq;
       this.hDir[k] = input.d;
       this.hAlt[k] = input.s;
+      this.hJump[k] = input.j ? 1 : 0;
       if (!this.active) continue;
-      simulate(this.pos, input.d, input.s, world, 1);
+      const wasJumping = this.pos.jumpLeft > 0;
+      simulate(this.pos, input.d, input.s, input.j, world, 1);
+      if (!wasJumping && this.pos.jumpLeft > 0) this.onJump?.();
     }
     if (steps === 4) this.acc = 0; // fell far behind (tab was hidden)
   }
 
-  /** Server snapshot: authoritative position after input `ack`. */
-  reconcile(sx, sy, moving, ack, world, input) {
+  /**
+   * Server snapshot: authoritative state after input `ack` (position, facing,
+   * and the jump state from `world.me`).
+   */
+  reconcile(sx, sy, moving, facing, ack, world, input) {
     if (!this.active) return;
     // Where we'd draw now, before the correction.
     this.extrapolate(input, world);
     const bx = this.ext.x, by = this.ext.y;
     const p = this.tmp;
-    p.x = sx; p.y = sy; p.moving = moving; p.slide = this.pos.slide;
+    p.x = sx; p.y = sy; p.moving = moving; p.slide = this.pos.slide; p.facing = facing;
+    p.jumpLeft = world.me.jump ?? 0;
+    p.jumpDir = p.jumpLeft > 0 ? facing : 0;
+    p.jumpCd = world.me.jump_cd ?? 0;
     // Replay the inputs the server hasn't applied yet, oldest first. An ack
     // ahead of our last step (an early-sent input) needs no replay.
     const behind = (this.seq - ack) & 0xffff;
@@ -149,7 +173,7 @@ export class Predictor {
         const seq = (this.seq - i) & 0xffff;
         const k = seq % HISTORY;
         if (this.hSeq[k] !== seq) continue;
-        simulate(p, this.hDir[k], this.hAlt[k], world, 1);
+        simulate(p, this.hDir[k], this.hAlt[k], this.hJump[k] === 1, world, 1);
       }
     }
     const err = Math.hypot(p.x - this.pos.x, p.y - this.pos.y);
@@ -158,7 +182,7 @@ export class Predictor {
     this.stats.sumError += err;
     this.stats.maxError = Math.max(this.stats.maxError, err);
     if (err > 0.25) this.stats.corrections++;
-    this.pos.x = p.x; this.pos.y = p.y; this.pos.moving = p.moving; this.pos.slide = p.slide;
+    copyState(this.pos, p);
     if (err > SNAP_DIST) {
       // Teleport or big desync: jump.
       this.offX = this.offY = 0;
@@ -172,18 +196,23 @@ export class Predictor {
 
   /** `ext` = the last step's position advanced by the part of a step elapsed since. */
   extrapolate(input, world) {
-    const e = this.ext;
-    e.x = this.pos.x; e.y = this.pos.y; e.moving = this.pos.moving; e.slide = this.pos.slide;
+    const e = copyState(this.ext, this.pos);
     const f = Math.min(1, this.acc / DT);
-    if (f > 0) simulate(e, input.d, input.s, world, f);
+    if (f > 0) simulate(e, input.d, input.s, input.j, world, f);
+  }
+
+  /** Direction of the jump being drawn, 0 when on the ground. */
+  get jumpDir() {
+    return this.ext.jumpLeft > 0 ? this.ext.jumpDir : 0;
   }
 
   /** Drawn position: extrapolated prediction plus the decaying correction. */
   render(out, input, world, dt) {
-    if (input.d !== this.lastD || input.s !== this.lastS) {
+    if (input.d !== this.lastD || input.s !== this.lastS || input.j !== this.lastJ) {
       // The extrapolation switches direction: glide instead of jumping.
       this.lastInput.d = this.lastD;
       this.lastInput.s = this.lastS;
+      this.lastInput.j = this.lastJ;
       this.extrapolate(this.lastInput, world);
       const ox = this.ext.x, oy = this.ext.y;
       this.extrapolate(input, world);
@@ -191,6 +220,7 @@ export class Predictor {
       this.offY += oy - this.ext.y;
       this.lastD = input.d;
       this.lastS = input.s;
+      this.lastJ = input.j;
     } else {
       this.extrapolate(input, world);
     }
@@ -202,6 +232,49 @@ export class Predictor {
     out.x = this.ext.x + this.offX;
     out.y = this.ext.y + this.offY;
   }
+}
+
+/** Predicted player state (positions in tiles; jump timers in ticks). */
+function newState() {
+  return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0 };
+}
+
+function copyState(dst, src) {
+  dst.x = src.x; dst.y = src.y; dst.moving = src.moving; dst.slide = src.slide; dst.facing = src.facing;
+  dst.jumpDir = src.jumpDir; dst.jumpLeft = src.jumpLeft; dst.jumpCd = src.jumpCd;
+  return dst;
+}
+
+/**
+ * How high a jumping player is (0 on the ground, 1 at the top), from where
+ * they are: the hop arcs over the nearest stone pillar along `dir`.
+ */
+export function hopHeight(map, x, y, dir) {
+  const horizontal = dir === 2 || dir === 4;
+  const along = horizontal ? x : y, across = Math.floor(horizontal ? y : x);
+  const c = Math.floor(along);
+  let best = 1;
+  for (let k = c - 1; k <= c + 1; k++) {
+    const tx = horizontal ? k : across, ty = horizontal ? across : k;
+    if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h || map.tiles[ty * map.w + tx] !== T_WALL) continue;
+    best = Math.min(best, Math.abs(along - (k + 0.5)));
+  }
+  return Math.max(0, 1 - best * best);
+}
+
+/** Mirrors World::jump_landing: a stone pillar ahead and a free cell behind it. */
+function canJump(p, dir, world) {
+  if (dir < 1 || dir > 4) return false;
+  const map = world.map;
+  const [dx, dy] = DIRS[dir];
+  const cx = Math.floor(p.x), cy = Math.floor(p.y);
+  const off = dx !== 0 ? p.y - (cy + 0.5) : p.x - (cx + 0.5);
+  if (Math.abs(off) > JUMP_LANE_SLACK) return false;
+  const inside = (x, y) => x >= 0 && y >= 0 && x < map.w && y < map.h;
+  const wx = cx + dx, wy = cy + dy, lx = cx + 2 * dx, ly = cy + 2 * dy;
+  if (!inside(wx, wy) || map.tiles[wy * map.w + wx] !== T_WALL || !inside(lx, ly)) return false;
+  const t = map.tiles[ly * map.w + lx];
+  return t !== T_WALL && t !== T_CRATE && t !== T_ARMORED && !world.bombCells.has(ly * map.w + lx);
 }
 
 // Collision context for `blocked`, set by `simulate` (module-level so the
@@ -221,12 +294,41 @@ function blocked(cx, cy) {
 
 /**
  * One server tick of movement for the local player (mirrors
- * update_players); `frac` < 1 moves only that part of a tick.
+ * update_players); `frac` < 1 moves only that part of a tick. `j`: the
+ * jump key is held.
  */
-function simulate(p, d, s, world, frac) {
+function simulate(p, d, s, j, world, frac) {
   const me = world.me;
   if (!me?.alive) return;
   if (me.curse === 3) { d = OPPOSITE[d]; s = OPPOSITE[s]; }
+  // Jumping (mirrors World::update_jump): take off from the cell centre,
+  // hop two cells in JUMP_TICKS, land on the centre, then cool down.
+  const cdNow = Math.max(0, p.jumpCd - 1);
+  if (frac === 1) p.jumpCd = cdNow;
+  if (p.jumpLeft === 0 && j && cdNow === 0) {
+    const dir = d || p.facing;
+    if (canJump(p, dir, world)) {
+      p.x = Math.floor(p.x) + 0.5;
+      p.y = Math.floor(p.y) + 0.5;
+      p.jumpDir = dir;
+      p.jumpLeft = JUMP_TICKS;
+      p.facing = dir;
+    }
+  }
+  if (p.jumpLeft > 0) {
+    const [jx, jy] = DIRS[p.jumpDir];
+    p.x += jx * JUMP_STEP * frac;
+    p.y += jy * JUMP_STEP * frac;
+    p.moving = true;
+    if (frac === 1 && --p.jumpLeft === 0) {
+      p.x = Math.floor(p.x) + 0.5;
+      p.y = Math.floor(p.y) + 0.5;
+      p.jumpDir = 0;
+      p.moving = false;
+      p.jumpCd = JUMP_COOLDOWN_TICKS;
+    }
+    return;
+  }
   simMap = world.map;
   simBombs = world.bombCells;
   simGhost = me.ghost > 0;
@@ -244,5 +346,5 @@ function simulate(p, d, s, world, frac) {
   const belt = CONVEYOR[on] ?? 0;
   if (belt) stepMove(p, belt, CONVEYOR_SPEED * DT * frac, blocked);
   p.moving = p.x !== sx || p.y !== sy;
-  if (p.moving && used) p.slide = used;
+  if (p.moving && used) { p.slide = used; p.facing = used; } else if (dir) p.facing = dir;
 }
