@@ -20,11 +20,15 @@ const MAX_CHUNKS = 48;      // chunk canvases kept (LRU)
 const DECALS = 512;         // scorch marks ring buffer
 const DECAL_LIFE = 4000;    // ms
 const POOL = 512;           // pooled entities per frame
+const MINIMAP_CSS = 170;    // minimap size in CSS px (see style.css)
+const MINIMAP_MS = 250;     // minimap overlay refresh period
 // Item halo colour by rarity.
 const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08bff', '#ffd34a', '#ff7af0',
   '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff'];
 export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
 const TRAIL_COLORS = [0, 10, 8, 9];
+const PLAYER_VIEWS = ['player_up', 'player_down', 'player_side'];
+const PIXEL_VIEWS = ['up', 'down', 'side'];
 // Where the fuse ends on each bomb sprite, in tiles from the cell centre.
 const FUSE_TIP = [0.34, -0.36];
 const FUSE_TIP_PIXEL = [0.28, -0.47];
@@ -88,7 +92,11 @@ export class Renderer {
     this.prev = new Map();
     this.mapImage = document.createElement('canvas');
     this.mapPixels = null;
-    this.vignette = document.createElement('canvas');
+    this.mapDirty = true;   // minimap tile layer needs rebuilding
+    this.dpr = window.devicePixelRatio || 1;
+    // Per-player caches, so drawing a player allocates nothing.
+    this.looks = new Map();  // id -> { team, cb, colors, sprites[] }
+    this.labels = new Map(); // id -> { canvas, name, fs, me, team, hc, cb }
   }
 
   /** Recomputes the base tile size so the default view matches the server's default area. */
@@ -98,9 +106,12 @@ export class Renderer {
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
-      this.buildVignette(w, h);
     }
-    this.dpr = dpr;
+    if (this.dpr !== dpr) {
+      this.dpr = dpr;
+      this.labels.clear();
+      this.mapDirty = true;
+    }
     // A hidden page can report 0x0; keep the last good sizes until it's shown.
     if (w === 0 || h === 0) return;
     this.baseT = Math.max(w / (2 * aoi[0] - 1), h / (2 * aoi[1] - 1));
@@ -114,17 +125,6 @@ export class Renderer {
   viewHalfExtents(zoom) {
     const T = this.baseT * zoom;
     return [Math.ceil(this.canvas.width / T / 2) + 1, Math.ceil(this.canvas.height / T / 2) + 1];
-  }
-
-  buildVignette(w, h) {
-    const v = this.vignette;
-    v.width = w; v.height = h;
-    const g = v.getContext('2d');
-    const grad = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.45)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, w, h);
   }
 
   halo(color) {
@@ -156,6 +156,7 @@ export class Renderer {
   }
 
   invalidateTile(map, x, y) {
+    this.mapDirty = true;
     // A tile's shadow falls on its east and south neighbours, which may be
     // in another chunk.
     const cols = Math.ceil(map.w / CHUNK);
@@ -167,12 +168,17 @@ export class Renderer {
 
   invalidateAll() {
     for (const c of this.chunks.values()) c.key = -1;
+    this.looks.clear();
+    this.labels.clear();
   }
 
   /** Called on welcome: forget cached chunks and index animated tiles. */
   resetMap(map) {
     this.chunks.clear();
     this.dirty.clear();
+    this.mapDirty = true;
+    this.looks.clear();
+    this.labels.clear();
     this.decalT.fill(-1e9);
     this.specials = [];
     for (let y = 0; y < map.h; y++) {
@@ -362,8 +368,11 @@ export class Renderer {
     this.camY = clampCam(state.focus.y * T - H / 2, map.h * T, H);
     const camX = Math.round(this.camX + sx), camY = Math.round(this.camY + sy);
 
-    ctx.fillStyle = '#1b2a17';
-    ctx.fillRect(0, 0, W, H);
+    // The chunks cover the whole view unless the map is smaller than it.
+    if (camX < 0 || camY < 0 || camX + W > map.w * T || camY + H > map.h * T) {
+      ctx.fillStyle = '#1b2a17';
+      ctx.fillRect(0, 0, W, H);
+    }
 
     // Tile chunks.
     const cpx = CHUNK * T;
@@ -413,13 +422,9 @@ export class Renderer {
     this.drawEffects(now, camX, camY, T);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
 
-    // The page may have loaded hidden (0x0); keep the vignette in step.
-    if (W > 0 && H > 0) {
-      if (this.vignette.width !== W || this.vignette.height !== H) this.buildVignette(W, H);
-      ctx.drawImage(this.vignette, 0, 0);
-    }
+    // (The vignette is a CSS overlay: the compositor blends it for free.)
 
-    if (now - this.lastMinimap > 400) {
+    if (now - this.lastMinimap > MINIMAP_MS) {
       this.lastMinimap = now;
       this.drawMinimap(state);
     }
@@ -428,17 +433,23 @@ export class Renderer {
   /** Moving chevrons on conveyors and spinning teleporter pads. */
   drawSpecials(map, camX, camY, T, sec, W, H) {
     const { ctx } = this;
+    const spin = sec * 2.5, sc = Math.cos(spin), ss = Math.sin(spin);
+    const phase = (sec * 1.6) % 1;
+    let style = -1; // which stroke style is set: 0 teleporter, 1 conveyor
     for (let i = 0; i < this.specials.length; i++) {
-      const [x, y, t] = this.specials[i];
+      const sp = this.specials[i];
+      const x = sp[0], y = sp[1], t = sp[2];
       const px = x * T - camX, py = y * T - camY;
       if (px < -T || py < -T || px > W || py > H) continue;
-      ctx.save();
-      ctx.translate(px + T / 2, py + T / 2);
+      const cx = px + T / 2, cy = py + T / 2;
       if (t === T_TELEPORT) {
-        ctx.rotate(sec * 2.5);
+        if (style !== 0) {
+          style = 0;
+          ctx.strokeStyle = 'rgba(200,160,255,0.75)';
+          ctx.lineWidth = T * 0.06;
+        }
+        ctx.setTransform(sc, ss, -ss, sc, cx, cy);
         ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = 'rgba(200,160,255,0.75)';
-        ctx.lineWidth = T * 0.06;
         for (let k = 0; k < 3; k++) {
           ctx.beginPath();
           ctx.arc(0, 0, T * (0.12 + k * 0.1), k * 2, k * 2 + 2.2);
@@ -446,21 +457,25 @@ export class Renderer {
         }
         ctx.globalCompositeOperation = 'source-over';
       } else {
-        ctx.rotate(ARM_ANGLES[CONVEYOR_DIR[t] - 1]);
-        ctx.strokeStyle = 'rgba(255,211,74,0.85)';
-        ctx.lineWidth = T * 0.07;
-        const phase = (sec * 1.6) % 1;
+        if (style !== 1) {
+          style = 1;
+          ctx.strokeStyle = 'rgba(255,211,74,0.85)';
+          ctx.lineWidth = T * 0.07;
+        }
+        const d = CONVEYOR_DIR[t] - 1;
+        const c = ARM_DIRS[d][0], s = ARM_DIRS[d][1]; // cos/sin of ARM_ANGLES[d]
+        ctx.setTransform(c, s, -s, c, cx, cy);
+        ctx.beginPath();
         for (let k = 0; k < 2; k++) {
           const ox = ((phase + k * 0.5) % 1 - 0.5) * T * 0.8;
-          ctx.beginPath();
           ctx.moveTo(ox - T * 0.1, -T * 0.16);
           ctx.lineTo(ox + T * 0.06, 0);
           ctx.lineTo(ox - T * 0.1, T * 0.16);
-          ctx.stroke();
         }
+        ctx.stroke();
       }
-      ctx.restore();
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   /** King-of-the-hill zones: pulsing golden 3x3 squares. */
@@ -478,7 +493,7 @@ export class Renderer {
       ctx.lineDashOffset = -sec * T;
       ctx.strokeRect(px + 2, py + 2, T * 3 - 4, T * 3 - 4);
       ctx.setLineDash([]);
-      ctx.font = `${Math.round(T * 0.5)}px system-ui, sans-serif`;
+      ctx.font = this.font(Math.round(T * 0.5), '');
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.globalAlpha = 0.55;
@@ -489,28 +504,36 @@ export class Renderer {
 
   drawItems(items, camX, camY, T, sec, W, H) {
     const { ctx } = this;
-    for (const [x, y, kind] of items) {
+    // Halos first, all in one additive pass (one composite switch per frame).
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const x = it[0], y = it[1], kind = it[2];
+      const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
+      if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
+      const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
+      const hs = T * 1.25 * (1 + 0.08 * Math.sin(sec * 3 + x * 2));
+      ctx.drawImage(this.halo(HALO[kind]), cx - hs / 2, cy - hs / 2 + bob, hs, hs);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    const size = T * 0.82;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const x = it[0], y = it[1], kind = it[2];
       const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
       if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
       const s = this.art(ITEM_SPRITES[kind]);
       if (!s) continue;
       const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
-      const pulse = 1 + 0.08 * Math.sin(sec * 3 + x * 2);
-      ctx.globalCompositeOperation = 'lighter';
-      const hs = T * 1.25 * pulse;
-      ctx.drawImage(this.halo(HALO[kind]), cx - hs / 2, cy - hs / 2 + bob, hs, hs);
-      ctx.globalCompositeOperation = 'source-over';
-      const size = T * 0.82;
       if (kind === 8) {
         // Secret box: wobbles, and colour sparks orbit it.
-        ctx.save();
-        ctx.translate(cx, cy + bob);
-        ctx.rotate(Math.sin(sec * 5 + x) * 0.14);
+        const r = Math.sin(sec * 5 + x) * 0.14, rc = Math.cos(r), rs = Math.sin(r);
+        ctx.setTransform(rc, rs, -rs, rc, cx, cy + bob);
         ctx.drawImage(s, -size / 2, -size / 2, size, size);
-        ctx.restore();
-        for (let i = 0; i < 3; i++) {
-          const a = sec * 2.5 + i * 2.094;
-          ctx.fillStyle = i === 0 ? '#ff7af0' : i === 1 ? '#7ff6ff' : '#ffd34a';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        for (let k = 0; k < 3; k++) {
+          const a = sec * 2.5 + k * 2.094;
+          ctx.fillStyle = k === 0 ? '#ff7af0' : k === 1 ? '#7ff6ff' : '#ffd34a';
           ctx.beginPath();
           ctx.arc(cx + Math.cos(a) * T * 0.45, cy + bob + Math.sin(a) * T * 0.45, T * 0.05, 0, 6.2832);
           ctx.fill();
@@ -590,14 +613,13 @@ export class Renderer {
         for (let r = 1; r <= arms[d]; r++) {
           const cx = (ex + ARM_DIRS[d][0] * r + 0.5) * T - camX;
           const cy = (ey + ARM_DIRS[d][1] * r + 0.5) * T - camY;
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(ARM_ANGLES[d]);
-          ctx.scale(1, thick);
+          // rotate(ARM_ANGLES[d]) then scale(1, thick), as one matrix
+          const c = ARM_DIRS[d][0], sn = ARM_DIRS[d][1];
+          ctx.setTransform(c, sn, -sn * thick, c * thick, cx, cy);
           ctx.drawImage(r === arms[d] ? end : arm, -T / 2, -T / 2, T + 1, T);
-          ctx.restore();
         }
       }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       const s = T * (0.9 + 0.2 * thick);
       ctx.drawImage(center, (ex + 0.5) * T - camX - s / 2, (ey + 0.5) * T - camY - s / 2, s, s);
     }
@@ -622,18 +644,48 @@ export class Renderer {
   }
 
   colorsFor(id, state) {
-    const r = state.rosterInfo.get(id);
-    return playerColors(id, r?.team ?? 0, this.colorblind);
+    return this.look(id, state).colors;
   }
 
-  /** `frame`: 0 standing, 1 and 2 the walk steps (pixel art only). */
-  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0) {
-    const view = facing === 1 ? 'player_up' : facing === 3 ? 'player_down' : 'player_side';
-    const sprite = this.pixelArt() ? this.assets.pixelPlayer(colors, view.slice(7), frame) : this.assets.player(colors, view);
+  /** Cached colours and sprites of a player (rebuilt when team or palette changes). */
+  look(id, state) {
+    const team = state.rosterInfo.get(id)?.team ?? 0;
+    let l = this.looks.get(id);
+    if (!l || l.team !== team || l.cb !== this.colorblind) {
+      l = { team, cb: this.colorblind, colors: playerColors(id, team, this.colorblind), sprites: new Array(9).fill(null) };
+      this.looks.set(id, l);
+    }
+    return l;
+  }
+
+  /**
+   * `frame`: 0 standing, 1 and 2 the walk steps (pixel art only). `cache`
+   * (a player's `look().sprites`) memoizes the sprite lookup.
+   */
+  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0, cache = null) {
+    const vi = facing === 1 ? 0 : facing === 3 ? 1 : 2;
+    let sprite = null;
+    if (this.pixelArt()) {
+      const slot = vi * 3 + frame;
+      sprite = cache?.[slot];
+      if (!sprite) {
+        sprite = this.assets.pixelPlayer(colors, PIXEL_VIEWS[vi], frame);
+        if (cache) cache[slot] = sprite;
+      }
+    } else {
+      sprite = this.assets.player(colors, PLAYER_VIEWS[vi]);
+    }
     const { ctx } = this;
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.scale(facing === 4 ? -sxs : sxs, sys);
+    // Players draw in screen space (one setTransform); death effects call
+    // this inside their own transform, so they nest with save/restore.
+    const nested = cache === null;
+    if (nested) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.scale(facing === 4 ? -sxs : sxs, sys);
+    } else {
+      ctx.setTransform(facing === 4 ? -sxs : sxs, 0, 0, sys, px, py);
+    }
     if (sprite) ctx.drawImage(sprite, -T / 2, -T * 0.92, T, T);
     else {
       ctx.fillStyle = colors[0];
@@ -641,13 +693,15 @@ export class Renderer {
       ctx.arc(0, -T * 0.4, T * 0.35, 0, 6.2832);
       ctx.fill();
     }
-    ctx.restore();
+    if (nested) ctx.restore();
+    else ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   drawPlayer(p, camX, camY, T, sec, dt, state) {
     const { ctx } = this;
     const info = state.rosterInfo.get(p.id);
-    const colors = this.colorsFor(p.id, state);
+    const look = this.look(p.id, state);
+    const colors = look.colors;
     // Two-step walk cycle: a hop with squash and stretch. Pixel art steps
     // its legs instead and hops by whole art pixels, so the grid never warps.
     const pixel = this.pixelArt() !== null;
@@ -685,7 +739,7 @@ export class Renderer {
       ctx.stroke();
     }
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
-    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step);
+    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites);
     ctx.globalAlpha = 1;
     if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);
     else this.drawHat(info?.hat ?? 0, px, py - T * 0.16 + bob, T, p.facing);
@@ -819,37 +873,72 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawName(p, camX, camY, T, state, now) {
-    const { ctx } = this;
+  /** A cached CSS font string for a size and weight. */
+  font(px, weight) {
+    const key = weight ? -px : px;
+    this.fonts ??= new Map();
+    let f = this.fonts.get(key);
+    if (!f) this.fonts.set(key, (f = `${weight ? `${weight} ` : ''}${px}px system-ui, sans-serif`));
+    return f;
+  }
+
+  /** Name tag rendered once to its own canvas; redrawn only when it changes. */
+  label(p, state, fs) {
     const info = state.rosterInfo.get(p.id);
     const name = info?.name ?? '?';
-    const fs = Math.max(this.highContrast ? 13 : 11, Math.round(T * (this.highContrast ? 0.28 : 0.24)));
-    ctx.font = `700 ${fs}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    const x = p.x * T - camX, y = (p.y - 0.5) * T - camY - T * 0.08;
-    if (p.id === state.myId) {
-      const w = ctx.measureText(name).width + fs * 0.8;
-      ctx.fillStyle = 'rgba(255,211,74,0.95)';
-      roundRect(ctx, x - w / 2, y - fs * 1.25, w, fs * 1.3, fs * 0.3);
-      ctx.fill();
-      ctx.fillStyle = '#2a1a00';
-      ctx.fillText(name, x, y);
+    const me = p.id === state.myId;
+    const team = info?.team ?? 0;
+    let l = this.labels.get(p.id);
+    if (l && l.name === name && l.fs === fs && l.me === me && l.team === team && l.hc === this.highContrast && l.cb === this.colorblind) return l;
+    if (!l) this.labels.set(p.id, (l = { canvas: document.createElement('canvas') }));
+    Object.assign(l, { name, fs, me, team, hc: this.highContrast, cb: this.colorblind });
+    const c = l.canvas, g = c.getContext('2d');
+    const font = this.font(fs, 700);
+    g.font = font;
+    const tw = g.measureText(name).width;
+    const pad = Math.ceil(fs * 0.5);
+    c.width = Math.ceil(tw + fs * 0.8) + pad * 2;
+    c.height = Math.ceil(fs * 1.3) + pad * 2;
+    g.font = font; // resizing resets the context state
+    g.textAlign = 'center';
+    g.textBaseline = 'bottom';
+    // The tag's anchor (text centre, baseline bottom) inside the canvas.
+    l.ax = c.width / 2;
+    l.ay = c.height - pad - fs * 0.05;
+    if (me) {
+      const w = tw + fs * 0.8;
+      g.fillStyle = 'rgba(255,211,74,0.95)';
+      roundRect(g, l.ax - w / 2, l.ay - fs * 1.25, w, fs * 1.3, fs * 0.3);
+      g.fill();
+      g.fillStyle = '#2a1a00';
+      g.fillText(name, l.ax, l.ay);
     } else {
-      ctx.lineWidth = Math.max(2, fs * 0.22);
-      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-      ctx.strokeText(name, x, y);
-      const team = info?.team ?? 0;
-      ctx.fillStyle = team === 1 ? (this.colorblind ? '#ffc04d' : '#ff8a80') : team === 2 ? (this.colorblind ? '#66c2ff' : '#8ab8ff') : '#fff';
-      ctx.fillText(name, x, y);
+      g.lineWidth = Math.max(2, fs * 0.22);
+      g.lineJoin = 'round';
+      g.strokeStyle = 'rgba(0,0,0,0.8)';
+      g.strokeText(name, l.ax, l.ay);
+      g.fillStyle = team === 1 ? (this.colorblind ? '#ffc04d' : '#ff8a80') : team === 2 ? (this.colorblind ? '#66c2ff' : '#8ab8ff') : '#fff';
+      g.fillText(name, l.ax, l.ay);
     }
+    return l;
+  }
+
+  drawName(p, camX, camY, T, state, now) {
+    const { ctx } = this;
+    // Minimum sizes are CSS px, so they stay readable on high-DPI screens.
+    const fs = Math.max(Math.round((this.highContrast ? 13 : 11) * this.dpr), Math.round(T * (this.highContrast ? 0.28 : 0.24)));
+    const x = p.x * T - camX, y = (p.y - 0.5) * T - camY - T * 0.08;
+    const l = this.label(p, state, fs);
+    ctx.drawImage(l.canvas, Math.round(x - l.ax), Math.round(y - l.ay));
     // Emote bubble above the name.
     const em = state.emotes.get(p.id);
     if (em && em.until > now) {
       const by = y - fs * 1.6;
       const text = EMOTES[em.e] ?? '?';
       const efs = Math.round(fs * 1.5);
-      ctx.font = `700 ${efs}px system-ui, sans-serif`;
+      ctx.font = this.font(efs, 700);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
       const w = Math.max(efs * 1.6, ctx.measureText(text).width + efs * 0.6);
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       roundRect(ctx, x - w / 2, by - efs * 1.3, w, efs * 1.4, efs * 0.4);
@@ -900,47 +989,61 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * Minimap: the tile layer is rebuilt only when tiles change; the overlay
+   * (view box, hills, players) is redrawn every MINIMAP_MS. The canvas has
+   * a device-pixel backing store, so it stays sharp on high-DPI screens.
+   */
   drawMinimap(state) {
     const { map } = state;
     const m = this.minimap, c = this.mctx;
-    const scale = 2;
-    if (m.width !== map.w * scale) {
-      m.width = map.w * scale;
-      m.height = map.h * scale;
+    if (!m.offsetWidth) return; // display: none (touch layout, small screens)
+    const size = Math.round(MINIMAP_CSS * this.dpr);
+    if (m.width !== size || m.height !== size) {
+      m.width = m.height = size;
+    }
+    if (this.mapImage.width !== map.w || this.mapImage.height !== map.h || !this.mapPixels) {
       this.mapImage.width = map.w;
       this.mapImage.height = map.h;
       this.mapPixels = this.mapImage.getContext('2d').createImageData(map.w, map.h);
+      this.mapDirty = true;
     }
-    const data = this.mapPixels.data;
-    for (let i = 0; i < map.tiles.length; i++) {
-      const t = map.tiles[i], o = i * 4;
-      let r = 70, g = 135, b = 50;
-      if (t === T_WALL) { r = 120; g = 128; b = 138; }
-      else if (t === T_CRATE) { r = 150; g = 100; b = 52; }
-      else if (t === T_ARMORED) { r = 95; g = 80; b = 70; }
-      else if (t === T_ICE) { r = 170; g = 225; b = 245; }
-      else if (t === T_TELEPORT) { r = 185; g = 140; b = 255; }
-      else if (CONVEYOR_DIR[t]) { r = 70; g = 74; b = 84; }
-      data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+    if (this.mapDirty) {
+      this.mapDirty = false;
+      const data = this.mapPixels.data;
+      for (let i = 0; i < map.tiles.length; i++) {
+        const t = map.tiles[i], o = i * 4;
+        let r = 70, g = 135, b = 50;
+        if (t === T_WALL) { r = 120; g = 128; b = 138; }
+        else if (t === T_CRATE) { r = 150; g = 100; b = 52; }
+        else if (t === T_ARMORED) { r = 95; g = 80; b = 70; }
+        else if (t === T_ICE) { r = 170; g = 225; b = 245; }
+        else if (t === T_TELEPORT) { r = 185; g = 140; b = 255; }
+        else if (CONVEYOR_DIR[t]) { r = 70; g = 74; b = 84; }
+        data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+      }
+      this.mapImage.getContext('2d').putImageData(this.mapPixels, 0, 0);
     }
-    this.mapImage.getContext('2d').putImageData(this.mapPixels, 0, 0);
+    const scale = size / Math.max(map.w, map.h);
     c.imageSmoothingEnabled = false;
-    c.drawImage(this.mapImage, 0, 0, m.width, m.height);
+    c.clearRect(0, 0, size, size);
+    c.drawImage(this.mapImage, 0, 0, map.w * scale, map.h * scale);
     if (state.hills) {
       c.fillStyle = 'rgba(255,211,74,0.8)';
       for (const [hx, hy] of state.hills) c.fillRect((hx - 1) * scale, (hy - 1) * scale, 3 * scale, 3 * scale);
     }
     const T = this.T;
     c.strokeStyle = 'rgba(255,255,255,0.7)';
-    c.lineWidth = 1;
+    c.lineWidth = this.dpr;
     c.strokeRect(this.camX / T * scale, this.camY / T * scale, this.canvas.width / T * scale, this.canvas.height / T * scale);
     const f = this.frame;
+    const dot = this.dpr * 1.5;
     for (let i = 0; i < f.nPlayers; i++) {
       const p = f.players[i];
       const me = p.id === state.myId;
       const team = state.rosterInfo.get(p.id)?.team ?? 0;
       c.fillStyle = me ? '#ffd34a' : team === 1 ? '#ff5a4a' : team === 2 ? '#5aa0ff' : '#ff4a4a';
-      const s = me ? 5 : 3;
+      const s = me ? dot * 2.5 : dot * 1.5;
       c.fillRect(p.x * scale - s / 2, p.y * scale - s / 2, s, s);
     }
   }
@@ -953,7 +1056,7 @@ export class Renderer {
   interpolate(state, now) {
     const ring = state.snaps;
     const latest = ring.latest();
-    const rt = now / state.tickMs - state.offset - INTERP_TICKS;
+    const rt = now / state.tickMs - state.offset - (state.interpDelay ?? INTERP_TICKS);
     let a = ring.get(0), b = a;
     for (let i = ring.len - 1; i >= 0; i--) {
       const s = ring.get(i);

@@ -27,6 +27,11 @@ html, body {
 }
 
 #game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+/* Darkened edges, blended by the compositor instead of drawn each frame. */
+#vignette {
+  position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(circle, rgba(0,0,0,0) 35vmin, rgba(0,0,0,0.45) 75vmax);
+}
 
 .hidden { display: none !important; }
 

@@ -14,6 +14,10 @@ const $ = (id) => document.getElementById(id);
 const KILLFEED_SIZE = 5;
 const VIEW_DEBOUNCE_MS = 200;
 const RECONNECT_DELAYS = [500, 1500, 3000, 5000];
+// Remote entities are drawn this far behind the newest snapshot, at least
+// (ticks); the delay grows with measured network jitter.
+const INTERP_MIN_TICKS = 1.15;
+const INTERP_MARGIN_TICKS = 0.15;
 
 /** Fixed-capacity ring of snapshots, oldest first. */
 class SnapRing {
@@ -102,6 +106,11 @@ const net = new Net({
       rosterInfo,
       snaps: new SnapRing(32),
       offset: null,
+      // Adaptive interpolation delay for remote entities, in ticks: one
+      // tick between snapshots plus the recent worst-case lateness.
+      lateness: 0,
+      interpDelay: 2,
+      interpTarget: 2,
       me: null,
       mine: null,
       self: { x: m.w / 2, y: m.h / 2 },
@@ -127,6 +136,7 @@ const net = new Net({
     $('join').classList.add('hidden');
     $('reconnecting').classList.add('hidden');
     $('hud').classList.remove('hidden');
+    $('vignette').classList.remove('hidden');
     $('team-scores').classList.toggle('hidden', m.mode !== 'teams');
     $('play').disabled = false;
     reconnectTry = -1;
@@ -145,9 +155,19 @@ const net = new Net({
     m.b = m.rawB.map(([id, x, y, at, f]) => [id, x, y, f & 2 ? 99 : Math.max(0, at - m.k), f]);
     state.lastK = m.k;
     m.me = meObject(m.rawMe);
-    // Map server ticks onto local time, smoothing out network jitter.
+    // Map server ticks onto local time. The offset follows the earliest
+    // arrivals (quickly down, slowly up), so `est - offset` is how late this
+    // snapshot is; a decaying peak of that sets the interpolation delay.
     const est = now / state.tickMs - m.k;
-    state.offset = state.offset === null || Math.abs(est - state.offset) > 10 ? est : state.offset + (est - state.offset) * 0.05;
+    if (state.offset === null || Math.abs(est - state.offset) > 10) {
+      state.offset = est;
+      state.lateness = 0.5;
+    } else {
+      const dev = est - state.offset;
+      state.offset += dev < 0 ? dev * 0.3 : dev * 0.01;
+      state.lateness = Math.max(state.lateness * 0.97, Math.max(0, dev));
+    }
+    state.interpTarget = Math.min(4, Math.max(INTERP_MIN_TICKS, 1 + state.lateness + INTERP_MARGIN_TICKS));
     state.snaps.push(m);
 
     state.bombCells.clear();
@@ -166,7 +186,7 @@ const net = new Net({
         state.self.y = my;
         if (prevMe && !prevMe.alive) renderer.spawnBeam(mx, my, now);
       } else {
-        predictor.reconcile(mx, my, (mine[4] & 1) !== 0, m.me.ack, state);
+        predictor.reconcile(mx, my, (mine[4] & 1) !== 0, m.me.ack, state, input.current);
       }
     } else if (!m.me.alive) {
       predictor.active = false;
@@ -311,6 +331,7 @@ const net = new Net({
     state = null;
     predictor.active = false;
     $('hud').classList.add('hidden');
+    $('vignette').classList.add('hidden');
     $('settings').classList.add('hidden');
     // An unexpected drop mid-game: try to reconnect (the server keeps our
     // progress for 30 s).
@@ -330,7 +351,8 @@ const net = new Net({
 }, (k) => (state ? findSnapshot(k) : null));
 
 const input = new Input({
-  onDir: () => {},
+  // Send a changed direction immediately instead of at the next 50 ms step.
+  onDir: () => { if (state) predictor.inputChanged(input.current, sendInput); },
   onBomb: () => {
     net.send({ t: 'bomb' });
   },
@@ -412,6 +434,11 @@ function resize() {
   setZoom(state.zoomTarget);
 }
 addEventListener('resize', resize);
+// Moving the window to a screen with another pixel ratio (or browser zoom)
+// changes devicePixelRatio, which doesn't always fire 'resize'.
+(function watchDpr() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { resize(); watchDpr(); }, { once: true });
+})();
 
 // -------------------------------------------------------------- HUD
 
@@ -630,10 +657,14 @@ function frame(now) {
 
   // Inputs (and snapshot acks) go out at 20 Hz even while dead.
   predictor.update(dt, input.current, state, sendInput);
+  // Ease the remote interpolation delay toward its target (a few % time
+  // stretch, invisible) so a jitter spike never makes things jump.
+  const dd = state.interpTarget - state.interpDelay;
+  state.interpDelay += Math.sign(dd) * Math.min(Math.abs(dd), dt * (dd > 0 ? 2 : 0.6));
   // Local player: predicted. Dead: the camera follows whoever we watch.
   if (state.me?.alive && predictor.active) {
     const px = state.self.x, py = state.self.y;
-    predictor.render(state.self);
+    predictor.render(state.self, input.current, state, dt);
     tutorial.notify('moved', Math.abs(state.self.x - px) + Math.abs(state.self.y - py));
     state.focus.x = state.self.x;
     state.focus.y = state.self.y;
@@ -656,7 +687,7 @@ function frame(now) {
   if (perfTime >= 0.5) {
     const fps = perfFrames / perfTime;
     const el = $('fps');
-    el.textContent = `${Math.round(fps)} FPS · ${(perfWork / perfFrames).toFixed(1)} ms`;
+    el.textContent = `${Math.round(fps)} FPS · ${(perfWork / perfFrames).toFixed(1)} ms · ${Math.round(state.interpDelay * state.tickMs)} ms buf`;
     el.classList.toggle('slow', fps < 50);
     $('netinfo').textContent = `ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
     net.bytesIn = 0;
@@ -685,7 +716,7 @@ $('join-form').addEventListener('submit', (e) => {
 
 // With ?debug, expose internals for testing from the browser console.
 if (params.has('debug')) {
-  window.__blast = { get state() { return state; }, predictor, net, audio, input };
+  window.__blast = { get state() { return state; }, predictor, net, audio, input, renderer };
 }
 
 applyLanguage(getLanguage());
