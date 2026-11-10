@@ -1,6 +1,6 @@
 //! Joining, leaving, bots and finding safe spawn points.
 
-use crate::protocol::{self, ServerMsg};
+use crate::protocol::{self, Welcome};
 
 use super::ai;
 use super::link::ClientLink;
@@ -60,7 +60,7 @@ impl World {
                 }
             }
         }
-        let welcome = ServerMsg::Welcome {
+        let welcome = Welcome {
             id,
             w: self.map.w,
             h: self.map.h,

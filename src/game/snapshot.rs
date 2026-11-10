@@ -2,9 +2,9 @@
 
 use bytes::{Bytes, BytesMut};
 
-use crate::protocol::{self, Wire};
+use crate::protocol::{self, MeState, Wire};
 
-use super::delta::{BombEntry, DeltaScratch, PlayerEntry, SnapHistory, write_delta};
+use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
 use super::{BUCKET, LEADERBOARD_EVERY, World};
 
@@ -77,66 +77,32 @@ impl World {
         }
         cur.bombs.sort_unstable_by_key(|e| e.0);
 
+        cur.me = me_state(p, tick, spectating.map(|k| k.id));
+
         // Delta against the newest snapshot the client confirmed, if we
-        // still remember it; otherwise a full snapshot.
-        let base = hist.slot_for(u64::from(p.snap_ack));
-        let mut w = Wire(arena);
-        w.map(9).key("t").str("s").key("k").uint(tick).key("bk").uint(base.map_or(0, |s| hist.ticks[s]));
-        let (bp, bb): (&[PlayerEntry], &[BombEntry]) = match base {
-            Some(s) => (&hist.players[s], &hist.bombs[s]),
-            None => (&[], &[]),
+        // still remember it; otherwise a full snapshot (a delta from nothing).
+        let slot = hist.slot_for(u64::from(p.snap_ack));
+        let base = match slot {
+            Some(s) => Base { players: &hist.players[s], bombs: &hist.bombs[s], me: &hist.me[s] },
+            None => Base { players: &[], bombs: &[], me: &EMPTY_ME },
         };
-        write_delta(&mut w, "p", "pr", &cur.players, bp, |w, e| {
-            w.arr(5).uint(u64::from(e.0)).int(i64::from(e.1)).int(i64::from(e.2)).uint(u64::from(e.3)).uint(u64::from(e.4));
-        });
-        write_delta(&mut w, "b", "br", &cur.bombs, bb, |w, e| {
-            w.arr(5).uint(u64::from(e.0)).int(i64::from(e.1)).int(i64::from(e.2)).uint(e.3).uint(u64::from(e.4));
-        });
-        hist.record(tick, &cur.players, &cur.bombs);
-
+        let mut w = Wire(arena);
+        w.u8(protocol::op::SNAP).uvar(tick).uvar(slot.map_or(0, |s| tick - hist.ticks[s]));
         let reach = i32::from(MAX_RANGE);
-        w.key("e");
-        let at = w.open_arr();
-        let mut n = 0;
-        for e in &self.explosions {
-            if e.x >= x0 - reach && e.x <= x1 + reach && e.y >= y0 - reach && e.y <= y1 + reach {
-                w.arr(4).int(i64::from(e.x)).int(i64::from(e.y));
-                w.arr(4);
-                for a in e.arms {
-                    w.uint(u64::from(a));
+        let in_range = |e: &&super::bomb::Explosion| e.x >= x0 - reach && e.x <= x1 + reach && e.y >= y0 - reach && e.y <= y1 + reach;
+        write_delta(&mut w, tick, &*cur, &base, |w| {
+            let n = self.explosions.iter().filter(in_range).count();
+            if n > 0 {
+                w.len(n);
+                for e in self.explosions.iter().filter(in_range) {
+                    // Arm lengths are at most MAX_RANGE, so they fit in a nibble.
+                    let a = e.arms.map(|r| r.min(15));
+                    w.coord(e.x).coord(e.y).u8(a[0] | a[1] << 4).u8(a[2] | a[3] << 4).uvar(e.until.saturating_sub(tick));
                 }
-                w.uint(e.until - tick);
-                n += 1;
             }
-        }
-        w.close_arr(at, n);
-
-        let (curse, curse_t) = p.curse(tick);
-        // Positional (see protocol::ME_FIELDS): this block goes out every tick,
-        // so key names would be most of its size.
-        w.key("me").arr(protocol::ME_FIELDS.len());
-        w.bool(p.alive);
-        w.uint(u64::from(p.max_bombs));
-        w.uint(u64::from(p.active_bombs));
-        w.uint(u64::from(p.range));
-        w.uint(u64::from(p.speed_lvl));
-        w.bool(p.kick);
-        w.bool(p.pierce);
-        w.bool(p.remote);
-        w.bool(p.line);
-        w.bool(p.punch);
-        w.uint(p.ghost_until.saturating_sub(tick));
-        w.uint(p.invulnerable_until.saturating_sub(tick));
-        w.uint(u64::from(curse));
-        w.uint(curse_t);
-        w.int(i64::from(p.score));
-        w.uint(if p.alive { 0 } else { p.respawn_at.saturating_sub(tick) });
-        w.opt_uint(p.killed_by);
-        w.arr(2).int(i64::from(p.aoi.0)).int(i64::from(p.aoi.1));
-        w.uint(u64::from(p.input_seq));
-        w.uint(u64::from(p.team));
-        w.uint(u64::from(p.streak));
-        w.opt_uint(spectating.map(|k| k.id));
+            n
+        });
+        hist.record(tick, cur);
         protocol::finish(arena)
     }
 
@@ -221,6 +187,40 @@ impl World {
         }
         self.scratch.dropped = dropped;
     }
+}
+
+const _: () = assert!(MAX_RANGE <= 15, "flame arms are sent as nibbles");
+
+/// The player's own state in `protocol::ME_FIELDS` order.
+fn me_state(p: &Player, tick: u64, spectating: Option<u32>) -> MeState {
+    let (curse, curse_t) = p.curse(tick);
+    let opt_id = |v: Option<u32>| v.map_or(0, |v| i64::from(v) + 1);
+    let t = |v: u64| v as i64;
+    [
+        i64::from(p.input_seq),
+        i64::from(p.alive),
+        i64::from(p.active_bombs),
+        t(p.invulnerable_until.saturating_sub(tick)),
+        t(p.ghost_until.saturating_sub(tick)),
+        i64::from(curse),
+        t(curse_t),
+        t(if p.alive { 0 } else { p.respawn_at.saturating_sub(tick) }),
+        i64::from(p.score),
+        i64::from(p.max_bombs),
+        i64::from(p.range),
+        i64::from(p.speed_lvl),
+        i64::from(p.kick),
+        i64::from(p.pierce),
+        i64::from(p.remote),
+        i64::from(p.line),
+        i64::from(p.punch),
+        opt_id(p.killed_by),
+        opt_id(spectating),
+        i64::from(p.aoi.0),
+        i64::from(p.aoi.1),
+        i64::from(p.team),
+        i64::from(p.streak),
+    ]
 }
 
 /// Inclusive tile rectangle a player at (cx, cy) receives updates for.

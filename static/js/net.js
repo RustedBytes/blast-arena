@@ -1,11 +1,13 @@
-// Thin WebSocket wrapper: MessagePack in, MessagePack out, dispatching on
-// the `t` field.
+// Thin WebSocket wrapper over the binary protocol (protocol.js),
+// dispatching decoded messages on their `t` field.
 
-import { decode, encode } from './msgpack.js';
+import { decodeServer, encodeClient } from './protocol.js';
 
 export class Net {
-  constructor(handlers) {
+  /** `snapshotBase(k)` returns the decoded snapshot for tick `k`, the base of deltas. */
+  constructor(handlers, snapshotBase) {
     this.handlers = handlers;
+    this.snapshotBase = snapshotBase;
     this.ws = null;
     this.ping = 0;
     this.bytesIn = 0;
@@ -25,7 +27,14 @@ export class Net {
     ws.onmessage = (ev) => {
       if (!(ev.data instanceof ArrayBuffer)) return;
       this.bytesIn += ev.data.byteLength;
-      const msg = decode(new Uint8Array(ev.data));
+      let msg;
+      try {
+        msg = decodeServer(new Uint8Array(ev.data), this.snapshotBase);
+      } catch (e) {
+        console.warn('dropping malformed frame', e);
+        return;
+      }
+      if (!msg) return;
       if (msg.t === 'pong') {
         this.ping = Math.round(performance.now() - msg.c);
         return;
@@ -46,7 +55,7 @@ export class Net {
   }
 
   send(obj) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(obj));
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encodeClient(obj));
   }
 
   close() {

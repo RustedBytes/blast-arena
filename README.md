@@ -214,12 +214,16 @@ Open the game with `?debug` to get `window.__blast` (state, predictor stats, net
 
 - **Several arenas.** Each arena is its own simulation task with its own bots. The lobby lists them with live player counts.
 - **Compact binary protocol.**
-  - Messages are MessagePack over binary WebSocket frames.
+  - Every binary WebSocket frame is a one-byte opcode plus fields in a fixed order: no keys, no type tags.
+  - Integers are LEB128 varints (zigzag for signed values), so most values take one byte. A held input is 4–6 bytes.
+  - Only the one-off welcome message keeps a MessagePack body.
   - Hot messages are written by hand straight into reusable buffers.
   - Client messages are parsed in place, without allocating.
 - **Delta snapshots.**
   - Every input message also says which snapshot the client last decoded.
   - The server keeps a short history (32 ticks) of what it sent each client. It encodes only the players and bombs that are new, moved or gone since the snapshot the client confirmed.
+  - A player who moved sends only the position change (usually 3 bytes), and a resting bomb sends nothing. The player's own state sends only the fields that changed, picked out by a bitmask. Empty sections cost nothing.
+  - In a busy 12-bot test view a snapshot averages about 24 bytes, versus 141 with the old MessagePack deltas.
   - If that snapshot is too old or unknown, a full snapshot goes out instead. This happens, for example, right after joining.
   - Bombs carry their absolute detonation tick, so a resting bomb never counts as changed.
   - Tiles and items are sent once on join. After that only their changes go out, in a reliable world-delta stream. A skipped snapshot can't lose them.
@@ -251,7 +255,7 @@ src/net.rs            WebSocket sessions (arena choice, profile load, reader/wri
 src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /metrics
 src/db.rs             SQLite profiles, levels and cosmetic unlocks
 src/metrics.rs        lock-free per-arena live stats
-src/protocol.rs       MessagePack wire format, hand-rolled encoder, arena ring
+src/protocol.rs       binary wire format (opcodes, varints), encoder, arena ring
 src/game/mod.rs       World state, config and constants
 src/game/             tick (loop), roster (join/leave/spawn), movement, input, combat,
                       pickups, terrain, rounds, profiles, snapshot (AOI, encoding),
@@ -263,7 +267,7 @@ src/bin/simbench.rs   tick-time and allocation benchmark
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
 static/js/            main, render, prediction, particles, input, audio, i18n,
-                      tutorial, settings, net, msgpack, dashboard
+                      tutorial, settings, net, protocol, msgpack, dashboard
 static/assets/        SVG art
 Dockerfile, docker-compose.yml, Caddyfile   deployment
 ```

@@ -7,50 +7,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
+use blast_arena::protocol::{self, ClientMsg};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-/// Client messages, MessagePack-encoded like the browser client does.
-#[derive(Serialize)]
-#[serde(tag = "t", rename_all = "lowercase")]
-enum Out<'a> {
-    Join { name: &'a str },
-    In { d: u8, s: u8, q: u16, k: u32 },
-    View { w: u16, h: u16 },
-    Bomb,
-    Ping { c: f64 },
-}
-
-fn frame(m: &Out) -> Message {
-    Message::Binary(rmp_serde::to_vec_named(m).expect("bot messages serialize").into())
-}
-
-#[derive(Deserialize)]
-struct Pong {
-    c: f64,
-}
-
-/// `MessagePack` prefix of `{"t": "pong", ...}`: a 2-entry map whose first key
-/// is "t" with value "pong". Lets bots skip decoding every snapshot.
-const PONG_PREFIX: &[u8] = &[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g'];
-
-/// Snapshots start `{"t": "s", "k": <tick>, ...}`; reads the tick without
-/// decoding the rest.
-fn snapshot_tick(data: &[u8]) -> Option<u32> {
-    const PREFIX: &[u8] = &[0x89, 0xa1, b't', 0xa1, b's', 0xa1, b'k'];
-    let rest = data.strip_prefix(PREFIX)?;
-    let be = |n: usize| rest.get(1..1 + n).map(|b| b.iter().fold(0u64, |a, &x| a << 8 | u64::from(x)));
-    let v = match *rest.first()? {
-        b @ 0..=0x7f => u64::from(b),
-        0xcc => be(1)?,
-        0xcd => be(2)?,
-        0xce => be(4)?,
-        0xcf => be(8)?,
-        _ => return None,
-    };
-    Some(v as u32)
+fn frame(m: &ClientMsg) -> Message {
+    Message::Binary(m.encode())
 }
 
 #[derive(Default)]
@@ -96,11 +59,11 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
     stats.connected.fetch_add(1, Relaxed);
     let (mut tx, mut rx) = ws.split();
     let name = format!("bot-{n}");
-    if tx.send(frame(&Out::Join { name: &name })).await.is_err() {
+    if tx.send(frame(&ClientMsg::Join { name: &name, token: "", hat: 0, trail: 0, near: 0 })).await.is_err() {
         return;
     }
     // Ask for a typical zoomed-out view, like a browser on a large screen.
-    if tx.send(frame(&Out::View { w: 20, h: 13 })).await.is_err() {
+    if tx.send(frame(&ClientMsg::View { w: 20, h: 13 })).await.is_err() {
         return;
     }
 
@@ -118,12 +81,10 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 if let Message::Binary(data) = msg {
                     stats.messages.fetch_add(1, Relaxed);
                     stats.bytes.fetch_add(data.len() as u64, Relaxed);
-                    if let Some(k) = snapshot_tick(&data) {
-                        last_k = k;
-                    } else if data.starts_with(PONG_PREFIX)
-                        && let Ok(pong) = rmp_serde::from_slice::<Pong>(&data)
-                    {
-                        let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - pong.c) as u64;
+                    if let Some(k) = protocol::peek_snapshot_tick(&data) {
+                        last_k = k as u32;
+                    } else if let Some(c) = protocol::peek_pong(&data) {
+                        let rtt = (epoch.elapsed().as_secs_f64() * 1e6 - c) as u64;
                         stats.rtt_us_sum.fetch_add(rtt, Relaxed);
                         stats.rtt_count.fetch_add(1, Relaxed);
                         stats.rtt_us_max.fetch_max(rtt, Relaxed);
@@ -132,7 +93,7 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
             }
             _ = input_tick.tick() => {
                 q = q.wrapping_add(1);
-                if tx.send(frame(&Out::In { d, s, q, k: last_k })).await.is_err() {
+                if tx.send(frame(&ClientMsg::In { d, s, q, k: last_k })).await.is_err() {
                     break;
                 }
             }
@@ -141,13 +102,13 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
                 if r.is_multiple_of(3) {
                     (d, s) = (((r >> 8) % 5) as u8, ((r >> 16) % 5) as u8);
                 }
-                if r.is_multiple_of(23) && tx.send(frame(&Out::Bomb)).await.is_err() {
+                if r.is_multiple_of(23) && tx.send(frame(&ClientMsg::Bomb)).await.is_err() {
                     break;
                 }
             }
             _ = ping.tick() => {
                 let c = epoch.elapsed().as_secs_f64() * 1e6;
-                if tx.send(frame(&Out::Ping { c })).await.is_err() {
+                if tx.send(frame(&ClientMsg::Ping { c })).await.is_err() {
                     break;
                 }
             }

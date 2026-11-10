@@ -22,7 +22,7 @@ use crate::db::{self, Db};
 use crate::game::link::{ClientLink, EVENT_QUEUE, InputSlot, SnapshotSlot};
 use crate::game::{GameEvent, JoinRequest, Mode};
 use crate::metrics::ArenaStats;
-use crate::protocol::{self, ClientMsg, ServerMsg};
+use crate::protocol::{self, ClientMsg};
 
 const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 /// Inputs arrive up to 20/s for prediction, plus pings and the odd emote.
@@ -111,7 +111,7 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
         Ok(Ok(id)) => id,
         Ok(Err(reason)) => {
             tracing::info!(%name, reason, "join refused");
-            let _ = sink.send(Message::Binary(ServerMsg::Err { m: reason }.encode())).await;
+            let _ = sink.send(Message::Binary(protocol::encode_err(reason))).await;
             let _ = sink.close().await;
             return;
         }

@@ -53,10 +53,15 @@ impl World {
         self.players[&id].link.as_ref().unwrap().input.set_dirs(dir, alt, 0);
     }
 
-    /// A full (non-delta) snapshot for player `id`, decoded.
-    pub(super) fn full_snapshot(&self, id: u32) -> serde_json::Value {
+    /// A full (non-delta) snapshot for player `id`, encoded.
+    pub(super) fn full_snapshot_bytes(&self, id: u32) -> Bytes {
         let mut arena = BytesMut::new();
         let (mut hist, mut scratch) = (SnapHistory::default(), DeltaScratch::default());
-        rmp_serde::from_slice(&self.encode_snapshot(&mut arena, &self.players[&id], &mut hist, &mut scratch)).unwrap()
+        self.encode_snapshot(&mut arena, &self.players[&id], &mut hist, &mut scratch)
+    }
+
+    /// A full (non-delta) snapshot for player `id`, decoded.
+    pub(super) fn full_snapshot(&self, id: u32) -> serde_json::Value {
+        crate::protocol::testing::SnapDecoder::default().decode(&self.full_snapshot_bytes(id)).unwrap()
     }
 }

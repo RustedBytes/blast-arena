@@ -1,11 +1,25 @@
-//! Wire format: `MessagePack` over binary WebSocket frames. Short keys and
-//! tuples-as-arrays keep messages compact.
+//! Wire format: a compact binary protocol over binary WebSocket frames.
 //!
-//! Hot messages (snapshots, joins, kills, leaderboard, effects, pongs) are
-//! written by hand with [`Wire`] straight into a reusable `BytesMut` arena,
-//! so steady-state encoding allocates nothing. Client messages are parsed
-//! in place by [`ClientMsg::decode`], borrowing from the frame. Only the rare
-//! welcome and error messages go through serde.
+//! Every frame starts with a one-byte opcode ([`op`] from the server,
+//! [`cop`] from the client), followed by fields in a fixed order. There are
+//! no keys or type tags; integers are LEB128 varints (signed ones zigzag
+//! encoded), so the common small values take a single byte. Strings are a
+//! varint byte length followed by UTF-8. Floats are little-endian.
+//!
+//! Snapshots, the bulk of the traffic, are deltas against the newest
+//! snapshot the client acknowledged (see `game::delta`): players that moved
+//! send only their position change, resting bombs send nothing, and the
+//! player's own state sends only the fields that changed, picked out by a
+//! bitmask. Empty sections cost nothing: a section bitmask says which ones
+//! follow. The layout is documented on [`snap`].
+//!
+//! The one-off welcome message keeps a `MessagePack` body after its opcode
+//! (it's large and irregular, and sent once per join).
+//!
+//! Server messages are written by hand with [`Wire`] straight into a
+//! reusable `BytesMut` arena, so steady-state encoding allocates nothing.
+//! Client messages are parsed in place by [`ClientMsg::decode`], borrowing
+//! from the frame.
 
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::Serialize;
@@ -13,12 +27,215 @@ use serde::Serialize;
 /// Tile change: x, y, new tile.
 pub type TileChange = (i32, i32, u8);
 
-/// Order of the values in a snapshot's `me` array (the player's own state).
-/// The browser client has the same list.
-pub const ME_FIELDS: [&str; 22] = [
-    "alive", "bombs", "active", "range", "speed", "kick", "pierce", "remote", "line", "punch", "ghost", "shield",
-    "curse", "curse_t", "score", "respawn", "killer", "aoi", "ack", "team", "streak", "spec",
+/// Server → client opcodes: the first byte of every server frame.
+pub mod op {
+    /// `MessagePack` body: see [`super::Welcome`].
+    pub const WELCOME: u8 = 1;
+    /// str message.
+    pub const ERR: u8 = 2;
+    /// See [`super::snap`].
+    pub const SNAP: u8 = 3;
+    /// Player joined: id, str name, u8 team, u8 hat, u8 trail.
+    pub const PJ: u8 = 4;
+    /// Player left: id.
+    pub const PL: u8 = 5;
+    /// Kill: killer id + 1 (0 = none), victim id, ivar x*100, ivar y*100, u8 bounty.
+    pub const KILL: u8 = 6;
+    /// Leaderboard: online, n, n × (id, str name, ivar score, kills, deaths),
+    /// ivar red, ivar blue, round seconds left.
+    pub const LB: u8 = 7;
+    /// World changes: n, n × (x, y, u8 tile), n, n × (x, y, u8 item; 0 = gone).
+    pub const WORLD: u8 = 8;
+    /// Effect: u8 code, u8 mystery.
+    pub const FX: u8 = 9;
+    /// Emote: id, u8 emote.
+    pub const EMOTE: u8 = 10;
+    /// Kill streak: id, n.
+    pub const STREAK: u8 = 11;
+    /// Hills: n, n × (x, y).
+    pub const HILLS: u8 = 12;
+    /// Round over: n, n × (id, str name, ivar score, kills), ivar red,
+    /// ivar blue, u8 winner, next round seconds.
+    pub const ROUND: u8 = 13;
+    /// Ping echo: f64 client timestamp.
+    pub const PONG: u8 = 14;
+}
+
+/// Client → server opcodes: the first byte of every client frame.
+pub mod cop {
+    /// str name, str token, u8 hat, u8 trail, near.
+    pub const JOIN: u8 = 1;
+    /// u8 `dir | alt << 3`, seq, ack tick.
+    pub const IN: u8 = 2;
+    pub const BOMB: u8 = 3;
+    pub const ACT: u8 = 4;
+    /// u8 emote.
+    pub const EMOTE: u8 = 5;
+    /// f64 timestamp.
+    pub const PING: u8 = 6;
+    /// Half extents w, h.
+    pub const VIEW: u8 = 7;
+}
+
+/// Snapshot layout (opcode [`op::SNAP`]):
+///
+/// ```text
+/// tick, tick - base tick (0 = full snapshot), u8 sections,
+/// [PLAYERS]      n, n × player
+/// [PLAYERS_GONE] n, n × id gap
+/// [BOMBS]        n, n × (id gap, x, y, u8 flags, [not remote] ivar fuse ticks)
+/// [BOMBS_GONE]   n, n × id gap
+/// [FLAMES]       n, n × (x, y, u8 arm0 | arm1 << 4, u8 arm2 | arm3 << 4, ticks left)
+/// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
+/// ```
+///
+/// Lists are sorted by id and carry the gap from the previous id. A player
+/// is `varint(gap << 4 | header)`, then by header bit: `NEW` gives ivar x,
+/// ivar y and the look byte (`facing | flags << 3`) in full; otherwise
+/// `DX`/`DY` give ivar position changes and `LOOK` a new look byte.
+/// Positions are hundredths of a tile.
+pub mod snap {
+    pub const PLAYERS: u8 = 1;
+    pub const PLAYERS_GONE: u8 = 2;
+    pub const BOMBS: u8 = 4;
+    pub const BOMBS_GONE: u8 = 8;
+    pub const FLAMES: u8 = 16;
+    pub const ME: u8 = 32;
+
+    pub const DX: u64 = 1;
+    pub const DY: u64 = 2;
+    pub const LOOK: u64 = 4;
+    pub const NEW: u64 = 8;
+}
+
+/// Order of the values in a snapshot's `me` block (the player's own state),
+/// most frequently changing first so the change mask stays one byte.
+/// Booleans are 0/1; `killer` and `spec` are id + 1 (0 = none). The
+/// browser client has the same list.
+pub const ME_FIELDS: [&str; ME_LEN] = [
+    "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
+    "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak",
 ];
+pub const ME_LEN: usize = 23;
+/// The player's own state as sent: values in [`ME_FIELDS`] order.
+pub type MeState = [i64; ME_LEN];
+
+// ------------------------------------------------------------ primitives
+
+/// Hand-rolled writer appending to a `BytesMut`.
+pub struct Wire<'a>(pub &'a mut BytesMut);
+
+impl Wire<'_> {
+    pub fn u8(&mut self, v: u8) -> &mut Self {
+        self.0.put_u8(v);
+        self
+    }
+
+    /// Unsigned LEB128 varint.
+    pub fn uvar(&mut self, mut v: u64) -> &mut Self {
+        while v >= 0x80 {
+            self.0.put_u8(v as u8 | 0x80);
+            v >>= 7;
+        }
+        self.0.put_u8(v as u8);
+        self
+    }
+
+    /// Zigzag-encoded signed varint: small magnitudes of either sign are short.
+    pub fn ivar(&mut self, v: i64) -> &mut Self {
+        self.uvar(((v << 1) ^ (v >> 63)) as u64)
+    }
+
+    pub fn id(&mut self, v: u32) -> &mut Self {
+        self.uvar(u64::from(v))
+    }
+
+    /// An optional id as id + 1, with 0 for none.
+    pub fn opt_id(&mut self, v: Option<u32>) -> &mut Self {
+        self.uvar(v.map_or(0, |v| u64::from(v) + 1))
+    }
+
+    /// A list length.
+    pub fn len(&mut self, n: usize) -> &mut Self {
+        self.uvar(n as u64)
+    }
+
+    /// A tile coordinate (never negative on the map).
+    pub fn coord(&mut self, v: i32) -> &mut Self {
+        self.uvar(v.max(0) as u64)
+    }
+
+    pub fn str(&mut self, s: &str) -> &mut Self {
+        self.len(s.len());
+        self.0.put_slice(s.as_bytes());
+        self
+    }
+
+    pub fn bool(&mut self, v: bool) -> &mut Self {
+        self.u8(u8::from(v))
+    }
+
+    pub fn f64(&mut self, v: f64) -> &mut Self {
+        self.0.put_f64_le(v);
+        self
+    }
+}
+
+/// Reads protocol values from a byte slice; every read is bounds-checked.
+pub struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    #[must_use]
+    pub fn new(buf: &'a [u8]) -> Self {
+        Reader { buf, pos: 0 }
+    }
+
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let s = self.buf.get(self.pos..self.pos.checked_add(n)?)?;
+        self.pos += n;
+        Some(s)
+    }
+
+    pub fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+
+    /// Unsigned varint; `None` if truncated or wider than 64 bits.
+    pub fn uvar(&mut self) -> Option<u64> {
+        let mut v = 0u64;
+        for shift in (0..64).step_by(7) {
+            let b = self.u8()?;
+            v |= u64::from(b & 0x7f) << shift;
+            if b < 0x80 {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    pub fn ivar(&mut self) -> Option<i64> {
+        let v = self.uvar()?;
+        Some((v >> 1) as i64 ^ -((v & 1) as i64))
+    }
+
+    pub fn str(&mut self) -> Option<&'a str> {
+        let n = usize::try_from(self.uvar()?).ok()?;
+        std::str::from_utf8(self.take(n)?).ok()
+    }
+
+    pub fn f64(&mut self) -> Option<f64> {
+        Some(f64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+
+    /// Whether everything has been read.
+    #[must_use]
+    pub fn done(&self) -> bool {
+        self.pos == self.buf.len()
+    }
+}
 
 // ------------------------------------------------------------ client → server
 
@@ -42,255 +259,73 @@ pub enum ClientMsg<'a> {
     View { w: u16, h: u16 },
 }
 
-/// Reads one `MessagePack` value at a time from a byte slice.
-struct Reader<'a> {
-    buf: &'a [u8],
-    pos: usize,
-}
-
-enum Value<'a> {
-    Num(f64),
-    Str(&'a str),
-    Other,
-}
-
-impl<'a> Reader<'a> {
-    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
-        let s = self.buf.get(self.pos..self.pos + n)?;
-        self.pos += n;
-        Some(s)
-    }
-
-    fn u8(&mut self) -> Option<u8> {
-        Some(self.take(1)?[0])
-    }
-
-    fn be(&mut self, n: usize) -> Option<u64> {
-        Some(self.take(n)?.iter().fold(0u64, |acc, &b| acc << 8 | u64::from(b)))
-    }
-
-    fn map_len(&mut self) -> Option<usize> {
-        match self.u8()? {
-            b @ 0x80..=0x8f => Some((b & 0x0f) as usize),
-            0xde => Some(self.be(2)? as usize),
-            0xdf => Some(self.be(4)? as usize),
-            _ => None,
-        }
-    }
-
-    fn str_body(&mut self, len: usize) -> Option<&'a str> {
-        std::str::from_utf8(self.take(len)?).ok()
-    }
-
-    fn value(&mut self) -> Option<Value<'a>> {
-        let b = self.u8()?;
-        Some(match b {
-            0x00..=0x7f => Value::Num(f64::from(b)),
-            0xe0..=0xff => Value::Num(f64::from(b as i8)),
-            0xa0..=0xbf => Value::Str(self.str_body((b & 0x1f) as usize)?),
-            0xd9 => {
-                let n = self.be(1)? as usize;
-                Value::Str(self.str_body(n)?)
-            }
-            0xda => {
-                let n = self.be(2)? as usize;
-                Value::Str(self.str_body(n)?)
-            }
-            0xcc => Value::Num(self.be(1)? as f64),
-            0xcd => Value::Num(self.be(2)? as f64),
-            0xce => Value::Num(self.be(4)? as f64),
-            0xcf => Value::Num(self.be(8)? as f64),
-            0xd0 => Value::Num(f64::from(self.be(1)? as u8 as i8)),
-            0xd1 => Value::Num(f64::from(self.be(2)? as u16 as i16)),
-            0xd2 => Value::Num(f64::from(self.be(4)? as u32 as i32)),
-            0xd3 => Value::Num(self.be(8)? as i64 as f64),
-            0xca => Value::Num(f64::from(f32::from_bits(self.be(4)? as u32))),
-            0xcb => Value::Num(f64::from_bits(self.be(8)?)),
-            0xc0 | 0xc2 | 0xc3 => Value::Other,
-            _ => return None,
-        })
-    }
-}
-
 impl<'a> ClientMsg<'a> {
     /// Parses a client frame without allocating; `None` if malformed.
+    /// Out-of-range values are clamped.
     #[must_use]
-    #[allow(clippy::many_single_char_names, reason = "locals are named after the one-letter wire keys")]
     pub fn decode(bytes: &'a [u8]) -> Option<ClientMsg<'a>> {
-        let mut r = Reader { buf: bytes, pos: 0 };
-        let n = r.map_len()?;
-        let (mut tag, mut name, mut token) = (None, None, "");
-        let (mut d, mut s, mut c, mut w, mut h) = (0.0, 0.0, 0.0, 0.0, 0.0);
-        let (mut q, mut e, mut hat, mut trail, mut near, mut k) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        for _ in 0..n {
-            let Value::Str(key) = r.value()? else { return None };
-            match (key, r.value()?) {
-                ("t", Value::Str(t)) => tag = Some(t),
-                ("name", Value::Str(v)) => name = Some(v),
-                ("d", Value::Num(v)) => d = v,
-                ("s", Value::Num(v)) => s = v,
-                ("c", Value::Num(v)) => c = v,
-                ("w", Value::Num(v)) => w = v,
-                ("h", Value::Num(v)) => h = v,
-                ("token", Value::Str(v)) => token = v,
-                ("q", Value::Num(v)) => q = v,
-                ("k", Value::Num(v)) => k = v,
-                ("e", Value::Num(v)) => e = v,
-                ("hat", Value::Num(v)) => hat = v,
-                ("trail", Value::Num(v)) => trail = v,
-                ("near", Value::Num(v)) => near = v,
-                _ => {}
-            }
-        }
-        let dir = |v: f64| if (0.0..=4.0).contains(&v) { v as u8 } else { 0 };
-        Some(match tag? {
-            "join" => ClientMsg::Join {
-                name: name?,
-                token,
-                hat: hat.clamp(0.0, 255.0) as u8,
-                trail: trail.clamp(0.0, 255.0) as u8,
-                near: near.clamp(0.0, f64::from(u32::MAX)) as u32,
+        let mut r = Reader::new(bytes);
+        let dir = |v: u8| if v <= 4 { v } else { 0 };
+        let clamp = |v: u64, max: u64| v.min(max);
+        Some(match r.u8()? {
+            cop::JOIN => ClientMsg::Join {
+                name: r.str()?,
+                token: r.str()?,
+                hat: r.u8()?,
+                trail: r.u8()?,
+                near: clamp(r.uvar()?, u64::from(u32::MAX)) as u32,
             },
-            "in" => ClientMsg::In { d: dir(d), s: dir(s), q: q.clamp(0.0, 65535.0) as u16, k: k.clamp(0.0, f64::from(u32::MAX)) as u32 },
-            "bomb" => ClientMsg::Bomb,
-            "act" => ClientMsg::Act,
-            "emote" => ClientMsg::Emote { e: e.clamp(0.0, 15.0) as u8 },
-            "ping" => ClientMsg::Ping { c },
-            "view" => ClientMsg::View { w: w.clamp(0.0, 1000.0) as u16, h: h.clamp(0.0, 1000.0) as u16 },
+            cop::IN => {
+                let b = r.u8()?;
+                ClientMsg::In {
+                    d: dir(b & 7),
+                    s: dir(b >> 3 & 7),
+                    q: clamp(r.uvar()?, 0xffff) as u16,
+                    k: clamp(r.uvar()?, u64::from(u32::MAX)) as u32,
+                }
+            }
+            cop::BOMB => ClientMsg::Bomb,
+            cop::ACT => ClientMsg::Act,
+            cop::EMOTE => ClientMsg::Emote { e: r.u8()?.min(15) },
+            cop::PING => ClientMsg::Ping { c: r.f64()? },
+            cop::VIEW => ClientMsg::View { w: clamp(r.uvar()?, 1000) as u16, h: clamp(r.uvar()?, 1000) as u16 },
             _ => return None,
         })
+    }
+
+    /// Encodes the message as a client would (bots, tests).
+    #[must_use]
+    pub fn encode(&self) -> Bytes {
+        let mut buf = BytesMut::with_capacity(32);
+        let mut w = Wire(&mut buf);
+        match *self {
+            ClientMsg::Join { name, token, hat, trail, near } => {
+                w.u8(cop::JOIN).str(name).str(token).u8(hat).u8(trail).id(near);
+            }
+            ClientMsg::In { d, s, q, k } => {
+                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3).uvar(u64::from(q)).id(k);
+            }
+            ClientMsg::Bomb => {
+                w.u8(cop::BOMB);
+            }
+            ClientMsg::Act => {
+                w.u8(cop::ACT);
+            }
+            ClientMsg::Emote { e } => {
+                w.u8(cop::EMOTE).u8(e);
+            }
+            ClientMsg::Ping { c } => {
+                w.u8(cop::PING).f64(c);
+            }
+            ClientMsg::View { w: vw, h } => {
+                w.u8(cop::VIEW).uvar(u64::from(vw)).uvar(u64::from(h));
+            }
+        }
+        buf.freeze()
     }
 }
 
 // ------------------------------------------------------------ server → client
-
-/// Hand-rolled `MessagePack` writer appending to a `BytesMut`.
-pub struct Wire<'a>(pub &'a mut BytesMut);
-
-impl Wire<'_> {
-    fn len_header(&mut self, len: usize, fix: u8, fix_max: usize, c8: Option<u8>, c16: u8, c32: u8) {
-        if len <= fix_max {
-            self.0.put_u8(fix | len as u8);
-        } else if let (Some(c8), true) = (c8, len < 0x100) {
-            self.0.put_u8(c8);
-            self.0.put_u8(len as u8);
-        } else if len < 0x10000 {
-            self.0.put_u8(c16);
-            self.0.put_u16(len as u16);
-        } else {
-            self.0.put_u8(c32);
-            self.0.put_u32(len as u32);
-        }
-    }
-
-    pub fn map(&mut self, len: usize) -> &mut Self {
-        self.len_header(len, 0x80, 15, None, 0xde, 0xdf);
-        self
-    }
-
-    pub fn arr(&mut self, len: usize) -> &mut Self {
-        self.len_header(len, 0x90, 15, None, 0xdc, 0xdd);
-        self
-    }
-
-    /// Starts an array whose length is only known after writing it; finish
-    /// with [`Wire::close_arr`]. Uses the fixed-size 32-bit header.
-    pub fn open_arr(&mut self) -> usize {
-        self.0.put_u8(0xdd);
-        let at = self.0.len();
-        self.0.put_u32(0);
-        at
-    }
-
-    pub fn close_arr(&mut self, at: usize, len: usize) {
-        self.0[at..at + 4].copy_from_slice(&(len as u32).to_be_bytes());
-    }
-
-    pub fn str(&mut self, s: &str) -> &mut Self {
-        self.len_header(s.len(), 0xa0, 31, Some(0xd9), 0xda, 0xdb);
-        self.0.put_slice(s.as_bytes());
-        self
-    }
-
-    pub fn uint(&mut self, v: u64) -> &mut Self {
-        match v {
-            0..=0x7f => self.0.put_u8(v as u8),
-            0x80..=0xff => {
-                self.0.put_u8(0xcc);
-                self.0.put_u8(v as u8);
-            }
-            0x100..=0xffff => {
-                self.0.put_u8(0xcd);
-                self.0.put_u16(v as u16);
-            }
-            0x1_0000..=0xffff_ffff => {
-                self.0.put_u8(0xce);
-                self.0.put_u32(v as u32);
-            }
-            _ => {
-                self.0.put_u8(0xcf);
-                self.0.put_u64(v);
-            }
-        }
-        self
-    }
-
-    pub fn int(&mut self, v: i64) -> &mut Self {
-        if v >= 0 {
-            return self.uint(v as u64);
-        }
-        if v >= -32 {
-            self.0.put_u8(v as i8 as u8);
-        } else if v >= i64::from(i8::MIN) {
-            self.0.put_u8(0xd0);
-            self.0.put_i8(v as i8);
-        } else if v >= i64::from(i16::MIN) {
-            self.0.put_u8(0xd1);
-            self.0.put_i16(v as i16);
-        } else if v >= i64::from(i32::MIN) {
-            self.0.put_u8(0xd2);
-            self.0.put_i32(v as i32);
-        } else {
-            self.0.put_u8(0xd3);
-            self.0.put_i64(v);
-        }
-        self
-    }
-
-    pub fn bool(&mut self, v: bool) -> &mut Self {
-        self.0.put_u8(if v { 0xc3 } else { 0xc2 });
-        self
-    }
-
-    pub fn nil(&mut self) -> &mut Self {
-        self.0.put_u8(0xc0);
-        self
-    }
-
-    pub fn f32(&mut self, v: f32) -> &mut Self {
-        self.0.put_u8(0xca);
-        self.0.put_f32(v);
-        self
-    }
-
-    pub fn f64(&mut self, v: f64) -> &mut Self {
-        self.0.put_u8(0xcb);
-        self.0.put_f64(v);
-        self
-    }
-
-    /// Map key followed by a value written by the caller.
-    pub fn key(&mut self, k: &str) -> &mut Self {
-        self.str(k)
-    }
-
-    pub fn opt_uint(&mut self, v: Option<u32>) -> &mut Self {
-        match v {
-            Some(v) => self.uint(u64::from(v)),
-            None => self.nil(),
-        }
-    }
-}
 
 /// A ring of encoding arenas used in rotation.
 ///
@@ -341,45 +376,25 @@ pub fn finish(arena: &mut BytesMut) -> Bytes {
 
 /// A player joined, with their team and cosmetics.
 pub fn encode_pj(arena: &mut BytesMut, id: u32, name: &str, team: u8, hat: u8, trail: u8) -> Bytes {
-    Wire(arena)
-        .map(6)
-        .key("t")
-        .str("pj")
-        .key("id")
-        .uint(u64::from(id))
-        .key("name")
-        .str(name)
-        .key("team")
-        .uint(u64::from(team))
-        .key("hat")
-        .uint(u64::from(hat))
-        .key("trail")
-        .uint(u64::from(trail));
+    Wire(arena).u8(op::PJ).id(id).str(name).u8(team).u8(hat).u8(trail);
     finish(arena)
 }
 
 /// A player left.
 pub fn encode_pl(arena: &mut BytesMut, id: u32) -> Bytes {
-    Wire(arena).map(2).key("t").str("pl").key("id").uint(u64::from(id));
+    Wire(arena).u8(op::PL).id(id);
     finish(arena)
 }
 
-/// Someone was blasted; `k` is the bomb owner if still online, `b` whether
-/// the victim carried the bounty.
+/// Someone was blasted at (x, y); `k` is the bomb owner if still online,
+/// `bounty` whether the victim carried the bounty.
 pub fn encode_kill(arena: &mut BytesMut, k: Option<u32>, v: u32, x: f32, y: f32, bounty: bool) -> Bytes {
     Wire(arena)
-        .map(6)
-        .key("t")
-        .str("kill")
-        .key("k")
-        .opt_uint(k)
-        .key("v")
-        .uint(u64::from(v))
-        .key("x")
-        .f32(x)
-        .key("y")
-        .f32(y)
-        .key("b")
+        .u8(op::KILL)
+        .opt_id(k)
+        .id(v)
+        .ivar((x * 100.0).round() as i64)
+        .ivar((y * 100.0).round() as i64)
         .bool(bounty);
     finish(arena)
 }
@@ -394,12 +409,11 @@ pub fn encode_lb<'n>(
     round_secs: u32,
 ) -> Bytes {
     let mut w = Wire(arena);
-    w.map(5).key("t").str("lb").key("n").uint(online as u64).key("top").arr(top.len());
+    w.u8(op::LB).len(online).len(top.len());
     for (id, name, score, kills, deaths) in top {
-        w.arr(5).uint(u64::from(id)).str(name).int(i64::from(score)).uint(u64::from(kills)).uint(u64::from(deaths));
+        w.id(id).str(name).ivar(i64::from(score)).id(kills).id(deaths);
     }
-    w.key("teams").arr(2).int(i64::from(teams.0)).int(i64::from(teams.1));
-    w.key("r").uint(u64::from(round_secs));
+    w.ivar(i64::from(teams.0)).ivar(i64::from(teams.1)).id(round_secs);
     finish(arena)
 }
 
@@ -408,42 +422,41 @@ pub fn encode_lb<'n>(
 /// moving things, so these must never be skipped.
 pub fn encode_world(arena: &mut BytesMut, tiles: &[(i32, i32, u8)], items: &[(i32, i32, u8)]) -> Bytes {
     let mut w = Wire(arena);
-    w.map(3).key("t").str("w").key("tc").arr(tiles.len());
-    for &(x, y, t) in tiles {
-        w.arr(3).int(i64::from(x)).int(i64::from(y)).uint(u64::from(t));
-    }
-    w.key("ic").arr(items.len());
-    for &(x, y, k) in items {
-        w.arr(3).int(i64::from(x)).int(i64::from(y)).uint(u64::from(k));
+    w.u8(op::WORLD);
+    for list in [tiles, items] {
+        w.len(list.len());
+        for &(x, y, t) in list {
+            w.coord(x).coord(y).u8(t);
+        }
     }
     finish(arena)
 }
 
 /// Something happened to this player: a power-up (`f` = item code) or a
-/// secret box outcome (`m` true; see `Mystery::code`).
+/// secret box outcome (`mystery`; see `Mystery::code`).
 pub fn encode_fx(arena: &mut BytesMut, f: u8, mystery: bool) -> Bytes {
-    Wire(arena).map(3).key("t").str("fx").key("f").uint(u64::from(f)).key("m").bool(mystery);
+    Wire(arena).u8(op::FX).u8(f).bool(mystery);
     finish(arena)
 }
 
 /// A player showed a quick-chat emote.
 pub fn encode_emote(arena: &mut BytesMut, id: u32, e: u8) -> Bytes {
-    Wire(arena).map(3).key("t").str("emote").key("id").uint(u64::from(id)).key("e").uint(u64::from(e));
+    Wire(arena).u8(op::EMOTE).id(id).u8(e);
     finish(arena)
 }
 
 /// A player reached a kill streak.
 pub fn encode_streak(arena: &mut BytesMut, id: u32, n: u32) -> Bytes {
-    Wire(arena).map(3).key("t").str("streak").key("id").uint(u64::from(id)).key("n").uint(u64::from(n));
+    Wire(arena).u8(op::STREAK).id(id).id(n);
     finish(arena)
 }
 
 /// The hills currently scoring points: centres of 3x3 zones.
 pub fn encode_hills(arena: &mut BytesMut, hills: &[(i32, i32)]) -> Bytes {
     let mut w = Wire(arena);
-    w.map(2).key("t").str("hills").key("h").arr(hills.len());
+    w.u8(op::HILLS).len(hills.len());
     for &(x, y) in hills {
-        w.arr(2).int(i64::from(x)).int(i64::from(y));
+        w.coord(x).coord(y);
     }
     finish(arena)
 }
@@ -458,19 +471,25 @@ pub fn encode_round<'n>(
     next_secs: u32,
 ) -> Bytes {
     let mut w = Wire(arena);
-    w.map(5).key("t").str("round").key("mvp").arr(mvp.len());
+    w.u8(op::ROUND).len(mvp.len());
     for (id, name, score, kills) in mvp {
-        w.arr(4).uint(u64::from(id)).str(name).int(i64::from(score)).uint(u64::from(kills));
+        w.id(id).str(name).ivar(i64::from(score)).id(kills);
     }
-    w.key("teams").arr(2).int(i64::from(teams.0)).int(i64::from(teams.1));
-    w.key("win").uint(u64::from(winner));
-    w.key("next").uint(u64::from(next_secs));
+    w.ivar(i64::from(teams.0)).ivar(i64::from(teams.1)).u8(winner).id(next_secs);
     finish(arena)
 }
 
 pub fn encode_pong(arena: &mut BytesMut, c: f64) -> Bytes {
-    Wire(arena).map(2).key("t").str("pong").key("c").f64(c);
+    Wire(arena).u8(op::PONG).f64(c);
     finish(arena)
+}
+
+/// The join was refused.
+#[must_use]
+pub fn encode_err(m: &str) -> Bytes {
+    let mut buf = BytesMut::with_capacity(m.len() + 4);
+    Wire(&mut buf).u8(op::ERR).str(m);
+    buf.freeze()
 }
 
 /// What the client knows about its own profile.
@@ -485,134 +504,307 @@ pub struct ProfileView {
     pub best_streak: u64,
 }
 
-/// Rare, larger messages encoded with serde.
+/// The first message after joining: everything a client needs to start.
+/// Sent once, so its body is plain `MessagePack` (via serde) after the opcode.
 #[derive(Serialize)]
-#[serde(tag = "t", rename_all = "lowercase")]
-#[allow(clippy::large_enum_variant, reason = "built on the stack and encoded at once; boxing would only add an allocation")]
-pub enum ServerMsg<'a> {
-    Welcome {
-        id: u32,
-        w: i32,
-        h: i32,
-        /// Run-length encoded tiles: (tile, count) pairs, row-major.
-        map: Vec<(u8, u32)>,
-        /// Every item on the map: (x, y, kind). Later changes come in `w`.
-        items: Vec<(i32, i32, u8)>,
-        rate: u32,
-        /// Default half extents of the area of interest in tiles.
-        aoi: (i32, i32),
-        /// Largest half extents a client may request when zooming out.
-        aoi_max: (i32, i32),
-        /// Everyone online: (id, name, team, hat, trail).
-        roster: Vec<(u32, &'a str, u8, u8, u8)>,
-        arena: &'a str,
-        /// "ffa" or "teams".
-        mode: &'a str,
-        team: u8,
-        hills: Vec<(i32, i32)>,
-        /// Seconds left in the current round.
-        round: u32,
-        /// True when an earlier session's score and power-ups were restored.
-        resumed: bool,
-        profile: Option<ProfileView>,
-    },
-    Err { m: &'a str },
+pub struct Welcome<'a> {
+    pub id: u32,
+    pub w: i32,
+    pub h: i32,
+    /// Run-length encoded tiles: (tile, count) pairs, row-major.
+    pub map: Vec<(u8, u32)>,
+    /// Every item on the map: (x, y, kind). Later changes come in `w`.
+    pub items: Vec<(i32, i32, u8)>,
+    pub rate: u32,
+    /// Default half extents of the area of interest in tiles.
+    pub aoi: (i32, i32),
+    /// Largest half extents a client may request when zooming out.
+    pub aoi_max: (i32, i32),
+    /// Everyone online: (id, name, team, hat, trail).
+    pub roster: Vec<(u32, &'a str, u8, u8, u8)>,
+    pub arena: &'a str,
+    /// "ffa" or "teams".
+    pub mode: &'a str,
+    pub team: u8,
+    pub hills: Vec<(i32, i32)>,
+    /// Seconds left in the current round.
+    pub round: u32,
+    /// True when an earlier session's score and power-ups were restored.
+    pub resumed: bool,
+    pub profile: Option<ProfileView>,
 }
 
-impl ServerMsg<'_> {
-    /// Encodes the message as `MessagePack`.
-    ///
+impl Welcome<'_> {
     /// # Panics
     /// Never in practice: these types always serialize.
     #[must_use]
     pub fn encode(&self) -> Bytes {
-        rmp_serde::to_vec_named(self).expect("server messages always serialize").into()
+        let mut buf = vec![op::WELCOME];
+        rmp_serde::encode::write_named(&mut buf, self).expect("welcome always serializes");
+        buf.into()
+    }
+}
+
+/// The tick of a snapshot frame, read without decoding the rest (bots).
+#[must_use]
+pub fn peek_snapshot_tick(frame: &[u8]) -> Option<u64> {
+    let mut r = Reader::new(frame);
+    (r.u8()? == op::SNAP).then_some(())?;
+    r.uvar()
+}
+
+/// The echoed timestamp of a pong frame (bots).
+#[must_use]
+pub fn peek_pong(frame: &[u8]) -> Option<f64> {
+    let mut r = Reader::new(frame);
+    (r.u8()? == op::PONG).then_some(())?;
+    r.f64()
+}
+
+#[cfg(test)]
+#[allow(clippy::many_single_char_names, reason = "short reader helpers keep the decoder close to the wire layout")]
+pub mod testing {
+    //! A reference decoder for server frames, mirroring the browser's,
+    //! producing JSON values for assertions.
+
+    use std::collections::HashMap;
+
+    use serde_json::{Value, json};
+
+    use super::{ME_LEN, MeState, Reader, op, snap};
+
+    /// Decodes a non-snapshot server frame into a JSON object tagged `t`.
+    ///
+    /// # Panics
+    /// On malformed input or a snapshot frame.
+    #[must_use]
+    pub fn decode(frame: &[u8]) -> Value {
+        let mut r = Reader::new(frame);
+        let id = |r: &mut Reader| r.uvar().unwrap();
+        let s = |r: &mut Reader| r.str().unwrap().to_string();
+        let i = |r: &mut Reader| r.ivar().unwrap();
+        let u = |r: &mut Reader| r.u8().unwrap();
+        let v = match r.u8().unwrap() {
+            op::WELCOME => {
+                let mut v: Value = rmp_serde::from_slice(&frame[1..]).unwrap();
+                v["t"] = json!("welcome");
+                return v;
+            }
+            op::ERR => json!({"t": "err", "m": s(&mut r)}),
+            op::PJ => json!({"t": "pj", "id": id(&mut r), "name": s(&mut r), "team": u(&mut r), "hat": u(&mut r), "trail": u(&mut r)}),
+            op::PL => json!({"t": "pl", "id": id(&mut r)}),
+            op::KILL => {
+                let k = id(&mut r);
+                json!({"t": "kill", "k": k.checked_sub(1), "v": id(&mut r), "x": i(&mut r) as f64 / 100.0, "y": i(&mut r) as f64 / 100.0, "b": u(&mut r) != 0})
+            }
+            op::LB => {
+                let n = id(&mut r);
+                let top: Vec<Value> = (0..id(&mut r)).map(|_| json!([id(&mut r), s(&mut r), i(&mut r), id(&mut r), id(&mut r)])).collect();
+                json!({"t": "lb", "n": n, "top": top, "teams": [i(&mut r), i(&mut r)], "r": id(&mut r)})
+            }
+            op::WORLD => {
+                let list = |r: &mut Reader| (0..id(r)).map(|_| json!([id(r), id(r), u(r)])).collect::<Vec<_>>();
+                json!({"t": "w", "tc": list(&mut r), "ic": list(&mut r)})
+            }
+            op::FX => json!({"t": "fx", "f": u(&mut r), "m": u(&mut r) != 0}),
+            op::EMOTE => json!({"t": "emote", "id": id(&mut r), "e": u(&mut r)}),
+            op::STREAK => json!({"t": "streak", "id": id(&mut r), "n": id(&mut r)}),
+            op::HILLS => json!({"t": "hills", "h": (0..id(&mut r)).map(|_| json!([id(&mut r), id(&mut r)])).collect::<Vec<_>>()}),
+            op::ROUND => {
+                let mvp: Vec<Value> = (0..id(&mut r)).map(|_| json!([id(&mut r), s(&mut r), i(&mut r), id(&mut r)])).collect();
+                json!({"t": "round", "mvp": mvp, "teams": [i(&mut r), i(&mut r)], "win": u(&mut r), "next": id(&mut r)})
+            }
+            op::PONG => json!({"t": "pong", "c": r.f64().unwrap()}),
+            other => panic!("not an event frame: opcode {other}"),
+        };
+        assert!(r.done(), "trailing bytes in {v}");
+        v
+    }
+
+    type Entry = [i64; 5];
+
+    /// Rebuilds full snapshots from deltas, remembering decoded ones by tick
+    /// like the browser does.
+    #[derive(Default)]
+    pub struct SnapDecoder {
+        seen: HashMap<u64, (Vec<Entry>, Vec<Entry>, MeState)>,
+    }
+
+    impl SnapDecoder {
+        /// Decodes a snapshot frame into `{t, k, bk, p, b, e, me}` with full
+        /// player and bomb lists (bombs carry their absolute detonation
+        /// tick, 0 for remote). `None` if its base is unknown.
+        ///
+        /// # Panics
+        /// On malformed input.
+        pub fn decode(&mut self, frame: &[u8]) -> Option<Value> {
+            let mut r = Reader::new(frame);
+            assert_eq!(r.u8(), Some(op::SNAP));
+            let k = r.uvar().unwrap();
+            let gap = r.uvar().unwrap();
+            let bk = if gap == 0 { 0 } else { k - gap };
+            let (mut players, mut bombs, mut me) = if bk == 0 { Default::default() } else { self.seen.get(&bk)?.clone() };
+            let sections = r.u8().unwrap();
+            let has = |bit: u8| sections & bit != 0;
+            let ids = |r: &mut Reader| {
+                let mut prev = 0;
+                (0..r.uvar().unwrap()).map(|_| { prev += r.uvar().unwrap() as i64; prev }).collect::<Vec<_>>()
+            };
+            let mut new_players = Vec::new();
+            if has(snap::PLAYERS) {
+                let mut prev = 0;
+                for _ in 0..r.uvar().unwrap() {
+                    let h = r.uvar().unwrap();
+                    prev += (h >> 4) as i64;
+                    let mut e = players.iter().find(|e: &&Entry| e[0] == prev).copied().unwrap_or([prev, 0, 0, 0, 0]);
+                    let look = |e: &mut Entry, b: u8| (e[3], e[4]) = (i64::from(b & 7), i64::from(b >> 3));
+                    if h & snap::NEW != 0 {
+                        (e[1], e[2]) = (r.ivar().unwrap(), r.ivar().unwrap());
+                        look(&mut e, r.u8().unwrap());
+                    } else {
+                        assert!(players.iter().any(|b| b[0] == prev), "delta for unknown player {prev}");
+                        if h & snap::DX != 0 { e[1] += r.ivar().unwrap(); }
+                        if h & snap::DY != 0 { e[2] += r.ivar().unwrap(); }
+                        if h & snap::LOOK != 0 { look(&mut e, r.u8().unwrap()); }
+                    }
+                    new_players.push(e);
+                }
+            }
+            let gone = if has(snap::PLAYERS_GONE) { ids(&mut r) } else { vec![] };
+            players.retain(|e| !gone.contains(&e[0]) && !new_players.iter().any(|n| n[0] == e[0]));
+            players.extend(new_players);
+            players.sort_unstable_by_key(|e| e[0]);
+            let mut new_bombs = Vec::new();
+            if has(snap::BOMBS) {
+                let mut prev = 0;
+                for _ in 0..r.uvar().unwrap() {
+                    prev += r.uvar().unwrap() as i64;
+                    let (x, y, f) = (r.uvar().unwrap() as i64, r.uvar().unwrap() as i64, r.u8().unwrap());
+                    let at = if f & 2 != 0 { 0 } else { k as i64 + r.ivar().unwrap() };
+                    new_bombs.push([prev, x, y, at, i64::from(f)]);
+                }
+            }
+            let gone = if has(snap::BOMBS_GONE) { ids(&mut r) } else { vec![] };
+            bombs.retain(|e| !gone.contains(&e[0]) && !new_bombs.iter().any(|n| n[0] == e[0]));
+            bombs.extend(new_bombs);
+            bombs.sort_unstable_by_key(|e| e[0]);
+            let mut flames = Vec::new();
+            if has(snap::FLAMES) {
+                for _ in 0..r.uvar().unwrap() {
+                    let (x, y, a, b) = (r.uvar().unwrap(), r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
+                    flames.push(json!([x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar().unwrap()]));
+                }
+            }
+            if has(snap::ME) {
+                let mask = r.uvar().unwrap();
+                for (i, v) in me.iter_mut().enumerate().take(ME_LEN) {
+                    if mask >> i & 1 != 0 {
+                        *v = r.ivar().unwrap();
+                    }
+                }
+            }
+            assert!(r.done(), "trailing bytes in snapshot {k}");
+            self.seen.insert(k, (players.clone(), bombs.clone(), me));
+            Some(json!({"t": "s", "k": k, "bk": bk, "p": players, "b": bombs, "e": flames, "me": me.to_vec()}))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::testing::decode;
     use super::*;
     use serde_json::json;
 
-    fn pack(v: &serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(v).unwrap()
-    }
-
-    fn unpack(b: &[u8]) -> serde_json::Value {
-        rmp_serde::from_slice(b).unwrap()
+    #[test]
+    fn client_messages_round_trip() {
+        let msgs = [
+            ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 },
+            ClientMsg::Join { name: "Bö", token: "", hat: 0, trail: 0, near: 0 },
+            ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 },
+            ClientMsg::In { d: 4, s: 0, q: 65535, k: u32::MAX },
+            ClientMsg::Bomb,
+            ClientMsg::Act,
+            ClientMsg::Emote { e: 3 },
+            ClientMsg::Ping { c: 12.5 },
+            ClientMsg::View { w: 20, h: 14 },
+        ];
+        for m in msgs {
+            assert_eq!(ClientMsg::decode(&m.encode()), Some(m));
+        }
+        assert_eq!(ClientMsg::In { d: 3, s: 2, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
     }
 
     #[test]
-    fn decodes_client_messages() {
-        let join = pack(&json!({"t": "join", "name": "Ann", "token": "tok-123456", "hat": 2, "trail": 1, "near": 9}));
-        assert_eq!(ClientMsg::decode(&join), Some(ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 }));
-        let bare = pack(&json!({"t": "join", "name": "Bo"}));
-        assert_eq!(ClientMsg::decode(&bare), Some(ClientMsg::Join { name: "Bo", token: "", hat: 0, trail: 0, near: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 3, "s": 2, "q": 513, "k": 70000}))), Some(ClientMsg::In { d: 3, s: 2, q: 513, k: 70000 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 3}))), Some(ClientMsg::In { d: 3, s: 0, q: 0, k: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "in", "d": 99}))), Some(ClientMsg::In { d: 0, s: 0, q: 0, k: 0 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "bomb"}))), Some(ClientMsg::Bomb));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "act"}))), Some(ClientMsg::Act));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "emote", "e": 3}))), Some(ClientMsg::Emote { e: 3 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "view", "w": 20, "h": 14}))), Some(ClientMsg::View { w: 20, h: 14 }));
-        // JS encodes whole-number timestamps as ints and others as float64.
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "ping", "c": 1234}))), Some(ClientMsg::Ping { c: 1234.0 }));
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "ping", "c": 12.5}))), Some(ClientMsg::Ping { c: 12.5 }));
-        assert_eq!(ClientMsg::decode(&[0xc1, 0xff]), None);
-        assert_eq!(ClientMsg::decode(&pack(&json!({"t": "nope"}))), None);
-        assert_eq!(ClientMsg::decode(&[0x82, 0xa1]), None, "truncated input is rejected");
+    fn client_messages_are_validated() {
+        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, q: 1, k: 1 }), "bad dirs");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, q: 65535, k: 0 }), "seq clamped");
+        assert_eq!(ClientMsg::decode(&[cop::EMOTE, 200]), Some(ClientMsg::Emote { e: 15 }));
+        assert_eq!(ClientMsg::decode(&[cop::VIEW, 0xff, 0x7f, 5]), Some(ClientMsg::View { w: 1000, h: 5 }));
+        assert_eq!(ClientMsg::decode(&[]), None);
+        assert_eq!(ClientMsg::decode(&[0x82, 0xa1]), None, "old MessagePack frames are rejected");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0]), None, "truncated");
+        assert_eq!(ClientMsg::decode(&[cop::JOIN, 5, b'a']), None, "string past the end");
+        assert_eq!(ClientMsg::decode(&[cop::JOIN, 2, 0xff, 0xfe, 0, 0, 0, 0]), None, "invalid UTF-8");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]), None, "overlong varint");
     }
 
-    /// The hand-written encoder must produce the same values serde would.
     #[test]
-    fn manual_encoding_matches_serde() {
+    fn varints_round_trip() {
+        let mut buf = BytesMut::new();
+        let values = [0, 1, -1, 63, -64, 64, 127, 128, 300, -300, 1 << 40, i64::MAX, i64::MIN];
+        {
+            let mut w = Wire(&mut buf);
+            for v in values {
+                w.ivar(v);
+            }
+            w.uvar(u64::MAX);
+        }
+        let mut r = Reader::new(&buf);
+        for v in values {
+            assert_eq!(r.ivar(), Some(v));
+        }
+        assert_eq!(r.uvar(), Some(u64::MAX));
+        assert!(r.done());
+        let one_byte = |v: i64| {
+            let mut b = BytesMut::new();
+            Wire(&mut b).ivar(v);
+            b.len() == 1
+        };
+        assert!(one_byte(63) && one_byte(-64) && !one_byte(64));
+    }
+
+    #[test]
+    fn events_decode_to_what_was_sent() {
         let mut arena = BytesMut::with_capacity(1024);
+        assert_eq!(decode(&encode_pj(&mut arena, 7, "Ann", 2, 3, 1)), json!({"t": "pj", "id": 7, "name": "Ann", "team": 2, "hat": 3, "trail": 1}));
+        assert_eq!(decode(&encode_pl(&mut arena, 300)), json!({"t": "pl", "id": 300}));
         assert_eq!(
-            unpack(&encode_pj(&mut arena, 7, "Ann", 2, 3, 1)),
-            json!({"t": "pj", "id": 7, "name": "Ann", "team": 2, "hat": 3, "trail": 1})
-        );
-        assert_eq!(unpack(&encode_pl(&mut arena, 300)), json!({"t": "pl", "id": 300}));
-        assert_eq!(
-            unpack(&encode_kill(&mut arena, None, 70000, 1.5, 2.25, true)),
+            decode(&encode_kill(&mut arena, None, 70000, 1.5, 2.25, true)),
             json!({"t": "kill", "k": null, "v": 70000, "x": 1.5, "y": 2.25, "b": true})
         );
-        assert_eq!(unpack(&encode_kill(&mut arena, Some(3), 4, 0.5, 0.5, false))["k"], json!(3));
-        assert_eq!(unpack(&encode_pong(&mut arena, 1.5)), json!({"t": "pong", "c": 1.5}));
-        assert_eq!(unpack(&encode_fx(&mut arena, 20, true)), json!({"t": "fx", "f": 20, "m": true}));
-        assert_eq!(unpack(&encode_emote(&mut arena, 5, 2)), json!({"t": "emote", "id": 5, "e": 2}));
-        assert_eq!(unpack(&encode_streak(&mut arena, 5, 3)), json!({"t": "streak", "id": 5, "n": 3}));
-        assert_eq!(unpack(&encode_hills(&mut arena, &[(3, 5), (9, 11)])), json!({"t": "hills", "h": [[3, 5], [9, 11]]}));
+        assert_eq!(decode(&encode_kill(&mut arena, Some(3), 4, 0.5, 0.5, false))["k"], json!(3));
+        assert_eq!(decode(&encode_pong(&mut arena, 1.5)), json!({"t": "pong", "c": 1.5}));
+        assert_eq!(decode(&encode_fx(&mut arena, 20, true)), json!({"t": "fx", "f": 20, "m": true}));
+        assert_eq!(decode(&encode_emote(&mut arena, 5, 2)), json!({"t": "emote", "id": 5, "e": 2}));
+        assert_eq!(decode(&encode_streak(&mut arena, 5, 3)), json!({"t": "streak", "id": 5, "n": 3}));
+        assert_eq!(decode(&encode_hills(&mut arena, &[(3, 5), (9, 11)])), json!({"t": "hills", "h": [[3, 5], [9, 11]]}));
         assert_eq!(
-            unpack(&encode_world(&mut arena, &[(1, 2, 0)], &[(3, 4, 8), (5, 6, 0)])),
+            decode(&encode_world(&mut arena, &[(1, 2, 0)], &[(3, 4, 8), (5, 6, 0)])),
             json!({"t": "w", "tc": [[1, 2, 0]], "ic": [[3, 4, 8], [5, 6, 0]]})
         );
         let top = [(1, "a", -3, 0, 2), (2, "a-much-longer-name-than-thirty-one-bytes", 200, 5, 70000)];
         assert_eq!(
-            unpack(&encode_lb(&mut arena, 2, top.into_iter(), (4, -1), 299)),
+            decode(&encode_lb(&mut arena, 2, top.into_iter(), (4, -1), 299)),
             json!({"t": "lb", "n": 2, "top": [[1, "a", -3, 0, 2], [2, "a-much-longer-name-than-thirty-one-bytes", 200, 5, 70000]], "teams": [4, -1], "r": 299})
         );
         assert_eq!(
-            unpack(&encode_round(&mut arena, [(1, "a", 9, 4)].into_iter(), (10, 7), 1, 300)),
+            decode(&encode_round(&mut arena, [(1, "a", 9, 4)].into_iter(), (10, 7), 1, 300)),
             json!({"t": "round", "mvp": [[1, "a", 9, 4]], "teams": [10, 7], "win": 1, "next": 300})
         );
-        let pong = encode_pong(&mut arena, 1.5);
-        assert!(pong.starts_with(&[0x82, 0xa1, b't', 0xa4, b'p', b'o', b'n', b'g']), "bots rely on this prefix");
-    }
-
-    #[test]
-    fn wire_handles_every_integer_width() {
-        let mut arena = BytesMut::new();
-        let values: [i64; 12] = [0, 127, 128, 255, 256, 65535, 65536, 1 << 40, -1, -32, -33, -100_000];
-        {
-            let mut w = Wire(&mut arena);
-            let at = w.open_arr();
-            for v in values {
-                w.int(v);
-            }
-            w.close_arr(at, values.len());
-        }
-        assert_eq!(unpack(&finish(&mut arena)), json!(values));
+        assert_eq!(decode(&encode_err("full")), json!({"t": "err", "m": "full"}));
+        assert_eq!(peek_pong(&encode_pong(&mut arena, 1.5)), Some(1.5));
+        assert_eq!(encode_pl(&mut arena, 5).len(), 2, "small events are a couple of bytes");
     }
 
     #[test]

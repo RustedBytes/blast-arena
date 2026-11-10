@@ -41,13 +41,13 @@ fn snapshot_has_every_field() {
     assert_eq!(w.tile_changes, vec![(5, 5, 0)]);
     assert_eq!(snap["me"].as_array().unwrap().len(), protocol::ME_FIELDS.len());
     let me_v = &me_obj(&snap);
-    assert_eq!(me_v["alive"], true);
+    assert_eq!(me_v["alive"], 1);
     assert_eq!(me_v["active"], 1);
-    assert_eq!(me_v["killer"], serde_json::Value::Null);
-    assert_eq!(me_v["aoi"], serde_json::json!([AOI_DEFAULT.0, AOI_DEFAULT.1]));
+    assert_eq!(me_v["killer"], 0, "nobody (ids are sent + 1)");
+    assert_eq!((&me_v["aoi_w"], &me_v["aoi_h"]), (&serde_json::json!(AOI_DEFAULT.0), &serde_json::json!(AOI_DEFAULT.1)));
     assert_eq!(me_v["ack"], 0);
-    assert_eq!(me_v["spec"], serde_json::Value::Null);
-    assert_eq!(me_v.as_object().unwrap().len(), 22, "every field named");
+    assert_eq!(me_v["spec"], 0);
+    assert_eq!(me_v.as_object().unwrap().len(), protocol::ME_LEN, "every field named");
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn secret_box_gives_something_and_reports_it() {
     assert_eq!(w.stats.mysteries_opened, 1);
     let mut got_fx = false;
     while let Ok(msg) = rx.try_recv() {
-        let v: serde_json::Value = rmp_serde::from_slice(&msg).unwrap();
+        let v = protocol::testing::decode(&msg);
         if v["t"] == "fx" {
             assert_eq!(v["m"], true);
             got_fx = true;
@@ -269,7 +269,7 @@ fn me_obj(snap: &serde_json::Value) -> serde_json::Value {
 fn drain(rx: &mut mpsc::Receiver<Bytes>) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     while let Ok(m) = rx.try_recv() {
-        out.push(rmp_serde::from_slice(&m).unwrap());
+        out.push(protocol::testing::decode(&m));
     }
     out
 }
@@ -466,7 +466,7 @@ fn dead_players_watch_their_killer() {
     let killer = w.spawn_test_player(60.5, 60.5);
     w.kill(me, Some(killer));
     let snap: serde_json::Value = w.full_snapshot(me);
-    assert_eq!(me_obj(&snap)["spec"], killer);
+    assert_eq!(me_obj(&snap)["spec"], killer + 1, "ids are sent + 1");
     let ids: Vec<u64> = snap["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect();
     assert!(ids.contains(&u64::from(killer)), "the killer is in view");
 }
@@ -494,21 +494,8 @@ fn input_sequence_is_echoed_for_prediction() {
     assert_eq!(me_obj(&snap)["ack"], 4242);
 }
 
-/// Applies a delta list (`changed`, `removed`) to a client-side id map,
-/// exactly as the browser does.
-fn apply_delta(state: &mut std::collections::BTreeMap<u64, serde_json::Value>, changed: &serde_json::Value, removed: &serde_json::Value) {
-    for id in removed.as_array().unwrap() {
-        state.remove(&id.as_u64().unwrap());
-    }
-    for e in changed.as_array().unwrap() {
-        state.insert(e[0].as_u64().unwrap(), e.clone());
-    }
-}
-
 #[test]
 fn delta_snapshots_rebuild_the_full_picture() {
-    // Client-side state, keyed by tick: (players, bombs).
-    type View = std::collections::BTreeMap<u64, serde_json::Value>;
     let mut rng = Rng::new(21);
     let map = Map::generate(41, 41, 0.45, &mut rng);
     let mut w = World::with_map(map, rng, 64);
@@ -517,29 +504,25 @@ fn delta_snapshots_rebuild_the_full_picture() {
     w.players.get_mut(&me).unwrap().set_aoi(26, 18); // see most of the map
     let input = w.players[&me].link.as_ref().unwrap().input.clone();
     let snapshot = w.players[&me].link.as_ref().unwrap().snapshot.clone();
-    let mut decoded: HashMap<u64, (View, View)> = HashMap::new();
+    let mut client = protocol::testing::SnapDecoder::default();
     let (mut delta_bytes, mut full_bytes, mut deltas) = (0usize, 0usize, 0);
     for t in 0..400 {
         w.step();
         w.send_updates();
         let msg = snapshot.take().expect("a snapshot every tick");
-        let snap: serde_json::Value = rmp_serde::from_slice(&msg).unwrap();
+        let snap = client.decode(&msg).expect("the base is one the client acknowledged");
         let k = snap["k"].as_u64().unwrap();
-        let bk = snap["bk"].as_u64().unwrap();
-        let (mut players, mut bombs) = if bk == 0 { Default::default() } else { decoded[&bk].clone() };
-        if bk != 0 {
+        if snap["bk"] != 0 {
             deltas += 1;
         }
-        apply_delta(&mut players, &snap["p"], &snap["pr"]);
-        apply_delta(&mut bombs, &snap["b"], &snap["br"]);
         // Compare with what a full snapshot would have said.
+        let full_msg = w.full_snapshot_bytes(me);
         let full = w.full_snapshot(me);
-        let as_map = |v: &serde_json::Value| -> View { v.as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap(), e.clone())).collect() };
-        assert_eq!(players, as_map(&full["p"]), "players differ at tick {k}");
-        assert_eq!(bombs, as_map(&full["b"]), "bombs differ at tick {k}");
+        for key in ["p", "b", "e", "me"] {
+            assert_eq!(snap[key], full[key], "{key} differs at tick {k}");
+        }
         delta_bytes += msg.len();
-        full_bytes += rmp_serde::to_vec_named(&full).unwrap().len();
-        decoded.insert(k, (players, bombs));
+        full_bytes += full_msg.len();
         // Like a real client: acknowledge now and then, sometimes late.
         if t % 3 != 2 {
             input.set_ack(k as u32);
@@ -547,7 +530,7 @@ fn delta_snapshots_rebuild_the_full_picture() {
     }
     assert!(deltas > 300, "most snapshots are deltas: {deltas}");
     eprintln!("delta snapshots: {delta_bytes} bytes vs {full_bytes} full");
-    assert!(delta_bytes < full_bytes, "deltas are smaller");
+    assert!(delta_bytes * 2 < full_bytes, "deltas are much smaller");
 }
 
 #[test]
@@ -559,7 +542,7 @@ fn snapshots_fall_back_to_full_without_a_known_ack() {
     input.set_ack(999_999); // a tick the server never sent
     w.step();
     w.send_updates();
-    let snap: serde_json::Value = rmp_serde::from_slice(&snapshot.take().unwrap()).unwrap();
+    let snap = protocol::testing::SnapDecoder::default().decode(&snapshot.take().unwrap()).unwrap();
     assert_eq!(snap["bk"], 0, "full snapshot");
     assert_eq!(snap["p"].as_array().unwrap().len(), 1);
 }

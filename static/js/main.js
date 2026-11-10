@@ -5,6 +5,7 @@ import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
+import { meObject } from './protocol.js';
 import { EMOTES, Renderer } from './render.js';
 import { Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
@@ -13,9 +14,6 @@ const $ = (id) => document.getElementById(id);
 const KILLFEED_SIZE = 5;
 const VIEW_DEBOUNCE_MS = 200;
 const RECONNECT_DELAYS = [500, 1500, 3000, 5000];
-/** Order of the values in a snapshot's `me` array; mirrors the server. */
-const ME_FIELDS = ['alive', 'bombs', 'active', 'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'ghost',
-  'shield', 'curse', 'curse_t', 'score', 'respawn', 'killer', 'aoi', 'ack', 'team', 'streak', 'spec'];
 
 /** Fixed-capacity ring of snapshots, oldest first. */
 class SnapRing {
@@ -74,15 +72,6 @@ function findSnapshot(k) {
     if (s.k < k) break;
   }
   return null;
-}
-
-/** Applies a delta (changed entries, removed ids) to a base list of [id, ...] entries. */
-function applyDelta(base, changed, removed) {
-  const byId = new Map();
-  for (const e of base) byId.set(e[0], e);
-  for (const id of removed) byId.delete(id);
-  for (const e of changed) byId.set(e[0], e);
-  return Array.from(byId.values());
 }
 
 function rebuildItems() {
@@ -150,24 +139,12 @@ const net = new Net({
   s(m) {
     if (!state) return;
     const now = performance.now();
-    // A delta snapshot lists only what changed since snapshot `bk` (one we
-    // acknowledged); rebuild the full lists from it.
-    let players = m.p, rawBombs = m.b;
-    if (m.bk) {
-      const base = findSnapshot(m.bk);
-      if (!base) return; // can't decode; the server falls back to a full snapshot
-      players = applyDelta(base.p, m.p, m.pr);
-      rawBombs = applyDelta(base.rawB, m.b, m.br);
-    }
-    m.p = players;
-    m.rawB = rawBombs;
-    // Bombs carry their absolute detonation tick; derive the fuse left.
-    m.b = rawBombs.map(([id, x, y, at, f]) => [id, x, y, f & 2 ? 99 : Math.max(0, at - m.k), f]);
+    // The decoder has already rebuilt full lists from the delta (see
+    // protocol.js). Bombs carry their absolute detonation tick; derive the
+    // fuse left.
+    m.b = m.rawB.map(([id, x, y, at, f]) => [id, x, y, f & 2 ? 99 : Math.max(0, at - m.k), f]);
     state.lastK = m.k;
-    // The player's own state arrives as a positional array (see ME_FIELDS).
-    const me = {};
-    for (let i = 0; i < ME_FIELDS.length; i++) me[ME_FIELDS[i]] = m.me[i];
-    m.me = me;
+    m.me = meObject(m.rawMe);
     // Map server ticks onto local time, smoothing out network jitter.
     const est = now / state.tickMs - m.k;
     state.offset = state.offset === null || Math.abs(est - state.offset) > 10 ? est : state.offset + (est - state.offset) * 0.05;
@@ -350,7 +327,7 @@ const net = new Net({
     if (!$('join-error').textContent) $('join-error').textContent = t('disconnected');
     refreshLobby();
   },
-});
+}, (k) => (state ? findSnapshot(k) : null));
 
 const input = new Input({
   onDir: () => {},
