@@ -12,10 +12,12 @@ impl World {
         for p in self.players.values_mut() {
             let Some(link) = &p.link else { continue };
             let (d, s, jump, seq) = link.input.dirs();
+            let (pd, ps, _, pseq) = link.input.prev_dirs();
             p.input_jump = jump;
             let reversed = p.reversed_until > tick;
-            (p.input_dir, p.input_alt, p.input_seq) =
-                if reversed { (OPPOSITE[d as usize], OPPOSITE[s as usize], seq) } else { (d, s, seq) };
+            let turn = |d: u8| if reversed { OPPOSITE[d as usize] } else { d };
+            (p.input_dir, p.input_alt, p.input_seq) = (turn(d), turn(s), seq);
+            p.prev_input = (turn(pd), turn(ps), pseq);
             let presses = link.input.bomb_presses();
             if presses != p.bomb_presses {
                 p.bomb_presses = presses;

@@ -2,10 +2,12 @@
 //!
 //! Input flows through an [`InputSlot`] of atomics: the socket reader
 //! overwrites it, and the game reads it once per tick. There is no queue,
-//! no allocation and no backlog; for a held direction only the newest
-//! value matters anyway. Output goes through a bounded queue for reliable
-//! events plus a one-slot [`SnapshotSlot`], so a client that falls behind
-//! skips stale snapshots instead of building up a queue of them.
+//! no allocation and no backlog: the newest held direction, plus the one
+//! before it for the rare tick where two input steps arrive together (the
+//! game walks once per step, see `World::take_steps`). Output goes through
+//! a bounded queue for reliable events plus a one-slot [`SnapshotSlot`], so
+//! a client that falls behind skips stale snapshots instead of building up
+//! a queue of them.
 
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -19,6 +21,9 @@ pub struct InputSlot {
     /// held, bit 7 detach held, bits 16..32 the client's input sequence
     /// number (echoed back for prediction).
     dirs: AtomicU32,
+    /// The value `dirs` held before its sequence number last changed: the
+    /// previous step's input, for when two steps arrive within one tick.
+    prev_dirs: AtomicU32,
     /// Running counts of ability-key and cancel-key presses.
     abilities: AtomicU32,
     cancels: AtomicU32,
@@ -52,16 +57,29 @@ pub fn unpack_dirs(v: u32) -> (u8, u8, bool, u16) {
 
 impl InputSlot {
     pub fn set_dirs(&self, dir: u8, alt: u8, jump: bool, seq: u16) {
-        self.dirs.store(pack_dirs(dir, alt, jump, seq), Relaxed);
+        self.store_dirs(pack_dirs(dir, alt, jump, seq));
     }
 
     pub fn dirs(&self) -> (u8, u8, bool, u16) {
         unpack_dirs(self.dirs.load(Relaxed))
     }
 
+    /// The input of the step before the newest one (see `prev_dirs`).
+    pub fn prev_dirs(&self) -> (u8, u8, bool, u16) {
+        unpack_dirs(self.prev_dirs.load(Relaxed))
+    }
+
     /// Like `set_dirs`, plus whether the detach key is held.
     pub fn set_input(&self, dir: u8, alt: u8, jump: bool, detach: bool, seq: u16) {
-        self.dirs.store(pack_dirs(dir, alt, jump, seq) | if detach { DETACH_BIT } else { 0 }, Relaxed);
+        self.store_dirs(pack_dirs(dir, alt, jump, seq) | if detach { DETACH_BIT } else { 0 });
+    }
+
+    /// Only the socket reader writes, so swap-then-store is race free.
+    fn store_dirs(&self, v: u32) {
+        let old = self.dirs.swap(v, Relaxed);
+        if old >> 16 != v >> 16 {
+            self.prev_dirs.store(old, Relaxed);
+        }
     }
 
     /// The detach key (shaking off a sticky bomb) is held.

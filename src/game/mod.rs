@@ -231,6 +231,10 @@ struct Scratch {
 pub struct World {
     pub name: String,
     pub mode: Mode,
+    /// Walk players once per input step they send (the client's 20 Hz
+    /// clock), not once per server tick, so prediction and server agree on
+    /// how far a key press went. Off only for tests that hold one input.
+    pub input_lockstep: bool,
     pub tick: u64,
     pub map: Map,
     pub rng: Rng,
@@ -377,6 +381,7 @@ impl World {
         World {
             name: "Test".into(),
             mode: Mode::Ffa,
+            input_lockstep: true,
             tick: 0,
             rng,
             max_players,

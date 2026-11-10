@@ -394,7 +394,7 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64,
     let opt_id = |v: Option<u32>| v.map_or(0, |v| i64::from(v) + 1);
     let t = |v: u64| v as i64;
     [
-        i64::from(p.input_seq),
+        i64::from(p.ack_seq()),
         i64::from(p.alive),
         i64::from(p.active_bombs),
         t(p.invulnerable_until.saturating_sub(tick)),

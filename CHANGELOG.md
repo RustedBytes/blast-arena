@@ -6,6 +6,15 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Small position jumps after letting go of the movement keys. The server
+  now walks a player once per input step the client sends (as the
+  client's prediction does) instead of once per tick with the newest
+  input, so network jitter no longer leaves it a step ahead or behind
+  when you stop. Bunched-up inputs are caught up on later, at no more than
+  one step per tick on average.
+
 ## [0.6.0] - 2026-11-10
 
 ### Fixed

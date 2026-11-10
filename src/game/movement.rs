@@ -15,6 +15,9 @@ impl World {
         for &id in &ids {
             let p = &self.players[&id];
             if !p.alive {
+                // The dead don't walk: their inputs are simply used up.
+                let p = self.players.get_mut(&id).unwrap();
+                p.applied_seq = p.input_seq;
                 if self.tick >= p.respawn_at {
                     self.respawn(id);
                 }
@@ -27,6 +30,7 @@ impl World {
             let jumped = self.update_jump(id);
             let p = &self.players[&id];
             if p.jump_left > 0 {
+                self.take_steps(id, true);
                 self.record_history(id, false);
                 continue;
             }
@@ -35,60 +39,13 @@ impl World {
             if dashed && !self.dash_step(id) {
                 continue; // ran into fire
             }
-            let p = &self.players[&id];
+            // A hop or dash spends this tick (and at most one input step).
+            let special = jumped || dashed;
+            let (steps, inputs) = self.take_steps(id, special);
             // Stunned players can't steer (ice and belts still carry them).
-            let stunned = p.stunned_until > self.tick;
-            let (mut dir, alt) = if jumped || stunned || dashed { (0, 0) } else { (p.input_dir, p.input_alt) };
-            let start = (p.x, p.y);
-            let start_cell = p.cell();
-            let on = self.map.get(start_cell.0, start_cell.1);
-            let dist = p.move_speed(self.tick, self.weather_slow(), self.tuning.raw.gas_bomb.movement_multiplier) * DT;
-            // On ice you can't stop: letting go keeps you sliding until you
-            // steer, hit something or reach the end of the ice.
-            if !jumped && !dashed && dir == 0 && on == Tile::Ice && p.moving && p.slide_dir != 0 {
-                dir = p.slide_dir;
-            }
-            let ghost = p.ghost(self.tick);
-            let (mut x, mut y) = start;
-            let mut used = dir;
-            {
-                let map = &self.map;
-                let bomb_grid = &self.bomb_grid;
-                // A bomb blocks unless it's in the cell the player stands in,
-                // which lets players walk off a bomb they just dropped. Ghosts
-                // pass through crates (not through builders' walls).
-                let blocked = |cx: i32, cy: i32| {
-                    let t = map.get(cx, cy);
-                    (t == Tile::Wall || t == Tile::Built || (!ghost && t.is_breakable()))
-                        || ((cx, cy) != start_cell && bomb_grid[map.idx(cx, cy)] != 0)
-                };
-                if dir != 0 {
-                    step_move(&mut x, &mut y, dir, dist, blocked);
-                }
-                // Turn buffering: if the newest direction is blocked, keep
-                // going the way the still-held older key points until the
-                // turn opens up.
-                if (x, y) == start && alt != 0 && alt != dir {
-                    step_move(&mut x, &mut y, alt, dist, blocked);
-                    used = alt;
-                }
-                // Conveyors carry whoever stands on them.
-                let belt = on.conveyor_dir();
-                if belt != 0 && !jumped && !dashed {
-                    step_move(&mut x, &mut y, belt, CONVEYOR_SPEED * DT, blocked);
-                }
-            }
-            let p = self.players.get_mut(&id).unwrap();
-            let walked = (x, y) != start;
-            p.moving = walked || dashed;
-            if walked && used != 0 {
-                p.facing = used;
-                p.slide_dir = used;
-            } else if dir != 0 {
-                p.facing = dir;
-            }
-            p.x = x;
-            p.y = y;
+            let stunned = self.players[&id].stunned_until > self.tick;
+            let dir = self.walk(id, &inputs[..steps], special, dashed, stunned);
+            let p = &self.players[&id];
             let (mut cx, mut cy) = p.cell();
 
             // Teleporters: stepping onto a pad's centre moves you to its twin.
@@ -154,6 +111,119 @@ impl World {
         if self.players.get(&id).is_some_and(|p| p.alive) {
             self.record_history(id, bombed);
         }
+    }
+
+    /// Walks player `id` once per input step (`inputs`: held direction and
+    /// fallback), with ice, turn buffering and conveyors, like the client's
+    /// prediction does per step. Returns the direction of the last step.
+    fn walk(&mut self, id: u32, inputs: &[(u8, u8)], special: bool, dashed: bool, stunned: bool) -> u8 {
+        let me = &self.players[&id];
+        let dist = me.move_speed(self.tick, self.weather_slow(), self.tuning.raw.gas_bomb.movement_multiplier) * DT;
+        let ghost = me.ghost(self.tick);
+        let (mut x, mut y) = (me.x, me.y);
+        let (mut moving, mut slide, mut facing) = (me.moving, me.slide_dir, me.facing);
+        let mut dir = 0;
+        // One walk per input step, exactly like the client predicts it.
+        for &(step_dir, alt) in inputs {
+            dir = if special || stunned { 0 } else { step_dir };
+            let alt = if special || stunned { 0 } else { alt };
+            let start = (x, y);
+            let start_cell = (x.floor() as i32, y.floor() as i32);
+            let on = self.map.get(start_cell.0, start_cell.1);
+            // On ice you can't stop: letting go keeps you sliding until you
+            // steer, hit something or reach the end of the ice.
+            if !special && dir == 0 && on == Tile::Ice && moving && slide != 0 {
+                dir = slide;
+            }
+            let mut used = dir;
+            let map = &self.map;
+            let bomb_grid = &self.bomb_grid;
+            // A bomb blocks unless it's in the cell the player stands in,
+            // which lets players walk off a bomb they just dropped. Ghosts
+            // pass through crates (not through builders' walls).
+            let blocked = |cx: i32, cy: i32| {
+                let t = map.get(cx, cy);
+                (t == Tile::Wall || t == Tile::Built || (!ghost && t.is_breakable()))
+                    || ((cx, cy) != start_cell && bomb_grid[map.idx(cx, cy)] != 0)
+            };
+            if dir != 0 {
+                step_move(&mut x, &mut y, dir, dist, blocked);
+            }
+            // Turn buffering: if the newest direction is blocked, keep
+            // going the way the still-held older key points until the
+            // turn opens up.
+            if (x, y) == start && alt != 0 && alt != dir {
+                step_move(&mut x, &mut y, alt, dist, blocked);
+                used = alt;
+            }
+            // Conveyors carry whoever stands on them.
+            let belt = on.conveyor_dir();
+            if belt != 0 && !special {
+                step_move(&mut x, &mut y, belt, CONVEYOR_SPEED * DT, blocked);
+            }
+            let walked = (x, y) != start;
+            moving = walked || dashed;
+            if walked && used != 0 {
+                facing = used;
+                slide = used;
+            } else if dir != 0 {
+                facing = dir;
+            }
+        }
+        let me = self.players.get_mut(&id).unwrap();
+        (me.x, me.y, me.moving, me.slide_dir, me.facing) = (x, y, moving, slide, facing);
+        dir
+    }
+
+    /// How many walking steps player `id` takes this tick, and the input of
+    /// each. A client sends one input per 20 Hz step of its own clock and
+    /// predicts one walk per input, so the server walks once per *new*
+    /// input too: none when nothing arrived this tick, two when two arrived
+    /// together (the earlier one from `prev_input`). Otherwise jitter makes
+    /// the server walk a tick more or less than the player saw, and they
+    /// get pulled back or pushed on after letting go of the keys.
+    ///
+    /// Bots, tests holding one input (`input_lockstep` off) and hops or
+    /// dashes (`special`, which take the whole tick) keep one step a tick.
+    /// `step_credit` stops a client walking faster than one step a tick on
+    /// average; a backlog it can't catch up on is dropped.
+    fn take_steps(&mut self, id: u32, special: bool) -> (usize, [(u8, u8); 2]) {
+        const MAX_PER_TICK: u16 = 2;
+        const CREDIT_CAP: u8 = 5;
+        const MAX_BACKLOG: u16 = 6;
+        let lockstep = self.input_lockstep;
+        let p = self.players.get_mut(&id).unwrap();
+        let now = [(p.input_dir, p.input_alt); 2];
+        if !lockstep || p.link.is_none() {
+            return (1, now);
+        }
+        if !p.stepping {
+            // The first input: start counting from here.
+            (p.stepping, p.applied_seq, p.step_credit) = (true, p.input_seq.wrapping_sub(1), 0);
+        }
+        p.step_credit = (p.step_credit + 1).min(CREDIT_CAP);
+        let mut pending = p.input_seq.wrapping_sub(p.applied_seq);
+        if pending > MAX_BACKLOG {
+            // Far behind (or a clock running fast): skip to the newest step.
+            p.applied_seq = p.input_seq.wrapping_sub(1);
+            pending = 1;
+        }
+        let cap = if special { 1 } else { MAX_PER_TICK };
+        let steps = pending.min(cap).min(u16::from(p.step_credit));
+        if special {
+            // A hop or dash goes ahead regardless; it uses up one input step.
+            p.applied_seq = p.applied_seq.wrapping_add(steps);
+            p.step_credit -= steps as u8;
+            return (1, now);
+        }
+        let first = p.applied_seq.wrapping_add(1);
+        let mut inputs = now;
+        if steps == 2 && p.prev_input.2 == first {
+            inputs[0] = (p.prev_input.0, p.prev_input.1);
+        }
+        p.applied_seq = p.applied_seq.wrapping_add(steps);
+        p.step_credit -= steps as u8;
+        (usize::from(steps), inputs)
     }
 
     /// Brings a dead player back: anywhere safe, or near their own base in

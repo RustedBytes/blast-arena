@@ -67,8 +67,18 @@ pub struct Player {
     pub jump_left: u8,
     /// No new jump before this tick.
     pub jump_ready_at: u64,
-    /// Sequence number of the newest input applied, echoed for prediction.
+    /// Sequence number of the newest input received.
     pub input_seq: u16,
+    /// The input of the step before `input_seq` (dir, alt, seq).
+    pub prev_input: (u8, u8, u16),
+    /// Sequence number of the newest input step walked, echoed for
+    /// prediction (see `World::take_steps`).
+    pub applied_seq: u16,
+    /// Steps a client may still catch up on: one more per tick, capped, so
+    /// bunched-up inputs are walked late but nobody walks faster.
+    pub step_credit: u8,
+    /// `applied_seq` tracks a client's steps (false until its first input).
+    pub stepping: bool,
     /// Newest snapshot tick the client says it has decoded (0 = none).
     pub snap_ack: u32,
     /// Bomb / action / emote presses seen so far from the input slot.
@@ -186,6 +196,10 @@ impl Player {
             jump_left: 0,
             jump_ready_at: 0,
             input_seq: 0,
+            prev_input: (0, 0, 0),
+            applied_seq: 0,
+            step_credit: 0,
+            stepping: false,
             snap_ack: 0,
             bomb_presses: 0,
             act_presses: 0,
@@ -251,6 +265,12 @@ impl Player {
             portal_ready_at: 0,
             history: History::default(),
         }
+    }
+
+    /// The input sequence number snapshots echo: the newest step walked.
+    #[must_use]
+    pub fn ack_seq(&self) -> u16 {
+        if self.stepping { self.applied_seq } else { self.input_seq }
     }
 
     #[must_use]

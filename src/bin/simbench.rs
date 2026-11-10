@@ -94,12 +94,15 @@ fn main() {
                 joined += 1;
             }
         }
-        // Simulated humans: change direction now and then, sometimes bomb.
+        // Simulated humans: one input per step (like the real client),
+        // changing direction now and then, sometimes bombing.
         for (input, _, _) in &clients {
             let r = next();
+            let (mut d, mut s, _, _) = input.dirs();
             if r % 10 == 0 {
-                input.set_dirs((r >> 8) as u8 % 5, (r >> 16) as u8 % 5, false, t as u16);
+                (d, s) = ((r >> 8) as u8 % 5, (r >> 16) as u8 % 5);
             }
+            input.set_dirs(d, s, false, t as u16);
             if r % 97 == 0 {
                 input.press_bomb();
             }

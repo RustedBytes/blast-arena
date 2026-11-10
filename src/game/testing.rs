@@ -29,7 +29,10 @@ pub fn plain_join(name: &str) -> JoinRequest {
 #[cfg(test)]
 #[must_use]
 pub fn test_world(map: Map) -> World {
-    World::with_map(map, Rng::new(3), 64)
+    let mut w = World::with_map(map, Rng::new(3), 64);
+    // Tests hold one input for many ticks instead of sending one per step.
+    w.input_lockstep = false;
+    w
 }
 
 #[cfg(test)]

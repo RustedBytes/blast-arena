@@ -539,6 +539,79 @@ fn input_sequence_is_echoed_for_prediction() {
     assert_eq!(me_obj(&snap)["ack"], 4242);
 }
 
+/// A lockstep world with one client at (1, 1) on an open 21x21 map, and
+/// its input slot.
+fn lockstep_world() -> (World, u32, Arc<link::InputSlot>) {
+    let mut w = test_world(Map::empty(21, 21));
+    w.input_lockstep = true;
+    let id = w.spawn_test_player(1.5, 1.5);
+    let input = w.players[&id].link.as_ref().unwrap().input.clone();
+    (w, id, input)
+}
+
+/// Plays `script` (one held (dir, alt) per client step) with the steps
+/// delivered `per_tick[t]` at a time, then idles; the final position.
+fn play_steps(script: &[(u8, u8)], per_tick: &[usize]) -> (f32, f32, bool) {
+    let (mut w, id, input) = lockstep_world();
+    let mut seq = 0u16;
+    let mut sent = 0;
+    for &n in per_tick.iter().chain(std::iter::repeat_n(&1, script.len() + 20)) {
+        for _ in 0..n {
+            let (d, a) = script.get(sent).copied().unwrap_or((0, 0));
+            seq = seq.wrapping_add(1);
+            input.set_dirs(d, a, false, seq);
+            sent += 1;
+        }
+        w.step();
+    }
+    let p = &w.players[&id];
+    (p.x, p.y, p.ack_seq() == seq)
+}
+
+#[test]
+fn lockstep_jitter_lands_where_a_steady_connection_does() {
+    // Right along row 1, then down column 5, then let go.
+    let mut script = vec![(2, 0); 23];
+    script.extend([(3, 2); 12]);
+    let steady = play_steps(&script, &[1; 40]);
+    // The same steps through a jittery connection: gaps and bunches,
+    // including a bunched pair right at the turn.
+    let jitter = [1, 0, 2, 1, 1, 0, 0, 3, 1, 2, 0, 1, 1, 1, 0, 2, 1, 1, 0, 2, 1, 0, 1, 2, 1, 1, 0, 2, 1, 1];
+    let jittered = play_steps(&script, &jitter);
+    assert!((steady.0 - jittered.0).abs() < 1e-4 && (steady.1 - jittered.1).abs() < 1e-4, "steady {steady:?} vs jittered {jittered:?}");
+    assert!(steady.2 && jittered.2, "every step walked and acknowledged");
+    assert!(steady.1 > 3.0, "the turn happened: {steady:?}");
+}
+
+#[test]
+fn lockstep_flooding_inputs_is_no_faster() {
+    let (mut w, id, input) = lockstep_world();
+    let mut seq = 0u16;
+    for _ in 0..20 {
+        seq = seq.wrapping_add(5); // five "steps" a tick
+        input.set_dirs(2, 0, false, seq);
+        w.step();
+    }
+    let x = w.players[&id].x;
+    let dist = w.players[&id].speed(w.tick) * DT;
+    assert!(x - 1.5 <= dist * 26.0, "walked {} tiles in 20 ticks", x - 1.5);
+}
+
+#[test]
+fn lockstep_ack_is_the_newest_step_walked() {
+    let (mut w, id, input) = lockstep_world();
+    input.set_dirs(2, 0, false, 10);
+    w.step();
+    w.step(); // a late packet: nothing this tick...
+    input.set_dirs(2, 0, false, 11);
+    input.set_dirs(2, 0, false, 12);
+    input.set_dirs(2, 0, false, 13); // ...then three at once: two walked
+    w.step();
+    assert_eq!(me_obj(&w.full_snapshot(id))["ack"], 12);
+    w.step(); // nothing new arrived: the third is walked now
+    assert_eq!(me_obj(&w.full_snapshot(id))["ack"], 13);
+}
+
 #[test]
 fn delta_snapshots_rebuild_the_full_picture() {
     let mut rng = Rng::new(21);
