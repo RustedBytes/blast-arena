@@ -152,4 +152,8 @@ fn main() {
         "game:        {} deaths, {} crates, {} items, {} secret boxes",
         s.deaths, s.crates_destroyed, s.items_picked, s.mysteries_opened
     );
+    println!(
+        "abilities:   {} dashes, {} clones, {} portal pairs, {} teleports, {} sticky hits, {} gas ignitions, {} events",
+        s.dashes, s.clones, s.portal_pairs, s.teleports, s.sticky_attached, s.gas_ignitions, s.ability_events
+    );
 }

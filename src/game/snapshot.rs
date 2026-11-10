@@ -2,9 +2,10 @@
 
 use bytes::{Bytes, BytesMut};
 
-use crate::protocol::{self, MeState, Wire};
+use crate::protocol::{self, MeState, Wire, snap};
 
 use super::bomb::NUKE_RADIUS;
+use super::clone::{F_DASHING, F_JUMPING, F_MOVING};
 use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
 use super::{BUCKET, LEADERBOARD_EVERY, World};
@@ -63,14 +64,16 @@ impl World {
         // What the client should see now, sorted by id for diffing.
         cur.players.clear();
         cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).map(|o| {
-            let flags = u8::from(o.moving)
-                | u8::from(o.invulnerable_until > tick) << 1
-                | u8::from(o.curse(tick).0 != 0) << 2
-                | u8::from(o.ghost(tick)) << 3
-                | u8::from(o.bounty) << 4
-                | u8::from(o.jump_left > 0) << 5
-                | u8::from(o.stunned_until > tick) << 6
-                | u8::from(o.carrying != 0) << 7;
+            let flags = u16::from(o.moving)
+                | u16::from(o.invulnerable_until > tick) << 1
+                | u16::from(o.curse(tick).0 != 0) << 2
+                | u16::from(o.ghost(tick)) << 3
+                | u16::from(o.bounty) << 4
+                | u16::from(o.jump_left > 0) << 5
+                | u16::from(o.stunned_until > tick) << 6
+                | u16::from(o.carrying != 0) << 7
+                | u16::from(o.dashing()) << 8
+                | u16::from(o.gassed_until > tick) << 9;
             (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
         }));
         cur.players.sort_unstable_by_key(|e| e.0);
@@ -91,13 +94,14 @@ impl World {
                     // The absolute detonation tick never changes, so a resting
                     // bomb is identical from one snapshot to the next.
                     let at = if b.remote { 0 } else { b.explode_at };
-                    let flags = u8::from(b.pierce)
-                        | u8::from(b.remote) << 1
-                        | u8::from(b.nuke) << 2
-                        | u8::from(b.freeze) << 3
-                        | u8::from(b.rocket) << 4;
-                    cur.bombs.push((id, x, y, at, flags));
+                    cur.bombs.push((id, x, y, at, bomb_flags(b)));
                 }
+            }
+        }
+        // Sticky bombs riding on players in view.
+        for &bid in &self.sticky {
+            if let Some(b) = self.bombs.get(&bid).filter(|b| b.attached != 0 && b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) {
+                cur.bombs.push((bid, b.x, b.y, if b.remote { 0 } else { b.explode_at }, bomb_flags(b)));
             }
         }
         // Your own (and your team's) hidden mines, flagged 32 and fuseless.
@@ -109,7 +113,7 @@ impl World {
         }
         cur.bombs.sort_unstable_by_key(|e| e.0);
 
-        cur.me = me_state(p, tick, spectating.map(|k| k.id), self.blizzard_until, self.storm_limit());
+        cur.me = self.me_state(p, spectating.map(|k| k.id));
 
         // Delta against the newest snapshot the client confirmed, if we
         // still remember it; otherwise a full snapshot (a delta from nothing).
@@ -152,7 +156,7 @@ impl World {
                 }
             }
             n
-        });
+        }, |w| self.write_extra(w, (x0, y0, x1, y1)));
         hist.record(tick, cur);
         protocol::finish(arena)
     }
@@ -240,6 +244,117 @@ impl World {
     }
 }
 
+/// Flags of a bomb as sent: pierce, remote, nuke, freeze, rocket, (mine),
+/// sticky, gas.
+fn bomb_flags(b: &super::bomb::Bomb) -> u8 {
+    u8::from(b.pierce)
+        | u8::from(b.remote) << 1
+        | u8::from(b.nuke) << 2
+        | u8::from(b.freeze) << 3
+        | u8::from(b.rocket) << 4
+        | u8::from(b.sticky) << 6
+        | u8::from(b.gas) << 7
+}
+
+impl World {
+    /// The `EXTRA` section: ability objects in view (gas clouds, portals,
+    /// clones, decoy bombs, who carries which sticky bomb). Returns whether
+    /// it wrote anything.
+    fn write_extra(&self, w: &mut Wire<'_>, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> bool {
+        let tick = self.tick;
+        let inside = |x: i32, y: i32, m: i32| x >= x0 - m && x <= x1 + m && y >= y0 - m && y <= y1 + m;
+        let reach = i32::from(MAX_RANGE);
+        let gas = || self.gas.iter().filter(|c| inside(c.x, c.y, reach));
+        let portals = || self.portals.iter().filter(|p| inside(p.x, p.y, 0));
+        let clones = || self.clones.iter().filter(|c| inside(c.x as i32, c.y as i32, 1));
+        let decoys = || self.decoys.iter().filter(|d| inside(d.x, d.y, 0));
+        let stuck = || self.sticky.iter().filter_map(|id| self.bombs.get(id)).filter(|b| b.attached != 0 && inside(b.x, b.y, 0));
+        let mut parts = 0;
+        for (n, bit) in [
+            (gas().count(), snap::GAS),
+            (portals().count(), snap::PORTALS),
+            (clones().count(), snap::CLONES),
+            (decoys().count(), snap::DECOYS),
+            (stuck().count(), snap::STUCK),
+        ] {
+            if n > 0 {
+                parts |= bit;
+            }
+        }
+        if parts == 0 {
+            return false;
+        }
+        w.u8(parts);
+        if parts & snap::GAS != 0 {
+            w.len(gas().count());
+            for c in gas() {
+                let a = c.arms.map(|r| r.min(15));
+                w.id(c.id).coord(c.x).coord(c.y).u8(a[0] | a[1] << 4).u8(a[2] | a[3] << 4).uvar(c.until.saturating_sub(tick));
+            }
+        }
+        if parts & snap::PORTALS != 0 {
+            w.len(portals().count());
+            for p in portals() {
+                w.id(p.id).coord(p.x).coord(p.y).id(p.owner).id(p.partner).uvar(p.until.saturating_sub(tick));
+            }
+        }
+        if parts & snap::CLONES != 0 {
+            w.len(clones().count());
+            for c in clones() {
+                let flags = u64::from(c.flags & F_MOVING != 0) | u64::from(c.flags & F_JUMPING != 0) << 5 | u64::from(c.flags & F_DASHING != 0) << 8;
+                w.id(c.id).id(c.owner).ivar(i64::from((c.x * 100.0) as i32)).ivar(i64::from((c.y * 100.0) as i32)).uvar(u64::from(c.facing & 7) | flags << 3);
+            }
+        }
+        if parts & snap::DECOYS != 0 {
+            w.len(decoys().count());
+            for d in decoys() {
+                w.id(d.id).coord(d.x).coord(d.y).ivar(d.fuse_at as i64 - tick as i64);
+            }
+        }
+        if parts & snap::STUCK != 0 {
+            w.len(stuck().count());
+            for b in stuck() {
+                w.id(b.id).id(b.attached);
+            }
+        }
+        true
+    }
+
+    /// The player's own state in `protocol::ME_FIELDS` order.
+    fn me_state(&self, p: &Player, spectating: Option<u32>) -> MeState {
+        let tick = self.tick;
+        let base = me_state(p, tick, spectating, self.blizzard_until, self.storm_limit());
+        let t = |v: u64| v as i64;
+        // The soonest sticky bomb riding on this player: its fuse + 1.
+        let stuck = self
+            .sticky
+            .iter()
+            .filter_map(|id| self.bombs.get(id))
+            .filter(|b| b.attached == p.id)
+            .map(|b| b.explode_at.saturating_sub(tick) + 1)
+            .min()
+            .unwrap_or(0);
+        let portal_wait = self.pending_portal(p.id).map_or(0, |k| self.portals[k].until.saturating_sub(tick));
+        let mut me = [0; protocol::ME_LEN];
+        me[..base.len()].copy_from_slice(&base);
+        me[base.len()..].copy_from_slice(&[
+            i64::from(p.ability),
+            i64::from(p.ability_n),
+            i64::from(p.ability_max),
+            t(p.ability_recharge_at.saturating_sub(tick)),
+            i64::from(p.gas_bombs),
+            i64::from(p.sticky_bombs),
+            t(stuck),
+            i64::from(p.detach_ticks),
+            t(p.gassed_until.saturating_sub(tick)),
+            i64::from(p.dash_left),
+            i64::from(p.dash_dir),
+            t(portal_wait),
+        ]);
+        me
+    }
+}
+
 /// Respawn ticks sent for a player out until the next royale match.
 const OUT_OF_MATCH: u64 = 1_000_000;
 
@@ -248,8 +363,10 @@ const _: () = assert!(NUKE_RADIUS <= MAX_RANGE, "explosions are sent to clients 
 /// First arm byte of an atomic blast in the flames section.
 pub const NUKE_MARK: u8 = 0xFF;
 
-/// The player's own state in `protocol::ME_FIELDS` order.
-fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64, storm_max: u16) -> MeState {
+/// The first `BASE_ME_LEN` values of the player's own state.
+const BASE_ME_LEN: usize = 35;
+
+fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64, storm_max: u16) -> [i64; BASE_ME_LEN] {
     let (curse, curse_t) = p.curse(tick);
     let opt_id = |v: Option<u32>| v.map_or(0, |v| i64::from(v) + 1);
     let t = |v: u64| v as i64;

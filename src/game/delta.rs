@@ -4,7 +4,7 @@
 use crate::protocol::{ME_LEN, MeState, Wire, snap};
 
 /// A player as a client sees it: id, x*100, y*100, facing, flags.
-pub(super) type PlayerEntry = (u32, i32, i32, u8, u8);
+pub(super) type PlayerEntry = (u32, i32, i32, u8, u16);
 /// A bomb as a client sees it: id, x, y, detonation tick (0 = remote), flags.
 pub(super) type BombEntry = (u32, i32, i32, u64, u8);
 pub(super) const SNAP_HISTORY: usize = 32;
@@ -111,7 +111,7 @@ fn gone<'a, E: Keyed>(cur: &'a [E], base: &'a [E]) -> impl Iterator<Item = u32> 
     matched(base, cur).filter(|(_, c)| c.is_none()).map(|(b, _)| b.key())
 }
 
-/// Facing (0..=4) and flags (6 bits), sent as a varint.
+/// Facing (0..=4) and flags, sent as a varint.
 fn look(e: &PlayerEntry) -> u64 {
     u64::from(e.3 & 7) | u64::from(e.4) << 3
 }
@@ -127,6 +127,7 @@ pub(super) fn write_delta(
     base: &Base<'_>,
     flames: impl Fn(&mut Wire<'_>) -> usize,
     drones: impl Fn(&mut Wire<'_>) -> usize,
+    extra: impl Fn(&mut Wire<'_>) -> bool,
 ) {
     let np = changed(&cur.players, base.players).count();
     let npg = gone(&cur.players, base.players).count();
@@ -196,6 +197,9 @@ pub(super) fn write_delta(
     }
     if drones(w) > 0 {
         w.0[mask_at] |= snap::DRONES;
+    }
+    if extra(w) {
+        w.0[mask_at] |= snap::EXTRA;
     }
     if me_mask != 0 {
         w.uvar(me_mask);

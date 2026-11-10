@@ -16,9 +16,12 @@ use tokio::sync::{Notify, mpsc};
 #[derive(Default)]
 pub struct InputSlot {
     /// Bits 0..3 held direction, bits 3..6 fallback direction, bit 6 jump
-    /// held, bits 16..32 the client's input sequence number (echoed back
-    /// for prediction).
+    /// held, bit 7 detach held, bits 16..32 the client's input sequence
+    /// number (echoed back for prediction).
     dirs: AtomicU32,
+    /// Running counts of ability-key and cancel-key presses.
+    abilities: AtomicU32,
+    cancels: AtomicU32,
     /// Running count of bomb presses.
     bombs: AtomicU32,
     /// Running count of action-key presses (remote detonation, punch).
@@ -38,6 +41,9 @@ pub fn pack_dirs(dir: u8, alt: u8, jump: bool, seq: u16) -> u32 {
     u32::from(dir.min(4)) | u32::from(alt.min(4)) << 3 | u32::from(jump) << 6 | u32::from(seq) << 16
 }
 
+/// Bit of the packed directions saying the detach key is held.
+const DETACH_BIT: u32 = 128;
+
 /// (direction, fallback direction, jump held, sequence number).
 #[must_use]
 pub fn unpack_dirs(v: u32) -> (u8, u8, bool, u16) {
@@ -51,6 +57,32 @@ impl InputSlot {
 
     pub fn dirs(&self) -> (u8, u8, bool, u16) {
         unpack_dirs(self.dirs.load(Relaxed))
+    }
+
+    /// Like `set_dirs`, plus whether the detach key is held.
+    pub fn set_input(&self, dir: u8, alt: u8, jump: bool, detach: bool, seq: u16) {
+        self.dirs.store(pack_dirs(dir, alt, jump, seq) | if detach { DETACH_BIT } else { 0 }, Relaxed);
+    }
+
+    /// The detach key (shaking off a sticky bomb) is held.
+    pub fn detach_held(&self) -> bool {
+        self.dirs.load(Relaxed) & DETACH_BIT != 0
+    }
+
+    pub fn press_ability(&self) {
+        self.abilities.fetch_add(1, Relaxed);
+    }
+
+    pub fn ability_presses(&self) -> u32 {
+        self.abilities.load(Relaxed)
+    }
+
+    pub fn press_cancel(&self) {
+        self.cancels.fetch_add(1, Relaxed);
+    }
+
+    pub fn cancel_presses(&self) -> u32 {
+        self.cancels.load(Relaxed)
     }
 
     pub fn press_bomb(&self) {

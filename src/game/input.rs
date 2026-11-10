@@ -26,6 +26,17 @@ impl World {
                 p.gadget_presses = gadgets;
                 p.want_gadget = true;
             }
+            p.input_detach = link.input.detach_held();
+            let abilities = link.input.ability_presses();
+            if abilities != p.ability_presses {
+                p.ability_presses = abilities;
+                p.want_ability = true;
+            }
+            let cancels = link.input.cancel_presses();
+            if cancels != p.cancel_presses {
+                p.cancel_presses = cancels;
+                p.want_cancel = true;
+            }
             let acts = link.input.act_presses();
             if acts != p.act_presses {
                 p.act_presses = acts;

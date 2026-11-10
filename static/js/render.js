@@ -9,7 +9,11 @@ import { t } from './i18n.js';
 import { FRINGE_RANK } from './pixelart.js';
 import { hopHeight } from './prediction.js';
 
-export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9;
+export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9, T_BUILT = 10;
+// Ability objects (src/game/abilities.rs): portal pair colours by owner,
+// particle colours for gas and dashes.
+const PORTAL_COLORS = ['#4ad0ff', '#ff9a3a', '#b07aff', '#4affc8', '#ff5ad0', '#ffe14a'];
+const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16;
 const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
 // Rotation for flame arms / conveyors, indexed by direction code - 1.
 const ARM_ANGLES = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
@@ -28,7 +32,7 @@ const MINIMAP_MS = 250;     // minimap overlay refresh period
 // Item halo colour by rarity.
 const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08bff', '#ffd34a', '#ff7af0',
   '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff', '#9dff5a', '#bff4ff', '#ff9a6a', '#ffb02e', '#e08bff', '#ffd34a',
-  '#7fd0ff', '#ff7af0'];
+  '#7fd0ff', '#ff7af0', '#ffb347', '#9be04a', '#7fd0ff', '#ff7ad9', '#b07aff', '#4affc8'];
 const TEAM_COLORS = ['#ffd34a', '#ff5a4a', '#5aa0ff'];
 // Map events (src/game/events.rs): meteor warning, and kinds as announced.
 const METEOR_WARN_MS = 1500;
@@ -123,6 +127,8 @@ export class Renderer {
     this.weather = null; // { kind, start, end } current map event
     this.snow = null; // blizzard flakes (x, y in 0..1, speed)
     this.dronePrev = new Map();
+    this.clonePrev = new Map();
+    this.stuckBy = new Map(); // bomb id -> carrier id (this frame)
     this.replaying = false;
     this.specials = []; // [x, y, tile] of animated tiles (conveyors, pads)
     this.highContrast = false;
@@ -131,9 +137,9 @@ export class Renderer {
     this.tileStyle = 'pixel';
     // Pooled frame data, reused every frame.
     this.frame = {
-      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0, stunned: false, carrying: false })),
+      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0, stunned: false, carrying: false, dashing: false, gassed: false, clone: 0 })),
       nPlayers: 0,
-      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, dx: 0, dy: 0 })),
+      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, sticky: false, gas: false, carrier: 0, dx: 0, dy: 0 })),
       nBombs: 0,
       drones: Array.from({ length: 64 }, () => ({ id: 0, x: 0, y: 0, team: 0 })),
       nDrones: 0,
@@ -283,7 +289,7 @@ export class Renderer {
     const tileAt = (x, y) => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
     const raised = (x, y) => {
       const t = tileAt(x, y);
-      return t === T_WALL || t === T_CRATE || t === T_ARMORED;
+      return t === T_WALL || t === T_CRATE || t === T_ARMORED || t === T_BUILT;
     };
     const P = CHUNK_PX;
     g.fillStyle = '#1b2a17';
@@ -318,6 +324,7 @@ export class Renderer {
         else if (t === T_ICE) s = sprite('ice');
         else if (t === T_TELEPORT) s = sprite('teleport');
         if (s) g.drawImage(s, px, py, P, P);
+        if (t === T_BUILT) paintBuiltWall(g, px, py, P, pix !== null);
         const belt = CONVEYOR_DIR[t];
         if (belt) {
           g.save();
@@ -338,7 +345,7 @@ export class Renderer {
           const mask = (raised(x, y - 1) ? 1 : 0) | (raised(x - 1, y) ? 2 : 0) | (raised(x - 1, y - 1) ? 4 : 0);
           if (mask) g.drawImage(pix.shadows[mask], px, py, P, P);
         }
-        if (this.highContrast && (t === T_CRATE || t === T_ARMORED || t === T_WALL)) {
+        if (this.highContrast && (t === T_CRATE || t === T_ARMORED || t === T_WALL || t === T_BUILT)) {
           g.strokeStyle = t === T_WALL ? '#000' : '#fff';
           g.lineWidth = 4;
           g.strokeRect(px + 2, py + 2, P - 4, P - 4);
@@ -688,13 +695,14 @@ export class Renderer {
       if (age >= DECAL_LIFE || age < 0) continue; // (an atomic blast schedules marks ahead)
       const x = this.decalX[i], y = this.decalY[i];
       const t = map.tiles[y * map.w + x];
-      if (t === T_WALL || t === T_CRATE || t === T_ARMORED) continue;
+      if (t === T_WALL || t === T_CRATE || t === T_ARMORED || t === T_BUILT) continue;
       ctx.globalAlpha = 0.7 * (1 - age / DECAL_LIFE);
       ctx.drawImage(scorch, x * T - camX, y * T - camY, T, T);
     }
     ctx.globalAlpha = 1;
 
     this.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
+    this.drawPortals(state, camX, camY, T, sec);
     const inZone = this.drawNukeZones(state, f, camX, camY, T, sec);
     /** The atomic bomb whose zone the local player is in (for the alerts), or null. */
     this.inNukeZone = inZone;
@@ -702,6 +710,7 @@ export class Renderer {
     this.drawBombs(f, camX, camY, T, sec, dt);
     this.drawExplosions(state.explosions, camX, camY, T);
     this.drawNukeGround(now, camX, camY, T);
+    this.drawGas(state, camX, camY, T, sec, dt);
 
     // Players back to front (insertion sort on the pooled slice: no garbage).
     const ps = f.players;
@@ -712,6 +721,7 @@ export class Renderer {
       ps[j + 1] = p;
     }
     for (let i = 0; i < f.nPlayers; i++) this.drawPlayer(ps[i], camX, camY, T, sec, dt, state);
+    this.drawStuckBombs(f, camX, camY, T, sec);
 
     this.particles.pixel = this.tileStyle === 'pixel';
     this.particles.draw(ctx, camX, camY, T);
@@ -848,11 +858,107 @@ export class Renderer {
     }
   }
 
+  /**
+   * Portal pairs: a swirling ring in the pair's colour (by owner), dashed
+   * and dim while the first one waits for its partner, flickering as the
+   * pair runs out. Shape and motion, not just colour, tell them apart.
+   */
+  drawPortals(state, camX, camY, T, sec) {
+    const portals = state.snaps.latest()?.x?.portals;
+    if (!portals?.length) return;
+    const { ctx } = this;
+    for (const [, x, y, owner, partner, left] of portals) {
+      const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
+      const color = PORTAL_COLORS[owner % PORTAL_COLORS.length];
+      const active = partner !== 0;
+      const fading = left < 60 && Math.floor(sec * 8) % 2 === 0;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.globalAlpha = active ? (fading ? 0.55 : 1) : 0.55;
+      ctx.fillStyle = 'rgba(8,10,30,0.75)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, T * 0.38, T * 0.44, 0, 0, 6.2832);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = T * 0.08;
+      if (!active) ctx.setLineDash([T * 0.1, T * 0.08]);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, T * 0.38, T * 0.44, 0, 0, 6.2832);
+      ctx.stroke();
+      if (active) {
+        // A spiral turning inwards.
+        ctx.rotate(sec * 3);
+        ctx.lineWidth = T * 0.04;
+        ctx.beginPath();
+        for (let k = 0; k < 24; k++) {
+          const a = k * 0.5, r = T * 0.32 * (1 - k / 26);
+          if (k === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Gas clouds: drifting green puffs over every cell, thinning as they fade. */
+  drawGas(state, camX, camY, T, sec, dt) {
+    const clouds = state.snaps.latest()?.x?.gas;
+    if (!clouds?.length) return;
+    const { ctx } = this;
+    for (const [id, x, y, arms, left] of clouds) {
+      const fade = Math.min(1, left / 15);
+      const cell = (cx, cy, k) => {
+        const px = (cx + 0.5) * T - camX, py = (cy + 0.5) * T - camY;
+        const wob = Math.sin(sec * 1.7 + k * 1.3 + id) * T * 0.06;
+        ctx.globalAlpha = 0.5 * fade;
+        ctx.fillStyle = '#6fb02f';
+        ctx.beginPath();
+        ctx.arc(px + wob, py - wob, T * 0.62, 0, 6.2832);
+        ctx.fill();
+        ctx.globalAlpha = 0.35 * fade;
+        ctx.fillStyle = '#c8ff8a';
+        ctx.beginPath();
+        ctx.arc(px - wob * 1.5, py + wob, T * 0.32, 0, 6.2832);
+        ctx.fill();
+        if (Math.random() < dt * 1.5) this.particles.emit(P_SMOKE, cx + Math.random(), cy + Math.random(), 0, -0.2, 1.2, 0.18, C_GAS);
+      };
+      cell(x, y, 0);
+      for (let d = 0; d < 4; d++) {
+        for (let r = 1; r <= arms[d]; r++) cell(x + ARM_DIRS[d][0] * r, y + ARM_DIRS[d][1] * r, d * 8 + r);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Sticky bombs ride on their carrier's back, fuse ring and all. */
+  drawStuckBombs(f, camX, camY, T, sec) {
+    const { ctx } = this;
+    for (let i = 0; i < f.nBombs; i++) {
+      const b = f.bombs[i];
+      if (!b.carrier) continue;
+      let who = null;
+      for (let k = 0; k < f.nPlayers; k++) if (f.players[k].id === b.carrier && !f.players[k].clone) { who = f.players[k]; break; }
+      if (!who) continue;
+      const size = T * 0.6;
+      const px = (who.x + 0.28) * T - camX, py = (who.y - 0.2) * T - camY - who.lift;
+      ctx.drawImage(this.art('bomb'), px - size / 2, py - size / 2, size, size);
+      drawGoo(ctx, px, py, size, sec);
+      // How much fuse is left, as a shrinking ring.
+      const left = Math.min(1, b.fuse / 60);
+      ctx.strokeStyle = left < 0.3 ? `rgba(255,60,30,${0.6 + 0.4 * Math.sin(sec * 30)})` : '#ff7ad9';
+      ctx.lineWidth = T * 0.06;
+      ctx.beginPath();
+      ctx.arc(px, py, size * 0.62, -Math.PI / 2, -Math.PI / 2 + left * 6.2832);
+      ctx.stroke();
+    }
+  }
+
   drawBombs(f, camX, camY, T, sec, dt) {
     const { ctx } = this;
     const pix = this.pixelArt();
     for (let i = 0; i < f.nBombs; i++) {
       const b = f.bombs[i];
+      if (b.carrier) continue; // drawn on whoever carries it (drawStuckBombs)
       const urgency = b.remote ? 0 : 1 - Math.min(1, b.fuse / (b.nuke ? NUKE_FUSE_TICKS : 50));
       const pulse = 1 + Math.sin(sec * (6 + urgency * 18)) * (0.05 + urgency * 0.06);
       const size = T * (b.nuke ? 1.15 : 0.95) * pulse;
@@ -869,6 +975,14 @@ export class Renderer {
       if (b.rocket) {
         this.drawRocket(b, px, py, T, sec);
         continue;
+      }
+      if (b.gas) {
+        // Gas bombs leak green wisps.
+        ctx.fillStyle = 'rgba(140,210,80,0.35)';
+        ctx.beginPath();
+        ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
+        ctx.fill();
+        if (Math.random() < dt * 8) this.particles.emit(P_SMOKE, b.x + 0.5, b.y + 0.4, (Math.random() - 0.5) * 0.4, -0.5, 0.9, 0.12, C_GAS);
       }
       if (b.freeze) {
         // Frosty halo around freeze bombs.
@@ -893,6 +1007,7 @@ export class Renderer {
         ctx.arc(px - size * 0.22, py - size * 0.52, T * 0.05, 0, 6.2832);
         ctx.fill();
       }
+      if (b.sticky) drawGoo(ctx, px, py, size, sec);
       if (late || this.highContrast) {
         ctx.strokeStyle = late ? `rgba(255,60,30,${0.5 + 0.5 * Math.sin(sec * 30)})` : '#fff';
         ctx.lineWidth = T * 0.05;
@@ -1534,6 +1649,24 @@ export class Renderer {
       ctx.arc(px, py - T * 0.05, T * 0.47, 0, 6.2832);
       ctx.stroke();
     }
+    if (p.dashing && Math.random() < dt * 60) {
+      // A dash leaves a streak of light.
+      this.particles.emit(P_SPARK, p.x + (Math.random() - 0.5) * 0.3, p.y + (Math.random() - 0.2) * 0.4, 0, 0, 0.3, 0.1, C_DASH);
+    }
+    if (p.gassed && Math.random() < dt * 6) {
+      this.particles.emit(P_SMOKE, p.x + (Math.random() - 0.5) * 0.5, p.y - 0.1, 0, -0.4, 0.8, 0.1, C_GAS_DARK);
+    }
+    if (p.clone && p.clone === state.myId) {
+      // Only the owner sees which one is the clone: a dashed ring.
+      ctx.save();
+      ctx.setLineDash([T * 0.08, T * 0.06]);
+      ctx.strokeStyle = 'rgba(127,208,255,0.85)';
+      ctx.lineWidth = Math.max(1.5, T * 0.035);
+      ctx.beginPath();
+      ctx.ellipse(px, py + T * 0.42, T * 0.44, T * 0.15, 0, 0, 6.2832);
+      ctx.stroke();
+      ctx.restore();
+    }
     py -= p.lift;
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
     this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites);
@@ -1827,6 +1960,7 @@ export class Renderer {
         if (t === T_WALL) { r = 120; g = 128; b = 138; }
         else if (t === T_CRATE) { r = 150; g = 100; b = 52; }
         else if (t === T_ARMORED) { r = 95; g = 80; b = 70; }
+        else if (t === T_BUILT) { r = 210; g = 120; b = 60; }
         else if (t === T_ICE) { r = 170; g = 225; b = 245; }
         else if (t === T_TELEPORT) { r = 185; g = 140; b = 255; }
         else if (CONVEYOR_DIR[t]) { r = 70; g = 74; b = 84; }
@@ -1961,6 +2095,18 @@ export class Renderer {
       const o = f.players[n++];
       setPlayer(o, q, (p[1] + (q[1] - p[1]) * t) / 100, (p[2] + (q[2] - p[2]) * t) / 100);
     }
+    // Clones look like their owners: they're drawn as players with the
+    // owner's id (name, colours, hat), interpolated by the clone's own id.
+    const cp = this.clonePrev;
+    cp.clear();
+    for (const c of a.x?.clones ?? []) cp.set(c[0], c);
+    for (const c of b.x?.clones ?? []) {
+      if (n >= POOL - 1) break;
+      const p = cp.get(c[0]) ?? c;
+      const o = f.players[n++];
+      setPlayer(o, [c[1], 0, 0, c[4], c[5]], (p[2] + (c[2] - p[2]) * alpha) / 100, (p[3] + (c[3] - p[3]) * alpha) / 100);
+      o.clone = c[1];
+    }
     if (state.me?.alive && state.mine) {
       const o = f.players[n++];
       setPlayer(o, state.mine, state.self.x, state.self.y);
@@ -1970,6 +2116,8 @@ export class Renderer {
     }
     f.nPlayers = n;
 
+    this.stuckBy.clear();
+    for (const [bid, carrier] of b.x?.stuck ?? []) this.stuckBy.set(bid, carrier);
     prev.clear();
     for (let i = 0; i < a.b.length; i++) prev.set(a.b[i][0], a.b[i]);
     let m = 0;
@@ -1988,8 +2136,22 @@ export class Renderer {
       o.freeze = (q[4] & 8) !== 0;
       o.rocket = (q[4] & 16) !== 0;
       o.mine = (q[4] & 32) !== 0;
+      o.sticky = (q[4] & 64) !== 0;
+      o.gas = (q[4] & 128) !== 0;
+      o.carrier = this.stuckBy.get(q[0]) ?? 0;
       o.dx = q[1] - p[1];
       o.dy = q[2] - p[2];
+    }
+    // A clone's decoy bombs look like real ones.
+    for (const d of b.x?.decoys ?? []) {
+      if (m >= POOL) break;
+      const o = f.bombs[m++];
+      o.x = d[1];
+      o.y = d[2];
+      o.fuse = Math.max(0, d[3]);
+      o.pierce = o.remote = o.nuke = o.freeze = o.rocket = o.mine = o.sticky = o.gas = false;
+      o.carrier = 0;
+      o.dx = o.dy = 0;
     }
     f.nBombs = m;
 
@@ -2026,6 +2188,52 @@ function setPlayer(o, q, x, y) {
   o.jumpDir = (q[4] & 32) !== 0 ? q[3] : 0;
   o.stunned = (q[4] & 64) !== 0;
   o.carrying = (q[4] & 128) !== 0;
+  o.dashing = (q[4] & 256) !== 0;
+  o.gassed = (q[4] & 512) !== 0;
+  o.clone = 0;
+}
+
+/** A builder's wall: a stack of orange bricks with mortar lines. */
+function paintBuiltWall(g, px, py, P, pixel) {
+  g.fillStyle = '#7a3a18';
+  g.fillRect(px, py, P, P);
+  const rows = 4, h = P / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = r % 2 ? P / 4 : 0;
+    for (let k = -1; k < 2; k++) {
+      const x0 = px + off + k * (P / 2), y0 = py + r * h;
+      const x1 = Math.max(px, x0 + 2), x2 = Math.min(px + P, x0 + P / 2 - 2);
+      if (x2 <= x1) continue;
+      g.fillStyle = (r + k) % 2 ? '#d9824a' : '#c46d36';
+      g.fillRect(x1, y0 + 2, x2 - x1, h - 4);
+      if (!pixel) {
+        g.fillStyle = 'rgba(255,255,255,0.18)';
+        g.fillRect(x1, y0 + 2, x2 - x1, 3);
+      }
+    }
+  }
+  g.strokeStyle = '#4a2008';
+  g.lineWidth = 3;
+  g.strokeRect(px + 1.5, py + 1.5, P - 3, P - 3);
+}
+
+/** Pink goo dripping off a sticky bomb. */
+function drawGoo(ctx, px, py, size, sec) {
+  ctx.strokeStyle = '#ff7ad9';
+  ctx.lineWidth = size * 0.07;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let k = 0; k < 3; k++) {
+    const x = px + (k - 1) * size * 0.22;
+    const len = size * (0.14 + 0.06 * Math.sin(sec * 3 + k * 2));
+    ctx.moveTo(x, py + size * 0.32);
+    ctx.lineTo(x, py + size * 0.32 + len);
+  }
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(px - size * 0.03, py + size * 0.09, size * 0.34, Math.PI * 1.1, Math.PI * 1.9);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
 }
 
 function clampCam(cam, worldPx, viewPx) {

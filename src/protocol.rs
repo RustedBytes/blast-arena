@@ -79,6 +79,10 @@ pub mod cop {
     pub const VIEW: u8 = 7;
     /// Use the held gadget.
     pub const GADGET: u8 = 8;
+    /// Use the held ability (builder, clone, portal pair, dash).
+    pub const ABILITY: u8 = 9;
+    /// Cancel a half-placed ability (the first portal of a pair).
+    pub const CANCEL: u8 = 10;
 }
 
 /// Kinds of [`op::EVENT`] messages and their values.
@@ -111,6 +115,9 @@ pub mod ev {
     pub const ROYALE: u8 = 9;
     /// A battle royale match was won: the winner's id + 1 (0 for nobody).
     pub const WINNER: u8 = 10;
+    /// An ability event: sub-kind (see `game::abilities::ab`), server
+    /// tick, then that kind's values.
+    pub const ABILITY: u8 = 11;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -124,6 +131,12 @@ pub mod ev {
 /// [FLAMES]       n, n × (x, y, u8 arm0 | arm1 << 4, u8 arm2 | arm3 << 4, ticks left)
 ///                an atomic blast is (x, y, 0xFF, u8 radius, ticks left)
 /// [DRONES]       n, n × (id, ivar x, ivar y in hundredths, u8 team)
+/// [EXTRA]        u8 parts, then each part present (sent whole, not as deltas):
+///   [GAS]        n, n × (id, x, y, u8 arm0 | arm1 << 4, u8 arm2 | arm3 << 4, ticks left)
+///   [PORTALS]    n, n × (id, x, y, owner id, partner id (0 waiting), ticks left)
+///   [CLONES]     n, n × (id, owner id, ivar x, ivar y in hundredths, look)
+///   [DECOYS]     n, n × (id, x, y, ivar fuse ticks shown)
+///   [STUCK]      n, n × (bomb id, carrier id)
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -131,7 +144,9 @@ pub mod ev {
 /// is `varint(gap << 4 | header)`, then by header bit: `NEW` gives ivar x,
 /// ivar y and the look (`varint(facing | flags << 3)`) in full; otherwise
 /// `DX`/`DY` give ivar position changes and `LOOK` a new look. Flags:
-/// moving, shield, cursed, ghost, bounty, jumping.
+/// moving, shield, cursed, ghost, bounty, jumping, stunned, carrying a
+/// flag, dashing, gassed. Bomb flags: pierce, remote, nuke, freeze, rocket,
+/// mine, sticky, gas. A clone's look is a player's: facing | flags << 3.
 /// Positions are hundredths of a tile.
 pub mod snap {
     pub const PLAYERS: u8 = 1;
@@ -141,6 +156,14 @@ pub mod snap {
     pub const FLAMES: u8 = 16;
     pub const ME: u8 = 32;
     pub const DRONES: u8 = 64;
+    pub const EXTRA: u8 = 128;
+
+    /// Parts of the `EXTRA` section.
+    pub const GAS: u8 = 1;
+    pub const PORTALS: u8 = 2;
+    pub const CLONES: u8 = 4;
+    pub const DECOYS: u8 = 8;
+    pub const STUCK: u8 = 16;
 
     pub const DX: u64 = 1;
     pub const DY: u64 = 2;
@@ -156,8 +179,10 @@ pub const ME_FIELDS: [&str; ME_LEN] = [
     "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
     "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying", "storm", "storm_max",
+    "ability", "ability_n", "ability_max", "ability_cd", "gas_bombs", "sticky_bombs", "stuck", "detach", "gassed", "dash",
+    "dash_dir", "portal_wait",
 ];
-pub const ME_LEN: usize = 35;
+pub const ME_LEN: usize = 47;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -286,15 +311,21 @@ pub enum ClientMsg<'a> {
     /// chosen cosmetics, and optionally a friend to spawn next to.
     Join { name: &'a str, token: &'a str, hat: u8, trail: u8, near: u32 },
     /// Held direction plus a fallback direction (0 none, 1 up, 2 right,
-    /// 3 down, 4 left), whether the jump key is held (`j`), and the input's
-    /// sequence number for prediction. `k` acknowledges the newest snapshot
-    /// tick decoded (the delta baseline).
-    In { d: u8, s: u8, j: bool, q: u16, k: u32 },
+    /// 3 down, 4 left), whether the jump key is held (`j`) and the detach
+    /// key (`h`, shaking off a sticky bomb), and the input's sequence number
+    /// for prediction. `k` acknowledges the newest snapshot tick decoded
+    /// (the delta baseline).
+    In { d: u8, s: u8, j: bool, h: bool, q: u16, k: u32 },
     Bomb,
     /// Action key: detonate remote bombs, or punch the bomb in front.
     Act,
     /// Gadget key: use the held gadget (mine, rocket, swap, drones).
     Gadget,
+    /// Ability key: use the held ability. Which one is the server's
+    /// business (the player's inventory), so the client can't name another.
+    Ability,
+    /// Withdraw a half-placed ability (a lone first portal).
+    Cancel,
     /// Quick-chat emote.
     Emote { e: u8 },
     /// Client timestamp, echoed back in `pong` for latency measurement.
@@ -325,6 +356,7 @@ impl<'a> ClientMsg<'a> {
                     d: dir(b & 7),
                     s: dir(b >> 3 & 7),
                     j: b & 64 != 0,
+                    h: b & 128 != 0,
                     q: clamp(r.uvar()?, 0xffff) as u16,
                     k: clamp(r.uvar()?, u64::from(u32::MAX)) as u32,
                 }
@@ -332,6 +364,8 @@ impl<'a> ClientMsg<'a> {
             cop::BOMB => ClientMsg::Bomb,
             cop::ACT => ClientMsg::Act,
             cop::GADGET => ClientMsg::Gadget,
+            cop::ABILITY => ClientMsg::Ability,
+            cop::CANCEL => ClientMsg::Cancel,
             cop::EMOTE => ClientMsg::Emote { e: r.u8()?.min(15) },
             cop::PING => ClientMsg::Ping { c: r.f64()? },
             cop::VIEW => ClientMsg::View { w: clamp(r.uvar()?, 1000) as u16, h: clamp(r.uvar()?, 1000) as u16 },
@@ -348,8 +382,8 @@ impl<'a> ClientMsg<'a> {
             ClientMsg::Join { name, token, hat, trail, near } => {
                 w.u8(cop::JOIN).str(name).str(token).u8(hat).u8(trail).id(near);
             }
-            ClientMsg::In { d, s, j, q, k } => {
-                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3 | u8::from(j) << 6).uvar(u64::from(q)).id(k);
+            ClientMsg::In { d, s, j, h, q, k } => {
+                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3 | u8::from(j) << 6 | u8::from(h) << 7).uvar(u64::from(q)).id(k);
             }
             ClientMsg::Bomb => {
                 w.u8(cop::BOMB);
@@ -359,6 +393,12 @@ impl<'a> ClientMsg<'a> {
             }
             ClientMsg::Gadget => {
                 w.u8(cop::GADGET);
+            }
+            ClientMsg::Ability => {
+                w.u8(cop::ABILITY);
+            }
+            ClientMsg::Cancel => {
+                w.u8(cop::CANCEL);
             }
             ClientMsg::Emote { e } => {
                 w.u8(cop::EMOTE).u8(e);
@@ -594,6 +634,32 @@ pub struct Welcome<'a> {
     /// True when an earlier session's score and power-ups were restored.
     pub resumed: bool,
     pub profile: Option<ProfileView>,
+    /// Ability tuning the client needs to predict and display them.
+    pub abilities: AbilityInfo,
+}
+
+/// Ability tuning sent once on join (ticks unless noted).
+#[derive(Serialize, Default)]
+pub struct AbilityInfo {
+    /// Protocol version of the ability messages.
+    pub v: u32,
+    /// Cooldown per active ability: (item code, ticks).
+    pub cooldowns: Vec<(u8, u64)>,
+    pub wall: u64,
+    pub gas: u64,
+    pub gas_fuse: u64,
+    /// Gas movement multiplier.
+    pub gas_mult: f32,
+    pub clone: u64,
+    pub portal: u64,
+    pub portal_wait: u64,
+    pub sticky_fuse: u64,
+    pub detach: u64,
+    pub dash: u64,
+    /// Cells a dash covers per tick.
+    pub dash_step: f32,
+    /// Item codes of abilities switched off.
+    pub disabled: Vec<u8>,
 }
 
 impl Welcome<'_> {
@@ -703,6 +769,7 @@ pub mod testing {
         ///
         /// # Panics
         /// On malformed input.
+        #[allow(clippy::too_many_lines, reason = "mirrors the snapshot layout section by section")]
         pub fn decode(&mut self, frame: &[u8]) -> Option<Value> {
             let mut r = Reader::new(frame);
             assert_eq!(r.u8(), Some(op::SNAP));
@@ -772,6 +839,34 @@ pub mod testing {
                     drones.push(json!([r.uvar().unwrap(), r.ivar().unwrap(), r.ivar().unwrap(), r.u8().unwrap()]));
                 }
             }
+            let mut extra = json!({});
+            if has(snap::EXTRA) {
+                let parts = r.u8().unwrap();
+                let list = |r: &mut Reader, n: usize, f: &dyn Fn(&mut Reader) -> Value| (0..n).map(|_| f(r)).collect::<Vec<_>>();
+                if parts & snap::GAS != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["gas"] = json!(list(&mut r, n, &|r| {
+                        let (id, x, y, a, b) = (r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
+                        json!([id, x, y, [a & 15, a >> 4, b & 15, b >> 4], r.uvar().unwrap()])
+                    }));
+                }
+                if parts & snap::PORTALS != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["portals"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap()])));
+                }
+                if parts & snap::CLONES != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["clones"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap(), r.ivar().unwrap(), r.ivar().unwrap(), r.uvar().unwrap()])));
+                }
+                if parts & snap::DECOYS != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["decoys"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.ivar().unwrap()])));
+                }
+                if parts & snap::STUCK != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["stuck"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap()])));
+                }
+            }
             if has(snap::ME) {
                 let mask = r.uvar().unwrap();
                 for (i, v) in me.iter_mut().enumerate().take(ME_LEN) {
@@ -782,7 +877,7 @@ pub mod testing {
             }
             assert!(r.done(), "trailing bytes in snapshot {k}");
             self.seen.insert(k, (players.clone(), bombs.clone(), me));
-            Some(json!({"t": "s", "k": k, "bk": bk, "p": players, "b": bombs, "e": flames, "d": drones, "me": me.to_vec()}))
+            Some(json!({"t": "s", "k": k, "bk": bk, "p": players, "b": bombs, "e": flames, "d": drones, "x": extra, "me": me.to_vec()}))
         }
     }
 }
@@ -798,10 +893,14 @@ mod tests {
         let msgs = [
             ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 },
             ClientMsg::Join { name: "Bö", token: "", hat: 0, trail: 0, near: 0 },
-            ClientMsg::In { d: 3, s: 2, j: false, q: 513, k: 70000 },
-            ClientMsg::In { d: 4, s: 0, j: true, q: 65535, k: u32::MAX },
+            ClientMsg::In { d: 3, s: 2, j: false, h: false, q: 513, k: 70000 },
+            ClientMsg::In { d: 4, s: 0, j: true, h: false, q: 65535, k: u32::MAX },
             ClientMsg::Bomb,
             ClientMsg::Act,
+            ClientMsg::In { d: 1, s: 0, j: false, h: true, q: 2, k: 3 },
+            ClientMsg::Gadget,
+            ClientMsg::Ability,
+            ClientMsg::Cancel,
             ClientMsg::Emote { e: 3 },
             ClientMsg::Ping { c: 12.5 },
             ClientMsg::View { w: 20, h: 14 },
@@ -809,14 +908,15 @@ mod tests {
         for m in msgs {
             assert_eq!(ClientMsg::decode(&m.encode()), Some(m));
         }
-        assert_eq!(ClientMsg::In { d: 3, s: 2, j: true, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
+        assert_eq!(ClientMsg::In { d: 3, s: 2, j: true, h: false, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
     }
 
     #[test]
     fn client_messages_are_validated() {
-        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, j: false, q: 1, k: 1 }), "bad dirs");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, j: false, q: 65535, k: 0 }), "seq clamped");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 64, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: true, q: 1, k: 1 }), "jump bit");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, q: 1, k: 1 }), "bad dirs");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, q: 65535, k: 0 }), "seq clamped");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 64, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: true, h: false, q: 1, k: 1 }), "jump bit");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 128, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: false, h: true, q: 1, k: 1 }), "detach bit");
         assert_eq!(ClientMsg::decode(&[cop::EMOTE, 200]), Some(ClientMsg::Emote { e: 15 }));
         assert_eq!(ClientMsg::decode(&[cop::VIEW, 0xff, 0x7f, 5]), Some(ClientMsg::View { w: 1000, h: 5 }));
         assert_eq!(ClientMsg::decode(&[]), None);

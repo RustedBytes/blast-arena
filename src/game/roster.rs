@@ -78,6 +78,7 @@ impl World {
             round: self.round_secs_left(),
             resumed,
             profile: p.profile.as_ref().map(profile_view),
+            abilities: self.ability_info(),
         };
         if let Some(link) = &p.link {
             let _ = link.events.try_send(welcome.encode());
@@ -156,6 +157,8 @@ impl World {
         if self.bots.remove(&id).is_some() {
             self.bot_ids.retain(|&b| b != id);
         }
+        // Their clones and portals go with them; walls, gas and bombs stay.
+        self.abilities_on_death(id);
         let Some(p) = self.players.remove(&id) else { return };
         self.broadcasts.push(protocol::encode_pl(self.event_arenas.current(), id));
         if let (Some(db), Some(profile)) = (&self.db, &p.profile) {

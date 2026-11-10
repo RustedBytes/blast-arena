@@ -17,6 +17,9 @@ pub enum Tile {
     Teleport = 8,
     /// Takes two blasts: the first turns it into a normal crate.
     Armored = 9,
+    /// A temporary wall from the builder ability: solid to everything
+    /// (ghosts too), stops blasts and gas, and crumbles in a blast.
+    Built = 10,
 }
 
 impl Tile {
@@ -32,6 +35,7 @@ impl Tile {
             7 => Tile::ConveyorLeft,
             8 => Tile::Teleport,
             9 => Tile::Armored,
+            10 => Tile::Built,
             _ => Tile::Floor,
         }
     }
@@ -180,10 +184,10 @@ impl Map {
         self.tiles[i] = t;
     }
 
-    /// Walls and crates of either kind block movement and blasts.
+    /// Walls, built walls and crates of either kind block movement and blasts.
     #[must_use]
     pub fn is_solid(&self, x: i32, y: i32) -> bool {
-        matches!(self.get(x, y), Tile::Wall | Tile::Crate | Tile::Armored)
+        matches!(self.get(x, y), Tile::Wall | Tile::Crate | Tile::Armored | Tile::Built)
     }
 
     #[must_use]

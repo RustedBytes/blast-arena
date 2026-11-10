@@ -28,12 +28,15 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Space | Jump over the stone pillar in front of you into the free cell behind it (0.4 s hop, 0.5 s cooldown; hold to keep hopping). You're above the fire while airborne, but can't steer, and a bomb pressed mid-air drops on landing. Crates and the map border can't be jumped. |
 | E / Shift | Action: detonate remote bombs, or punch the bomb in front of you |
 | Q | Use your gadget (land mine, rocket, swap, drone, drone swarm) |
+| R | Use your ability (builder wall, clone, portal pair: press twice, dash) |
+| C (hold) | Shake off a sticky bomb stuck on you (0.8 s) |
+| X | Cancel a half-placed portal pair |
 | 1–8 | Emotes (also the 😀 button) |
 | Mouse wheel, `+` / `-` / `0` | Zoom in / out / reset |
 | Tab (hold) | Leaderboard with kills and deaths |
 | M / P / Esc | Mute / FPS / settings |
-| Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom |
-| Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q) and action buttons, pinch to zoom |
+| Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom, right trigger ability, left trigger (hold) shake off a sticky bomb |
+| Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q), ability (R) and action buttons, ✋ (hold, while a sticky bomb is on you), pinch to zoom |
 
 The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `static/js/pixelart.js` and sprites in `static/js/pixelsprites.js`, sharing `static/js/pixelkit.js`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 
@@ -70,6 +73,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
+| `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
 | `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload. |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
@@ -143,6 +147,17 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
   | drone swarm (1%) | Five drones, one bomb each, spreading over different enemies |
 
   Gadget bombs don't count against your bomb limit.
+
+- **Abilities.** Four active abilities used with **R**: you hold one (another kind replaces it), with a few charges that come back one per cooldown. Two **bomb modifiers** change your next bombs (gas or sticky, never both). All of it is tuned in `config/abilities.json` (see `docs/ABILITIES.md`):
+
+  | Ability | Effect |
+  |---|---|
+  | builder | A wall in the cell in front of you for 6 s (2 charges, 8 s cooldown, at most 2 standing). It blocks everyone (ghosts too), blasts and gas; a blast breaks it but stops there, a piercing one goes through. |
+  | gas bombs ×2 | Instead of fire, a cross of gas (radius 2) for 4 s: 30% slower inside and for 0.5 s after; the screen edges go green. Fire touching the gas ignites it once: everyone in the cloud is hit by one burst. |
+  | clone | A decoy that looks exactly like you replays your moves from 2 s ago for 5 s, fake bombs included (18 s cooldown). It can't hurt or pick anything up; a blast destroys it. You see a dashed ring under it. |
+  | sticky bombs ×2 | Thrown 2 cells ahead; it sticks to the first enemy it touches (in flight or later on the ground) and rides along until its 3 s fuse runs out, through portals too. Hold **C** for 0.8 s to shake it off. |
+  | portal pair | Press R to place a portal up to 3 cells ahead, again for its partner (5 s to do so). Players and sliding bombs go through, keeping direction; fire and gas don't. 12 s, then 20 s cooldown. A blocked exit refuses the trip. |
+  | dash | 2.5 cells in 0.2 s in the direction you hold (6 s cooldown). Stops at walls and bombs, gives no protection from fire on the way, and may take one portal. |
 
 - **Secret box.** Opening it gives one of:
   - any power-up
@@ -289,6 +304,10 @@ src/game/             tick (loop), roster (join/leave/spawn), movement, input, c
                       delta (delta snapshots), map, mapgen (random layouts), bomb,
                       items, player, testing, tests
 src/game/link.rs      lock-free input slot and snapshot mailbox per client
+src/game/abilities.rs ability power-ups: inventory, ability key, events, cleanup;
+                      the mechanics in builder, gas, clone, sticky, portal, dash;
+                      tuning in ability_config (config/abilities.json); tests in
+                      ability_tests
 src/game/ai.rs        server-side AI bots
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
@@ -297,6 +316,8 @@ static/index.html     lobby and game page; dashboard.html is the server monitor;
 static/js/            main, render, prediction, particles, input, audio, i18n,
                       tutorial, settings, net, protocol, msgpack, dashboard
 static/assets/        SVG art
+config/abilities.json default ability tuning (embedded in the binary)
+docs/ABILITIES.md     design of the ability system and how to add one
 Dockerfile, docker-compose.yml, Caddyfile   deployment
 ```
 

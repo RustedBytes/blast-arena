@@ -93,7 +93,7 @@ async fn bot(n: u32, url: String, stats: Arc<Stats>, epoch: Instant) {
             }
             _ = input_tick.tick() => {
                 q = q.wrapping_add(1);
-                if tx.send(frame(&ClientMsg::In { d, s, j: false, q, k: last_k })).await.is_err() {
+                if tx.send(frame(&ClientMsg::In { d, s, j: false, h: false, q, k: last_k })).await.is_err() {
                     break;
                 }
             }

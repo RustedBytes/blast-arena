@@ -123,11 +123,15 @@ impl World {
         for id in ids {
             if let Some(b) = self.bombs.remove(&id) {
                 let i = self.map.idx(b.x, b.y);
-                self.bomb_grid[i] = 0;
+                if self.bomb_grid[i] == id {
+                    self.bomb_grid[i] = 0;
+                }
             }
         }
         self.mines.clear();
         self.drones.clear();
+        self.sticky.clear();
+        self.reset_abilities_for_round();
         let mut ids: Vec<u32> = self.players.keys().copied().collect();
         ids.sort_unstable();
         for &id in &ids {

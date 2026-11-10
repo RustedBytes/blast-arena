@@ -1,3 +1,4 @@
+use super::clone::History;
 use super::link::ClientLink;
 use crate::db::Profile;
 
@@ -128,6 +129,39 @@ pub struct Player {
     pub bounty: bool,
     /// Ticks spent standing on a hill towards the next point.
     pub hill_ticks: u32,
+    /// Active ability held (`Item::Builder`, `Clone`, `PortalPair` or
+    /// `Dash` as a code; 0 for none), charges ready, the most it holds, and
+    /// the tick the next spent charge comes back (0: nothing recharging).
+    pub ability: u8,
+    pub ability_n: u8,
+    pub ability_max: u8,
+    pub ability_recharge_at: u64,
+    /// Ability-key and cancel-key presses seen so far from the input slot.
+    pub ability_presses: u32,
+    pub cancel_presses: u32,
+    pub want_ability: bool,
+    pub want_cancel: bool,
+    /// Bomb modifiers: this many of the next bombs are gas / sticky bombs
+    /// (never both: picking one up drops the other).
+    pub gas_bombs: u8,
+    pub sticky_bombs: u8,
+    /// The detach key is held, and for how many ticks in a row (shaking off
+    /// a sticky bomb).
+    pub input_detach: bool,
+    pub detach_ticks: u16,
+    /// Dash in progress: direction, ticks left, and whether it already went
+    /// through a portal (one trip per dash).
+    pub dash_dir: u8,
+    pub dash_left: u8,
+    pub dash_portal: bool,
+    /// Slowed by gas until this tick.
+    pub gassed_until: u64,
+    /// After a portal trip: the exit cell, which must be left before the
+    /// next trip, and the earliest tick of that trip.
+    pub portal_lock: Option<(i32, i32)>,
+    pub portal_ready_at: u64,
+    /// Recent movement, replayed by this player's clones.
+    pub history: History,
 }
 
 impl Player {
@@ -197,6 +231,25 @@ impl Player {
             streak: 0,
             bounty: false,
             hill_ticks: 0,
+            ability: 0,
+            ability_n: 0,
+            ability_max: 0,
+            ability_recharge_at: 0,
+            ability_presses: 0,
+            cancel_presses: 0,
+            want_ability: false,
+            want_cancel: false,
+            gas_bombs: 0,
+            sticky_bombs: 0,
+            input_detach: false,
+            detach_ticks: 0,
+            dash_dir: 0,
+            dash_left: 0,
+            dash_portal: false,
+            gassed_until: 0,
+            portal_lock: None,
+            portal_ready_at: 0,
+            history: History::default(),
         }
     }
 
@@ -218,6 +271,22 @@ impl Player {
         } else {
             BASE_SPEED + SPEED_STEP * f32::from(self.speed_lvl)
         }
+    }
+
+    /// Walking speed in tiles per second, given the weather's speed factor
+    /// and the gas cloud's movement multiplier. Gas doesn't stack with the
+    /// other slowdowns: the strongest one applies.
+    #[must_use]
+    pub fn move_speed(&self, tick: u64, weather: f32, gas_mult: f32) -> f32 {
+        let normal = BASE_SPEED + SPEED_STEP * f32::from(self.speed_lvl);
+        let speed = self.speed(tick) * weather;
+        if self.gassed_until > tick { speed.min(normal * gas_mult) } else { speed }
+    }
+
+    /// Mid-dash: moving fast in a straight line.
+    #[must_use]
+    pub fn dashing(&self) -> bool {
+        self.dash_left > 0
     }
 
     #[must_use]
@@ -268,6 +337,12 @@ impl Player {
         self.slow_until = 0;
         self.nobomb_until = 0;
         self.reversed_until = 0;
+        (self.ability, self.ability_n, self.ability_max, self.ability_recharge_at) = (0, 0, 0, 0);
+        (self.gas_bombs, self.sticky_bombs) = (0, 0);
+        (self.dash_dir, self.dash_left, self.dash_portal) = (0, 0, false);
+        self.detach_ticks = 0;
+        self.gassed_until = 0;
+        self.portal_lock = None;
     }
 
     /// Applies a client's requested view half-extents, clamped to the limits.

@@ -6,7 +6,7 @@ import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
-import { EV, meObject } from './protocol.js';
+import { AB, EV, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
@@ -140,6 +140,8 @@ const net = new Net({
       lastLb: '',
       roundSecs: m.round,
       movedAt: null,
+      // Ability tuning from the server (ticks; see protocol::AbilityInfo).
+      abilities: m.abilities ?? null,
     };
     for (const [x, y, k] of m.items) state.itemMap.set(y * m.w + x, k);
     rebuildItems();
@@ -185,8 +187,10 @@ const net = new Net({
     state.snaps.push(m);
 
     state.bombCells.clear();
-    // Hidden mines (flag 32) don't block anyone, so they're not obstacles.
-    for (const b of m.b) if (!(b[4] & 32)) state.bombCells.add(b[2] * state.map.w + b[1]);
+    // Hidden mines (flag 32) don't block anyone, so they're not obstacles;
+    // nor do sticky bombs riding on someone.
+    const stuck = new Set(m.x.stuck.map((s) => s[0]));
+    for (const b of m.b) if (!(b[4] & 32) && !stuck.has(b[0])) state.bombCells.add(b[2] * state.map.w + b[1]);
 
     const prevMe = state.me;
     state.me = m.me;
@@ -411,6 +415,9 @@ const net = new Net({
         renderer.confetti(state);
         break;
       }
+      case EV.ABILITY:
+        abilityEvent(v, now);
+        break;
       case EV.SWAP:
         for (const id of v) {
           const f = renderer.frame;
@@ -472,6 +479,8 @@ const input = new Input({
   },
   onAct: () => net.send({ t: 'act' }),
   onGadget: () => net.send({ t: 'gadget' }),
+  onAbility: () => net.send({ t: 'ability' }),
+  onCancel: () => net.send({ t: 'cancel' }),
   onEmote: (e) => sendEmote(e),
   onZoom: (factor) => {
     setZoom((state?.zoomTarget ?? settings.get('zoom')) * factor);
@@ -486,6 +495,92 @@ const input = new Input({
     else if (name === 'emoteWheel') $('emote-wheel').classList.toggle('hidden');
   },
 });
+
+/** Ability events (EV.ABILITY): effects, sounds and notices. */
+function abilityEvent(v, now) {
+  const [kind, , ...a] = v;
+  const tile = (x, y) => [x + 0.5, y + 0.5];
+  const dist = (x, y) => Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y);
+  const pan = (x) => Math.max(-1, Math.min(1, (x + 0.5 - state.focus.x) / 10));
+  switch (kind) {
+    case AB.REJECTED: {
+      const [item, reason] = a;
+      const name = t('abilityNames')[item] ?? '';
+      alerts.toast(`${name}: ${t('abilityRejected')[reason] ?? '?'}`, { icon: `img:${ITEM_SPRITES[item] ?? 'pu_mystery'}`, tone: 'warn', key: 'ability-rejected' });
+      audio.uiClick();
+      break;
+    }
+    case AB.WALL_CREATED: {
+      const [, , x, y] = a;
+      renderer.crateBroken(x, y); // a puff of dust as it goes up
+      if (dist(x, y) < 12) audio.kick();
+      break;
+    }
+    case AB.WALL_REMOVED: {
+      const [, x, y, destroyed] = a;
+      if (destroyed) renderer.crateBroken(x, y);
+      break;
+    }
+    case AB.GAS_CREATED: {
+      const [, , x, y] = a;
+      if (dist(x, y) < 12) audio.curse();
+      break;
+    }
+    case AB.GAS_IGNITED: {
+      const [, x, y] = a;
+      audio.explosion(dist(x, y), pan(x));
+      if (dist(x, y) < 4) alerts.toast(t('gasIgnited'), { icon: '🔥', tone: 'danger', key: 'gas-ignited' });
+      break;
+    }
+    case AB.CLONE_SPAWNED: {
+      const [, , x, y] = a;
+      renderer.sparkle(...tile(x, y), true);
+      audio.mystery();
+      break;
+    }
+    case AB.CLONE_DESTROYED: {
+      const [, x, y] = a;
+      renderer.sparkle(...tile(x, y), false);
+      break;
+    }
+    case AB.STICKY_ATTACHED: {
+      const [, target, , x, y] = a;
+      if (target === state.myId) audio.curse();
+      else if (dist(x, y) < 12) audio.kick();
+      break;
+    }
+    case AB.STICKY_DETACHED: {
+      const [, target] = a;
+      if (target === state.myId) audio.pickup();
+      break;
+    }
+    case AB.PORTAL_CREATED: {
+      const [, , x, y] = a;
+      renderer.sparkle(...tile(x, y), true);
+      break;
+    }
+    case AB.PORTAL_LINKED: {
+      const [, , owner, x, y] = a;
+      renderer.sparkle(...tile(x, y), true);
+      if (owner === state.myId) audio.mystery();
+      break;
+    }
+    case AB.TELEPORTED: {
+      const [what, id, fx, fy, tx, ty] = a;
+      renderer.sparkle(...tile(fx, fy), true);
+      renderer.sparkle(...tile(tx, ty), true);
+      if (what === 0 && id === state.myId) audio.mystery();
+      else if (dist(fx, fy) < 10 || dist(tx, ty) < 10) audio.pickup();
+      break;
+    }
+    case AB.DASH_STARTED: {
+      const [id, , x, y] = a;
+      if (id === state.myId || dist(x, y) < 10) audio.jump();
+      break;
+    }
+    default: break;
+  }
+}
 
 function sendEmote(e) {
   net.send({ t: 'emote', e });
@@ -524,6 +619,18 @@ function updateStatusAlerts(now) {
   }
   show('sd', edge, t('moveInward'), { icon: '⏳', tone: 'danger', progress: Math.max(0, (sd?.nextAt ?? now) - now) / 2000 });
   show('stun', alive && me.stun > 0, t('stunned'), { icon: '💫', tone: 'warn' });
+  // A sticky bomb on you: how long it has, and how far the shake-off got.
+  const touch = document.body.classList.contains('touch');
+  const stuck = alive && me.stuck > 0;
+  const detachTotal = state?.abilities?.detach ?? 16;
+  show('stuck', stuck, t(touch ? 'stuckTouch' : 'stuckOn', { n: Math.ceil((me?.stuck ?? 0) * state.tickMs / 1000) }),
+    { icon: 'img:pu_sticky', tone: 'danger', progress: (me?.detach ?? 0) / detachTotal });
+  $('detach-btn').classList.toggle('hidden', !stuck);
+  show('gas', alive && me.gassed > 0, t('inGas'), { icon: 'img:pu_gas', tone: 'warn' });
+  document.body.classList.toggle('in-gas', alive && me.gassed > 0);
+  const wait = alive ? me.portal_wait ?? 0 : 0;
+  show('portal', wait > 0, t('portalWaiting', { n: Math.ceil(wait * state.tickMs / 1000) }),
+    { icon: 'img:pu_portal', tone: 'info', progress: wait / (state?.abilities?.portal_wait ?? 100) });
   show('flag', alive && !!me.carrying, t('carryFlag'), { icon: '🚩', tone: 'info' });
   document.body.classList.toggle('in-storm', alive && me.storm > 0);
 }
@@ -571,6 +678,7 @@ function updateHud(me) {
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
     me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying, me.storm,
+    me.ability, me.ability_n, me.ability_max, Math.ceil(me.ability_cd / 2), me.gas_bombs, me.sticky_bombs,
     getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
@@ -590,6 +698,28 @@ function updateHud(me) {
     g.title = `${t('items')[me.gadget] ?? ''} (Q)`;
   }
   $('st-nuke').lastChild.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
+  // The active ability: charges, and a sweep while the next one recharges.
+  const ab = $('st-ability');
+  ab.classList.toggle('hidden', !me.ability);
+  if (me.ability) {
+    const name = ITEM_SPRITES[me.ability] ?? 'pu_mystery';
+    if (ab.dataset.icon !== name) { ab.dataset.icon = name; ab.querySelector('img').src = `assets/${name}.svg`; }
+    ab.lastChild.textContent = me.ability_max > 1 ? `${me.ability_n}/${me.ability_max}` : '';
+    const cd = state.abilities?.cooldowns?.find((c) => c[0] === me.ability)?.[1] ?? 1;
+    ab.style.setProperty('--cd', me.ability_cd > 0 ? Math.min(1, me.ability_cd / Math.max(1, cd)).toFixed(3) : 0);
+    ab.classList.toggle('empty', me.ability_n === 0);
+    ab.title = `${t('items')[me.ability] ?? ''} (R)` + (me.ability_cd > 0 ? ` · ${Math.ceil(me.ability_cd * state.tickMs / 1000)} s` : '');
+  }
+  // Bomb modifiers: the next bombs are gas or sticky bombs.
+  const mod = $('st-modifier');
+  const modN = me.gas_bombs || me.sticky_bombs;
+  mod.classList.toggle('hidden', !modN);
+  if (modN) {
+    const name = me.gas_bombs ? 'pu_gas' : 'pu_sticky';
+    if (mod.dataset.icon !== name) { mod.dataset.icon = name; mod.querySelector('img').src = `assets/${name}.svg`; }
+    mod.lastChild.textContent = `×${modN}`;
+    mod.title = t('items')[me.gas_bombs ? 22 : 24] ?? '';
+  }
   const tickS = state.tickMs / 1000;
   timer($('st-stun'), me.stun > 0, me.stun * tickS, 1);
   timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
@@ -804,7 +934,7 @@ let last = performance.now();
 let perfTime = 0, perfFrames = 0, perfWork = 0;
 // Every input message also acknowledges the newest decoded snapshot (`k`),
 // which the server uses as the base for delta snapshots.
-const sendInput = (d, s, j, q) => net.send({ t: 'in', d, s, j, q, k: state?.lastK ?? 0 });
+const sendInput = (d, s, j, q) => net.send({ t: 'in', d, s, j, h: input.current.h, q, k: state?.lastK ?? 0 });
 predictor.onJump = () => audio.jump();
 function frame(now) {
   requestAnimationFrame(frame);
