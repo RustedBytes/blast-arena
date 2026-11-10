@@ -82,8 +82,10 @@ impl World {
         if let Some(link) = &p.link {
             let _ = link.events.try_send(welcome.encode());
         }
-        // Sudden death and the flags, if any, so the client is up to date.
-        let extra = self.event_state_for_join();
+        // Sudden death, the flags and the royale zone, if any, so the client
+        // is up to date.
+        let mut extra = self.event_state_for_join();
+        extra.extend(self.royale_state_for_join());
         if let Some(link) = &self.players[&id].link {
             for msg in extra {
                 let _ = link.events.try_send(msg);
@@ -119,6 +121,7 @@ impl World {
         self.broadcasts.push(protocol::encode_pj(self.event_arenas.current(), id, &p.name, team, hat, trail));
         self.players.insert(id, p);
         self.rebuild_buckets();
+        self.royale_on_join(id);
         id
     }
 

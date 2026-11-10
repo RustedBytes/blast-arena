@@ -48,6 +48,15 @@ impl World {
         let tick = self.tick;
         // While dead, watch whoever got you.
         let spectating = (!p.alive).then_some(p.killed_by).flatten().and_then(|k| self.players.get(&k)).filter(|k| k.alive && k.id != p.id);
+        // Out of a royale match (or killed by the storm): watch the nearest survivor.
+        let spectating = spectating.or_else(|| {
+            (!p.alive && self.is_royale()).then(|| {
+                self.players.values().filter(|o| o.alive).min_by(|a, b| {
+                    let d = |o: &Player| (o.x - p.x).powi(2) + (o.y - p.y).powi(2);
+                    d(a).total_cmp(&d(b))
+                })
+            })?
+        });
         let (cx, cy) = spectating.map_or(p.cell(), super::player::Player::cell);
         let (x0, y0, x1, y1) = aoi_rect(cx, cy, p.aoi);
 
@@ -100,7 +109,7 @@ impl World {
         }
         cur.bombs.sort_unstable_by_key(|e| e.0);
 
-        cur.me = me_state(p, tick, spectating.map(|k| k.id), self.blizzard_until);
+        cur.me = me_state(p, tick, spectating.map(|k| k.id), self.blizzard_until, self.storm_limit());
 
         // Delta against the newest snapshot the client confirmed, if we
         // still remember it; otherwise a full snapshot (a delta from nothing).
@@ -231,13 +240,16 @@ impl World {
     }
 }
 
+/// Respawn ticks sent for a player out until the next royale match.
+const OUT_OF_MATCH: u64 = 1_000_000;
+
 const _: () = assert!(MAX_RANGE < 15, "flame arms are sent as nibbles; 15 | 15 << 4 marks a nuke");
 const _: () = assert!(NUKE_RADIUS <= MAX_RANGE, "explosions are sent to clients within MAX_RANGE of their view");
 /// First arm byte of an atomic blast in the flames section.
 pub const NUKE_MARK: u8 = 0xFF;
 
 /// The player's own state in `protocol::ME_FIELDS` order.
-fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64) -> MeState {
+fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64, storm_max: u16) -> MeState {
     let (curse, curse_t) = p.curse(tick);
     let opt_id = |v: Option<u32>| v.map_or(0, |v| i64::from(v) + 1);
     let t = |v: u64| v as i64;
@@ -249,7 +261,8 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64)
         t(p.ghost_until.saturating_sub(tick)),
         i64::from(curse),
         t(curse_t),
-        t(if p.alive { 0 } else { p.respawn_at.saturating_sub(tick) }),
+        // Out of a royale match: "forever", capped to keep it a sane number.
+        t(if p.alive { 0 } else { p.respawn_at.saturating_sub(tick).min(OUT_OF_MATCH) }),
         i64::from(p.score),
         i64::from(p.max_bombs),
         i64::from(p.range),
@@ -275,6 +288,8 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64)
         t(p.stunned_until.saturating_sub(tick)),
         t(blizzard_until.saturating_sub(tick)),
         i64::from(p.carrying),
+        i64::from(p.storm),
+        i64::from(storm_max),
     ]
 }
 

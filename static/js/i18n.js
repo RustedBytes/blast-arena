@@ -64,6 +64,9 @@ const STRINGS = {
     mapEvents: ['', 'Meteor shower!', 'Blizzard! Everyone slows down', 'Lava surge in the volcano!', 'Conveyors reversed!'],
     flagNews: ['', '{name} took the {flag} flag!', '{name} dropped the {flag} flag', 'The {flag} flag is back home', '{name} captured the {flag} flag!'],
     replay: 'REPLAY',
+    modeRoyale: 'Battle royale', zoneNext: 'zone moves in {n}s', zoneClosing: 'The zone is closing in!', zoneClosingShort: 'zone closing',
+    nextMatch: 'next match in {n}s', inStorm: "You're in the storm!", winnerIs: '{name} wins the match!', youWin: 'Winner! Last one standing!',
+    nobodyWins: 'Nobody survived', outOfMatch: "You're out: next match soon", outTitle: 'Out of this match',
     ctlGadget: 'Use your gadget (mine, rocket, swap, drones)',
     items: {
       1: '+1 bomb', 2: '+1 range', 3: 'Speed up', 4: 'Kick bombs', 5: 'Shield (6 s)', 6: 'Pierce crates',
@@ -148,6 +151,9 @@ const STRINGS = {
     flagNews: ['', '{name} взял флаг ({flag})!', '{name} потерял флаг ({flag})', 'Флаг ({flag}) вернулся на базу', '{name} захватил флаг ({flag})!'],
     replay: 'ПОВТОР',
     ctlGadget: 'Гаджет (мина, ракета, обмен, дроны)',
+    modeRoyale: 'Королевская битва', zoneNext: 'зона сдвинется через {n} с', zoneClosing: 'Зона сужается!', zoneClosingShort: 'зона сужается',
+    nextMatch: 'следующий матч через {n} с', inStorm: 'Вы в буре!', winnerIs: '{name} побеждает в матче!', youWin: 'Победа! Вы последний выживший!',
+    nobodyWins: 'Никто не выжил', outOfMatch: 'Вы выбыли: скоро следующий матч', outTitle: 'Вне этого матча',
     items: {
       1: '+1 бомба', 2: '+1 к радиусу', 3: 'Ускорение', 4: 'Пинок бомб', 5: 'Щит (6 с)', 6: 'Пробивание ящиков',
       7: 'Максимальный радиус', 8: 'Секретный ящик', 9: 'Бомбы на пульте (E)', 10: 'Линия бомб (бомба на бомбе)',
@@ -230,6 +236,9 @@ const STRINGS = {
     flagNews: ['', '{name} взяв прапор ({flag})!', '{name} загубив прапор ({flag})', 'Прапор ({flag}) повернувся на базу', '{name} захопив прапор ({flag})!'],
     replay: 'ПОВТОР',
     ctlGadget: 'Гаджет (міна, ракета, обмін, дрони)',
+    modeRoyale: 'Королівська битва', zoneNext: 'зона зсунеться за {n} с', zoneClosing: 'Зона звужується!', zoneClosingShort: 'зона звужується',
+    nextMatch: 'наступний матч за {n} с', inStorm: 'Ви в бурі!', winnerIs: '{name} перемагає в матчі!', youWin: 'Перемога! Ви останній, хто вижив!',
+    nobodyWins: 'Ніхто не вижив', outOfMatch: 'Ви вибули: скоро наступний матч', outTitle: 'Поза цим матчем',
     items: {
       1: '+1 бомба', 2: '+1 до радіуса', 3: 'Прискорення', 4: 'Штовхати бомби', 5: 'Щит (6 с)', 6: 'Пробиває скрині',
       7: 'Максимальний радіус', 8: 'Секретна скриня', 9: 'Бомби на пульті (E)', 10: 'Лінія бомб (бомба на бомбі)',

@@ -310,6 +310,12 @@ impl World {
                 }
             }
         }
+        // Battle royale: the storm. Outside the zone it's danger now (less
+        // pressing nearer the edge, so bots head inwards); between the zone
+        // and the next circle, from when the closing edge gets there.
+        if self.is_royale() && self.royale.match_on {
+            self.zone_danger(danger);
+        }
         // Meteors on their way (they hit a tick after landing).
         for &(x, y, at) in &events.meteors {
             let t = (at + 1).saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
@@ -360,6 +366,38 @@ impl World {
                 let i = self.map.idx(cx, cy);
                 danger[i] = danger[i].min(t.saturating_add(delay));
             });
+        }
+    }
+
+    fn zone_danger(&self, danger: &mut [u16]) {
+        use super::royale::{PHASES, ZoneState};
+        let z = &self.royale;
+        let (cur, next) = (self.zone(), z.to);
+        let limit = u32::from(self.storm_limit());
+        let tick = self.tick;
+        // Ticks until the zone starts moving, and how long the move takes.
+        let (wait, shrink) = match z.state {
+            ZoneState::Waiting => (z.state_end.saturating_sub(tick), PHASES.get(z.phase).map_or(0, |p| p.1 * u64::from(super::TICK_RATE))),
+            ZoneState::Shrinking => (0, z.state_end.saturating_sub(tick)),
+            ZoneState::Done => (0, 0),
+        };
+        for y in 0..self.map.h {
+            for x in 0..self.map.w {
+                let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+                let d_cur = ((cx - cur.x).powi(2) + (cy - cur.y).powi(2)).sqrt();
+                let t = if d_cur > cur.r {
+                    let deep = ((d_cur - cur.r) * 6.0) as u32;
+                    limit.saturating_sub(deep).max(1)
+                } else if z.state != ZoneState::Done && !next.contains(cx, cy) {
+                    let span = (cur.r - next.r).max(0.1);
+                    let frac = ((cur.r - d_cur) / span).clamp(0.0, 1.0);
+                    (wait as f32 + shrink as f32 * frac) as u32 + limit
+                } else {
+                    continue;
+                };
+                let i = self.map.idx(x, y);
+                danger[i] = danger[i].min(t.min(u32::from(SAFE) - 1) as u16);
+            }
         }
     }
 

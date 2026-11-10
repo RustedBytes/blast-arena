@@ -102,6 +102,15 @@ pub mod ev {
     pub const FLAG_NEWS: u8 = 6;
     /// Two players swapped places: their ids.
     pub const SWAP: u8 = 7;
+    /// Battle royale zone: state (0 next circle shown, 1 closing in, 2
+    /// over), ticks left in that state, the zone (x, y, radius; closing in
+    /// from here) and the next circle, in hundredths of a tile; the phase.
+    pub const ZONE: u8 = 8;
+    /// Battle royale match: players alive, 1 while a match runs, ticks until
+    /// the next match.
+    pub const ROYALE: u8 = 9;
+    /// A battle royale match was won: the winner's id + 1 (0 for nobody).
+    pub const WINNER: u8 = 10;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -146,9 +155,9 @@ pub mod snap {
 pub const ME_FIELDS: [&str; ME_LEN] = [
     "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
-    "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying",
+    "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying", "storm", "storm_max",
 ];
-pub const ME_LEN: usize = 33;
+pub const ME_LEN: usize = 35;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 

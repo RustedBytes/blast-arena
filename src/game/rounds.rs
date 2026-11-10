@@ -21,6 +21,9 @@ impl World {
     pub(super) fn place_hills(&mut self) {
         let n = ((self.map.w * self.map.h) / 1600).clamp(1, 6) as usize;
         self.hills.clear();
+        if self.is_royale() {
+            return; // no hills: the zone is the place to be
+        }
         for _ in 0..n * 10 {
             if self.hills.len() >= n {
                 break;
@@ -134,7 +137,8 @@ impl World {
             }
             (p.score, p.kills, p.deaths, p.streak, p.bounty) = (0, 0, 0, 0, false);
         }
-        self.round_end = self.tick + self.round_ticks;
+        // Royale matches end when one player is left, not on a timer.
+        self.round_end = if self.is_royale() { u64::MAX } else { self.tick + self.round_ticks };
         self.reset_events_for_round();
         self.place_hills();
         let hills = protocol::encode_hills(self.event_arenas.current(), &self.hills);

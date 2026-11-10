@@ -50,6 +50,7 @@ impl World {
         self.apply_flame_damage();
         self.update_hills();
         self.update_events();
+        self.update_royale();
         self.melt_ice();
         self.regrow_crates();
         if self.tick.is_multiple_of(u64::from(TICK_RATE)) {

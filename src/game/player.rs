@@ -112,6 +112,8 @@ pub struct Player {
     pub stunned_until: u64,
     /// Team whose flag this player carries (capture the flag), 0 for none.
     pub carrying: u8,
+    /// Ticks spent in the battle royale storm (wears off in the zone).
+    pub storm: u16,
     pub ghost_until: u64,
     pub slow_until: u64,
     pub nobomb_until: u64,
@@ -183,6 +185,7 @@ impl Player {
             want_gadget: false,
             stunned_until: 0,
             carrying: 0,
+            storm: 0,
             ghost_until: 0,
             slow_until: 0,
             nobomb_until: 0,

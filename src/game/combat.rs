@@ -98,6 +98,7 @@ impl World {
             None => {}
         }
         self.broadcasts.push(protocol::encode_kill(self.event_arenas.current(), killer, victim, vx, vy, had_bounty));
+        self.royale_on_death(victim);
     }
 
     pub(super) fn apply_flame_damage(&mut self) {

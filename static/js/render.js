@@ -707,6 +707,7 @@ export class Renderer {
     this.drawEffects(now, camX, camY, T);
     this.drawNukeCloud(now, camX, camY, T);
     this.drawSky(state, now, camX, camY, T, sec);
+    this.drawZone(state, now, camX, camY, T, sec, W, H);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
     this.drawNukeCountdowns(f, camX, camY, T);
     if (inZone) this.drawRunWarning(state, inZone, camX, camY, T, sec, W);
@@ -1231,6 +1232,45 @@ export class Renderer {
           }
         }
       }
+    }
+  }
+
+  /** The battle royale safe zone right now (moving while it closes in). */
+  zoneNow(state, now) {
+    const z = state.zone;
+    if (!z) return null;
+    if (z.state !== 1) return z.from;
+    const k = Math.min(1, Math.max(0, (now - z.start) / Math.max(1, z.end - z.start)));
+    return { x: z.from.x + (z.to.x - z.from.x) * k, y: z.from.y + (z.to.y - z.from.y) * k, r: z.from.r + (z.to.r - z.from.r) * k };
+  }
+
+  /** The storm outside the zone (blue fog), its edge, and the next circle. */
+  drawZone(state, now, camX, camY, T, sec, W, H) {
+    const cur = this.zoneNow(state, now);
+    if (!cur || state.royale?.on === false) return;
+    const { ctx } = this;
+    const z = state.zone;
+    const cx = cur.x * T - camX, cy = cur.y * T - camY, r = Math.max(0, cur.r * T);
+    ctx.fillStyle = 'rgba(40,80,220,0.32)';
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, 6.2832, true);
+    ctx.fill('evenodd');
+    ctx.strokeStyle = `rgba(120,170,255,${0.75 + 0.25 * Math.sin(sec * 4)})`;
+    ctx.lineWidth = Math.max(3, T * 0.12);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, 6.2832);
+    ctx.stroke();
+    if (z.state === 0 || z.state === 1) {
+      // Where the zone is heading.
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = Math.max(2, T * 0.06);
+      ctx.setLineDash([T * 0.4, T * 0.25]);
+      ctx.beginPath();
+      ctx.arc(z.to.x * T - camX, z.to.y * T - camY, Math.max(1, z.to.r * T), 0, 6.2832);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
@@ -1804,6 +1844,28 @@ export class Renderer {
     if (state.hills) {
       c.fillStyle = 'rgba(255,211,74,0.8)';
       for (const [hx, hy] of state.hills) c.fillRect((hx - 1) * scale, (hy - 1) * scale, 3 * scale, 3 * scale);
+    }
+    // Battle royale: the zone and the next circle.
+    const zone = this.zoneNow(state, performance.now());
+    if (zone && state.royale?.on !== false) {
+      c.save();
+      c.fillStyle = 'rgba(40,80,220,0.45)';
+      c.beginPath();
+      c.rect(0, 0, size, size);
+      c.moveTo((zone.x + zone.r) * scale, zone.y * scale);
+      c.arc(zone.x * scale, zone.y * scale, Math.max(0, zone.r * scale), 0, 6.2832, true);
+      c.fill('evenodd');
+      c.strokeStyle = '#8ab8ff';
+      c.lineWidth = this.dpr * 1.5;
+      c.stroke();
+      const nz = state.zone;
+      if (nz.state === 0 || nz.state === 1) {
+        c.strokeStyle = '#ffffff';
+        c.beginPath();
+        c.arc(nz.to.x * scale, nz.to.y * scale, Math.max(1, nz.to.r * scale), 0, 6.2832);
+        c.stroke();
+      }
+      c.restore();
     }
     // Ticking atomic bombs: their danger zones.
     const fb = this.frame;

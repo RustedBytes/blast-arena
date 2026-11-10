@@ -11,6 +11,9 @@
 use super::map::{Biome, BiomeSeed, MIN_BIOME_SIZE, Map, Tile};
 use super::rng::Rng;
 
+/// Battle royale maps have a crate-free road every this many cells.
+const ROAD_EVERY: i32 = 8;
+
 /// Which interior pillar slots (cells with two even coordinates) are walls.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Pillars {
@@ -143,6 +146,128 @@ impl Map {
         map.carve_spawn_pockets(rng);
         debug_assert_eq!(map.validate(), Ok(()));
         map
+    }
+
+    /// An open, well-connected map for the battle royale arena: an open
+    /// pillar style, fewer crates, a grid of crate-free roads every
+    /// `ROAD_EVERY` cells, and no pocket that can't be walked out of (see
+    /// [`Map::connect_everything`]), so a player can always run for the
+    /// safe zone.
+    pub fn generate_open(w: i32, h: i32, rng: &mut Rng) -> Self {
+        let mut style = MapStyle::roll(w, h, 0.28, rng);
+        style.pillars = match rng.below(3) {
+            0 => Pillars::Classic,
+            1 => Pillars::Scattered,
+            _ => Pillars::Plazas,
+        };
+        style.crate_density = style.crate_density.min(0.32);
+        style.armored = style.armored.min(0.2);
+        let mut map = Self::generate_with(w, h, style, rng);
+        map.clear_roads();
+        map.connect_everything();
+        map
+    }
+
+    /// Clears crates along every `ROAD_EVERY`-th row and column (odd lanes,
+    /// so the pillar grid stays intact).
+    fn clear_roads(&mut self) {
+        for y in 1..self.h - 1 {
+            for x in 1..self.w - 1 {
+                if (x % ROAD_EVERY == 1 || y % ROAD_EVERY == 1) && self.get(x, y).is_breakable() {
+                    self.set(x, y, Tile::Floor);
+                }
+            }
+        }
+    }
+
+    /// Makes every walkable cell reachable on foot from every other one:
+    /// each enclosed pocket gets the cheapest way out carved to the main
+    /// area (through crates first, through pillars only if it must). The
+    /// map border always stays.
+    pub fn connect_everything(&mut self) {
+        let (w, h) = (self.w, self.h);
+        let open = |m: &Map, x: i32, y: i32| !m.is_solid(x, y);
+        let idx = |x: i32, y: i32| (y * w + x) as usize;
+        let mut reached = vec![false; (w * h) as usize];
+        // Start from the walkable cell nearest the centre.
+        let mut start = None;
+        'find: for r in 0..w.max(h) {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (x, y) = (w / 2 + dx, h / 2 + dy);
+                    if self.in_bounds(x, y) && open(self, x, y) {
+                        start = Some((x, y));
+                        break 'find;
+                    }
+                }
+            }
+        }
+        let Some(start) = start else { return };
+        let flood = |m: &Map, reached: &mut Vec<bool>, from: (i32, i32)| {
+            let mut stack = vec![from];
+            reached[idx(from.0, from.1)] = true;
+            while let Some((x, y)) = stack.pop() {
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if m.in_bounds(nx, ny) && !reached[idx(nx, ny)] && open(m, nx, ny) {
+                        reached[idx(nx, ny)] = true;
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+        };
+        flood(self, &mut reached, start);
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                if reached[idx(x, y)] || !open(self, x, y) {
+                    continue;
+                }
+                // A pocket: cheapest path (Dijkstra, small costs) to the
+                // reached area through the interior.
+                let cost = |t: Tile| match t {
+                    Tile::Wall => 8u32,
+                    Tile::Crate | Tile::Armored => 2,
+                    _ => 1,
+                };
+                let mut dist = vec![u32::MAX; (w * h) as usize];
+                let mut prev = vec![usize::MAX; (w * h) as usize];
+                let mut heap = std::collections::BinaryHeap::new();
+                dist[idx(x, y)] = 0;
+                heap.push(std::cmp::Reverse((0u32, x, y)));
+                let mut goal = None;
+                while let Some(std::cmp::Reverse((d, cx, cy))) = heap.pop() {
+                    if d > dist[idx(cx, cy)] {
+                        continue;
+                    }
+                    if reached[idx(cx, cy)] {
+                        goal = Some((cx, cy));
+                        break;
+                    }
+                    for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                        let (nx, ny) = (cx + dx, cy + dy);
+                        if nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1 {
+                            continue;
+                        }
+                        let nd = d + cost(self.get(nx, ny));
+                        if nd < dist[idx(nx, ny)] {
+                            dist[idx(nx, ny)] = nd;
+                            prev[idx(nx, ny)] = idx(cx, cy);
+                            heap.push(std::cmp::Reverse((nd, nx, ny)));
+                        }
+                    }
+                }
+                let Some((gx, gy)) = goal else { continue };
+                let mut k = prev[idx(gx, gy)];
+                while k != usize::MAX {
+                    let (px, py) = ((k as i32) % w, (k as i32) / w);
+                    if self.is_solid(px, py) {
+                        self.set(px, py, Tile::Floor);
+                    }
+                    k = prev[k];
+                }
+                flood(self, &mut reached, (x, y));
+            }
+        }
     }
 
     /// Re-decides every interior pillar slot according to the style.
@@ -391,6 +516,39 @@ mod tests {
 
     fn map(size: i32, seed: u64) -> Map {
         Map::generate(size, size, 0.45, &mut Rng::new(seed))
+    }
+
+    #[test]
+    fn open_maps_have_roads_and_no_closed_pockets() {
+        for seed in 0..40 {
+            let m = Map::generate_open(81, 81, &mut Rng::new(seed));
+            assert_eq!(m.validate(), Ok(()), "seed {seed}");
+            // Every walkable cell is reachable from every other on foot.
+            let walk = |x: i32, y: i32| !m.is_solid(x, y);
+            let start = (1..80).flat_map(|y| (1..80).map(move |x| (x, y))).find(|&(x, y)| walk(x, y)).unwrap();
+            let mut seen = vec![false; 81 * 81];
+            let mut stack = vec![start];
+            seen[(start.1 * 81 + start.0) as usize] = true;
+            while let Some((x, y)) = stack.pop() {
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    let i = (ny * 81 + nx) as usize;
+                    if m.in_bounds(nx, ny) && !seen[i] && walk(nx, ny) {
+                        seen[i] = true;
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+            for y in 0..81 {
+                for x in 0..81 {
+                    assert!(!walk(x, y) || seen[(y * 81 + x) as usize], "seed {seed}: ({x}, {y}) is shut in");
+                }
+            }
+            // The roads are clear.
+            for x in 1..80 {
+                assert!(!m.get(x, 9).is_breakable(), "seed {seed}: crate on the road at ({x}, 9)");
+            }
+        }
     }
 
     #[test]

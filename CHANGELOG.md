@@ -26,6 +26,13 @@ All notable changes to Blast Arena are documented here. The format follows
   near your base.
 - **Death replay**: the moments before your death play again in slow motion
   until you respawn.
+- **Battle royale arena** (`Royale:royale:81:15`, new `royale` mode): last
+  player standing in a safe zone that shrinks in five phases, with the next
+  circle shown before each move; a storm outside it that kills after 5 s
+  (down to 1 s in the last phase); no respawns mid-match; spectating the
+  nearest survivor; a new match a few seconds after each win. Its maps are
+  open and fully connected (crate-free roads, no enclosed pockets), and bots
+  follow the zone.
 - **Bots** hop over pillars when it's quicker or safer, and use gadgets.
 
 - **Jumping.** Hold Space to hop over the stone pillar in front of you into

@@ -21,6 +21,7 @@ mod movement;
 mod pickups;
 mod profiles;
 mod rounds;
+pub mod royale;
 mod roster;
 mod snapshot;
 mod terrain;
@@ -95,6 +96,8 @@ pub enum Mode {
     Ffa,
     /// Red versus blue; no friendly fire.
     Teams,
+    /// Battle royale: last player standing inside a shrinking zone.
+    Royale,
 }
 
 impl Mode {
@@ -103,6 +106,7 @@ impl Mode {
         match self {
             Mode::Ffa => "ffa",
             Mode::Teams => "teams",
+            Mode::Royale => "royale",
         }
     }
 
@@ -111,6 +115,7 @@ impl Mode {
         match s {
             "ffa" => Some(Mode::Ffa),
             "teams" => Some(Mode::Teams),
+            "royale" => Some(Mode::Royale),
             _ => None,
         }
     }
@@ -214,6 +219,8 @@ pub struct World {
     pub events: events::Events,
     /// Everyone is slowed (blizzard) until this tick.
     pub blizzard_until: u64,
+    /// Battle royale match and zone (see `royale`).
+    pub royale: royale::Royale,
     /// Tile and item changes made during the current tick, sent to everyone.
     pub tile_changes: Vec<TileChange>,
     pub item_changes: Vec<(i32, i32, u8)>,
@@ -262,7 +269,12 @@ pub struct WorldStats {
 
 impl World {
     pub fn new(cfg: &Config, live: Arc<ArenaStats>, db: Option<Db>) -> Self {
-        let map = Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed));
+        // Battle royale needs room to run for the zone: an open, connected map.
+        let map = if cfg.mode == Mode::Royale {
+            Map::generate_open(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
+        } else {
+            Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed))
+        };
         let s = &map.style;
         tracing::info!(
             arena = %cfg.name,
@@ -281,7 +293,8 @@ impl World {
         world.live = live;
         world.db = db;
         world.round_ticks = u64::from(cfg.round_secs) * u64::from(TICK_RATE);
-        world.round_end = world.round_ticks;
+        // Royale matches end when one player is left, not on a timer.
+        world.round_end = if cfg.mode == Mode::Royale { u64::MAX } else { world.round_ticks };
         world.place_hills();
         world.init_events();
         world.set_target_bots(cfg.bots);
@@ -317,6 +330,7 @@ impl World {
             frozen: Vec::new(),
             events: events::Events::default(),
             blizzard_until: 0,
+            royale: royale::Royale::default(),
             tile_changes: Vec::new(),
             item_changes: Vec::new(),
             crate_target: (crate_count as f32 * CRATE_REGROW_TARGET) as usize,

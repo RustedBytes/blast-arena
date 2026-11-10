@@ -43,7 +43,7 @@ struct Args {
     /// Arenas to run, each as NAME:MODE:SIZE:BOTS (mode is ffa or teams).
     /// Repeat the flag for several arenas. Default: a main free-for-all
     /// built from --map-size/--bots, plus "Teams:teams:61:8" and
-    /// "Mini:ffa:31:4".
+    /// "Mini:ffa:31:4" and "Royale:royale:81:15" (battle royale).
     #[arg(long = "arena", env = "ARENAS", value_delimiter = ',')]
     arenas: Vec<String>,
     /// Map seed. Each start picks a fresh one (and logs it) unless this pins
@@ -75,7 +75,7 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
     let [name, mode, size, bots] = parts[..] else {
         return Err(format!("arena {spec:?} must look like NAME:MODE:SIZE:BOTS"));
     };
-    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa or teams"))?;
+    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa, teams or royale"))?;
     let size: i32 = size.parse().map_err(|_| format!("arena {spec:?}: bad size"))?;
     let bots: usize = bots.parse().map_err(|_| format!("arena {spec:?}: bad bot count"))?;
     let size = size.max(15) | 1; // odd, so the pillar grid lines up with the border
@@ -90,7 +90,8 @@ async fn main() {
 
     let base = game::Config { max_players: args.max_players, round_secs: args.round_secs.max(30), ..Default::default() };
     let specs = if args.arenas.is_empty() {
-        vec![format!("Main:ffa:{}:{}", args.map_size, args.bots), "Teams:teams:61:8".into(), "Mini:ffa:31:4".into()]
+        let main = format!("Main:ffa:{}:{}", args.map_size, args.bots);
+        vec![main, "Teams:teams:61:8".into(), "Mini:ffa:31:4".into(), "Royale:royale:81:15".into()]
     } else {
         args.arenas.clone()
     };

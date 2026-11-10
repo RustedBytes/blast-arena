@@ -122,6 +122,8 @@ const net = new Net({
       mine: null,
       self: { x: m.w / 2, y: m.h / 2 },
       focus: { x: m.w / 2, y: m.h / 2 },
+      zone: null,      // battle royale zone: { state, start, end, from, to, phase }
+      royale: null,    // battle royale match: { alive, on, nextAt }
       zoom: settings.get('zoom'),
       zoomTarget: settings.get('zoom'),
       itemMap: new Map(),
@@ -297,7 +299,7 @@ const net = new Net({
     if (!state) return;
     $('online').textContent = t('online', { n: m.n });
     state.roundSecs = m.r;
-    $('round-time').textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
+    if (state.mode !== 'royale') $('round-time').textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
     const ts = $('team-scores');
     ts.querySelector('.red').textContent = m.teams[0];
     ts.querySelector('.blue').textContent = m.teams[1];
@@ -371,6 +373,24 @@ const net = new Net({
           banner(t('flagNews')[4].replace('{name}', name).replace('{flag}', flag));
           audio.mystery();
         } else audio.pickup();
+        break;
+      }
+      case EV.ZONE: {
+        const c = (k) => ({ x: v[k] / 100, y: v[k + 1] / 100, r: v[k + 2] / 100 });
+        const was = state.zone?.state;
+        state.zone = { state: v[0], start: now, end: now + v[1] * state.tickMs, from: c(2), to: c(5), phase: v[8] };
+        if (v[0] === 1 && was !== 1) { banner(t('zoneClosing')); audio.curse(); }
+        break;
+      }
+      case EV.ROYALE:
+        state.royale = { alive: v[0], on: v[1] === 1, nextAt: now + v[2] * state.tickMs };
+        break;
+      case EV.WINNER: {
+        const id = v[0] - 1;
+        const name = state.rosterInfo.get(id)?.name ?? '?';
+        banner(id < 0 ? t('nobodyWins') : id === state.myId ? t('youWin') : t('winnerIs', { name }));
+        audio.mystery();
+        renderer.confetti(state);
         break;
       }
       case EV.SWAP:
@@ -522,7 +542,7 @@ let hudKey = '';
 function updateHud(me) {
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
-    me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying,
+    me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying, me.storm,
     getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
@@ -544,6 +564,11 @@ function updateHud(me) {
   $('st-nuke').lastChild.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
   const tickS = state.tickMs / 1000;
   timer($('st-stun'), me.stun > 0, me.stun * tickS, 1);
+  // Battle royale: how long you can last in the storm.
+  const storm = $('storm');
+  storm.classList.toggle('hidden', !(me.alive && me.storm > 0));
+  document.body.classList.toggle('in-storm', me.alive && me.storm > 0);
+  if (me.storm > 0) storm.style.setProperty('--p', Math.max(0, 1 - me.storm / Math.max(1, me.storm_max)).toFixed(2));
   timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
   timer($('st-ghost'), me.ghost > 0, me.ghost * tickS, 6);
   timer($('st-curse'), me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);
@@ -553,12 +578,24 @@ function updateHud(me) {
   if (!me.alive) {
     const killer = me.killer;
     const name = (id) => state.rosterInfo.get(id)?.name ?? '?';
+    const out = me.respawn * tickS > 3600; // royale: out until the next match
     $('dead-msg').textContent = killer === state.myId
       ? t('youBlewUp')
-      : killer != null ? t('blastedBy', { name: name(killer) }) : t('youWereBlasted');
-    $('dead-timer').textContent = t('respawning', { n: Math.ceil(me.respawn * tickS) }) +
+      : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle') : t('youWereBlasted');
+    $('dead-timer').textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');
   }
+}
+
+/** Battle royale: players left and the zone's timer, in place of the round clock. */
+function updateRoyaleHud(now) {
+  if (!state || state.mode !== 'royale') return;
+  const r = state.royale, z = state.zone;
+  let text = '';
+  if (r && !r.on) text = t('nextMatch', { n: Math.max(0, Math.ceil((r.nextAt - now) / 1000)) });
+  else if (z && z.state === 0) text = t('zoneNext', { n: Math.max(0, Math.ceil((z.end - now) / 1000)) });
+  else if (z && z.state === 1) text = t('zoneClosingShort');
+  $('round-time').textContent = `👤 ${r?.alive ?? '?'} · ${text}`;
 }
 
 /** Capture-the-flag captures next to the team scores. */
@@ -701,7 +738,7 @@ function renderArenas() {
   if (!arenas.some((a) => a.id === selectedArena)) selectedArena = arenas[0]?.id ?? 0;
   $('arena-list').innerHTML = arenas.map((a) =>
     `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}">` +
-    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
+    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
     `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
 }
 $('arena-list').addEventListener('click', (e) => {
@@ -792,6 +829,7 @@ function frame(now) {
     const el = $('fps');
     el.textContent = `${Math.round(fps)} FPS · ${(perfWork / perfFrames).toFixed(1)} ms · ${Math.round(state.interpDelay * state.tickMs)} ms buf`;
     el.classList.toggle('slow', fps < 50);
+    updateRoyaleHud(now);
     $('netinfo').textContent = `ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
     net.bytesIn = 0;
     perfTime = perfFrames = perfWork = 0;

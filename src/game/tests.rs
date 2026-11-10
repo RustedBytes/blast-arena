@@ -925,3 +925,88 @@ fn sudden_death_restores_the_floor_under_temporary_ice() {
     assert_eq!(w.map.get(1, 1), Tile::Floor, "not stuck as ice forever");
 }
 
+/// A royale world on an open map, with a match about to start.
+fn royale_world(size: i32) -> World {
+    let mut w = World::with_map(Map::generate_open(size, size, &mut Rng::new(7)), Rng::new(3), 64);
+    w.mode = Mode::Royale;
+    w.round_end = u64::MAX;
+    w
+}
+
+#[test]
+fn royale_match_until_one_is_left() {
+    let mut w = royale_world(41);
+    let ids: Vec<u32> = (0..3).map(|k| w.spawn_test_player(1.5 + k as f32 * 4.0, 1.5)).collect();
+    w.update_royale();
+    assert!(w.royale.match_on);
+    assert!(w.zone().r > 28.0, "the whole map is safe at first");
+    // Joining before the zone first moves is still fine...
+    let early = w.add_bot();
+    assert!(w.players[&early].alive);
+    w.kill(early, None);
+    // ...but once it moves, a latecomer watches until the next match.
+    w.tick = w.royale.state_end;
+    w.update_royale();
+    assert_eq!(w.royale.state, royale::ZoneState::Shrinking);
+    let late = w.add_bot();
+    assert!(!w.players[&late].alive);
+    let snap: serde_json::Value = w.full_snapshot(late);
+    let respawn = me_obj(&snap)["respawn"].as_i64().unwrap();
+    assert!(respawn > 100_000, "sent as a large positive number, not {respawn}");
+    w.kill(ids[0], None);
+    assert!(!w.players[&ids[0]].alive);
+    w.tick += 100;
+    w.step();
+    assert!(!w.players[&ids[0]].alive, "no respawning mid-match");
+    w.kill(ids[1], Some(ids[2]));
+    w.step();
+    assert!(!w.royale.match_on, "decided");
+    assert_eq!(w.stats.rounds, 1, "the match counts as a round");
+    for _ in 0..=royale::INTERMISSION_TICKS {
+        w.step();
+    }
+    assert!(w.royale.match_on, "next match");
+    for id in ids.iter().chain([&late]) {
+        assert!(w.players[id].alive, "player {id} is back for the new match");
+    }
+}
+
+#[test]
+fn the_storm_kills_whoever_stays_out() {
+    let mut w = royale_world(41);
+    let inside = w.spawn_test_player(20.5, 20.5);
+    let outside = w.spawn_test_player(1.5, 1.5);
+    w.update_royale();
+    for id in [inside, outside] {
+        w.players.get_mut(&id).unwrap().invulnerable_until = 0;
+    }
+    let (ix, iy) = (w.players[&inside].x, w.players[&inside].y);
+    w.royale.from = royale::Circle { x: ix, y: iy, r: 3.0 };
+    let (ox, oy) = (w.players[&outside].x, w.players[&outside].y);
+    assert!(!w.zone().contains(ox, oy));
+    for _ in 0..royale::STORM_TICKS[0] {
+        w.tick += 1;
+        w.update_royale();
+    }
+    assert!(w.players[&inside].alive, "safe in the zone");
+    assert!(!w.players[&outside].alive, "the storm got them");
+}
+
+#[test]
+fn royale_bots_head_into_the_zone() {
+    let mut w = royale_world(41);
+    for _ in 0..8 {
+        w.add_bot();
+    }
+    w.update_royale();
+    // Run to the end of the first phase's shrink.
+    let (wait, shrink, _) = royale::PHASES[0];
+    for _ in 0..(wait + shrink) * u64::from(TICK_RATE) {
+        w.step();
+    }
+    let zone = w.zone();
+    let alive: Vec<&player::Player> = w.players.values().filter(|p| p.alive).collect();
+    let inside = alive.iter().filter(|p| zone.contains(p.x, p.y)).count();
+    assert!(inside * 4 >= alive.len() * 3, "{inside} of {} alive bots inside the zone", alive.len());
+}
+
