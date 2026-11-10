@@ -1,345 +1,356 @@
-# Бонуси-здібності: Будівельник, Газова бомба, Клон, Липка бомба, Портальна пара, Ривок
+# Ability power-ups: Builder, Gas Bomb, Clone, Sticky Bomb, Portal Pair, Dash
 
-Цей документ описує, як шість бонусів із технічного завдання вбудовано в
-наявний рушій Blast Arena: архітектуру, конфігурацію, мережевий протокол,
-зміни в системах бомб і колізій, тести, результати профілювання, відомі
-обмеження та порядок додавання нових бонусів.
+This document describes how the six power-ups from the specification are
+built into the existing Blast Arena engine: the architecture, the
+configuration, the network protocol, the changes to the bomb and collision
+systems, the tests, profiling results, known limitations, and how to add
+another power-up.
 
-## 1. Як це вписано в рушій
+## 1. How it fits the engine
 
-Сервер — авторитетна симуляція `World` (одна на арену) з фіксованим кроком
-**20 Гц** (`TICK_RATE`). ТЗ рекомендує 30 Гц, але весь рушій, прогнозування
-клієнта, дельта-знімки й баланс наявних бонусів побудовані на 20 Гц; згідно
-з вимогою «не замінювати наявні абстракції без необхідності» частоту не
-змінено. Усі тривалості в конфігурації задаються в мілісекундах і
-переводяться в тики одним правилом (див. розділ 3), тож перехід на іншу
-частоту не потребує змін у конфігурації.
+The server runs the authoritative simulation, one `World` per arena, at a
+fixed **20 Hz** step (`TICK_RATE`). The specification recommends 30 Hz, but
+the whole engine, client prediction, delta snapshots and the balance of the
+existing power-ups are built around 20 Hz. Following the rule "don't replace
+existing abstractions without need", the rate is unchanged. Every duration in
+the configuration is given in milliseconds and converted to ticks with one
+rule (see section 3), so a different rate needs no configuration changes.
 
-| Що в ТЗ | Як у коді |
+| In the specification | In the code |
 |---|---|
-| Player | `game::player::Player` + нові поля здібностей (слот, заряди, перезарядка, ривок, газ, портальний lock, історія руху) |
+| Player | `game::player::Player` + new ability fields (slot, charges, recharge, dash, gas, portal lock, movement history) |
 | Bomb | `game::bomb::Bomb` + `gas`, `sticky`, `attached`, `portal_ready_at` |
-| TemporaryObstacle | `game::builder::Wall` + тайл карти `Tile::Built` (10) |
-| AreaEffect | `game::gas::GasCloud` (клітинки фіксуються в момент викиду) |
-| Portal | `game::portal::Portal` (`partner == 0` — портал чекає на пару) |
-| Clone | `game::clone::Clone`, `Decoy` (псевдобомба), `History` (кільцевий буфер руху) |
-| Контракт здібностей | спільний модуль `game::abilities` (таблиця відповідностей `canActivate/activate/update/...` у його документації) |
-| Конфігурація | `config/abilities.json` → `game::ability_config::Tuning` |
+| TemporaryObstacle | `game::builder::Wall` + the map tile `Tile::Built` (10) |
+| AreaEffect | `game::gas::GasCloud` (cells are fixed when the gas is released) |
+| Portal | `game::portal::Portal` (`partner == 0`: waiting for its pair) |
+| Clone | `game::clone::Clone`, `Decoy` (fake bomb), `History` (movement ring buffer) |
+| Ability contract | the shared `game::abilities` module (its docs map `canActivate/activate/update/...`) |
+| Configuration | `config/abilities.json` → `game::ability_config::Tuning` |
 
-Контракт здібностей реалізовано не як trait-об'єкт на кожного гравця (це
-означало б алокацію та віртуальний виклик на гравця на тик у «гарячому»
-циклі, який зараз нічого не алокує), а як фіксовані точки входу в `World`:
+The ability contract isn't a trait object per player. That would cost an
+allocation and a virtual call per player per tick in a hot loop that
+currently allocates nothing. It's a set of fixed entry points on `World`
+instead:
 
-| Метод контракту | Реалізація |
+| Contract method | Implementation |
 |---|---|
-| `canActivate` | `World::check_ability` (спільні перевірки) + перевірка розміщення модуля (`wall_blocked`, `portal_target`, історія клона) |
-| `activate` | `World::use_ability` → `place_wall` / `spawn_clone` / `place_portal` / `start_dash`; модифікатори бомб — у `place_bomb` |
+| `canActivate` | `World::check_ability` (shared checks) + the module's placement check (`wall_blocked`, `portal_target`, clone history) |
+| `activate` | `World::use_ability` → `place_wall` / `spawn_clone` / `place_portal` / `start_dash`; bomb modifiers in `place_bomb` |
 | `update` | `update_walls`, `update_gas`, `update_clones`, `update_sticky`, `update_portals`, `dash_step`, `recharge_abilities` |
-| `onCollision` | `dash_step` (swept-рух), `update_sticky` / `sticky_hit` (контакт), `portal_entry` / `bomb_portal` |
-| `onDamage` | `damage_wall`, `ignite` (газ), знищення клона в `update_clones` |
-| `deactivate` | `abilities_on_death`, закінчення часу в `update_*` |
-| `serialize` | секція `EXTRA` знімка та поля `me` (див. розділ 4) |
-| `reset` | `reset_abilities_for_round` (кінець раунду, старт матчу королівської битви) |
+| `onCollision` | `dash_step` (swept movement), `update_sticky` / `sticky_hit` (contact), `portal_entry` / `bomb_portal` |
+| `onDamage` | `damage_wall`, `ignite` (gas), clone destruction in `update_clones` |
+| `deactivate` | `abilities_on_death`, expiry in the `update_*` functions |
+| `serialize` | the snapshot's `EXTRA` section and `me` fields (see section 4) |
+| `reset` | `reset_abilities_for_round` (end of round, start of a battle royale match) |
 
-### 1.1. Інвентар
+### 1.1. Inventory
 
-* **Активні здібності** (Будівельник, Клон, Портальна пара, Ривок) займають
-  один слот, як гаджети: підібрана інша здібність замінює поточну (та сама —
-  поповнює заряди). Заряди витрачаються лише на успішну активацію;
-  витрачений заряд повертається через cooldown здібності, який стартує з
-  успішною активацією. Невдала спроба нічого не коштує і надсилає гравцеві
-  `AbilityRejected` з причиною.
-* **Модифікатори бомб** (Газова, Липка) — окремі лічильники зарядів, які
-  витрачаються наступними бомбами. Вони взаємовиключні: підібраний
-  модифікатор скидає інший. Атомна бомба має пріоритет над обома.
-* Після смерті здібність і модифікатори губляться й можуть випасти як
-  предмети (як інші бонуси).
+* **Active abilities** (Builder, Clone, Portal Pair, Dash) share one slot,
+  like gadgets: picking up a different one replaces it, the same one refills
+  its charges. Charges are spent only on a successful activation; a spent
+  charge comes back after the ability's cooldown, which starts on a
+  successful activation. A failed attempt costs nothing and sends the player
+  `AbilityRejected` with the reason.
+* **Bomb modifiers** (Gas, Sticky) have their own charge counters, used up by
+  the next bombs. They are mutually exclusive: picking one up drops the
+  other. The atomic bomb takes precedence over both.
+* On death the ability and modifiers are lost and may drop as items, like
+  other power-ups.
 
-### 1.2. Порядок обробки в тику
+### 1.2. Order within a tick
 
 `tick.rs::step`:
 
-1. `read_inputs` — команди з лок-фрі слотів введення (лічильники натискань:
-   повторна доставка не дублює дію).
+1. `read_inputs`: commands from the lock-free input slots (press counters,
+   so a repeated delivery never repeats an action).
 2. `update_bots`.
-3. `update_players` у порядку зростання id: стрибок → **ривок** (замість
-   ходьби) → ходьба → телепорти карти → **портали** → підбір предметів →
-   дії (дія, гаджет, скасування, **здібність**, бомба) → запис **історії**
-   для клонів.
-4. `update_drones`, `update_mines`, `update_sliding_bombs` (+ **портали для
-   бомб**, **прилипання** ковзної липкої бомби).
-5. `update_sticky` — прикріплені бомби йдуть за носієм, контакт із
-   бомбою на землі, скидання.
-6. `update_fuses` — детонації в порядку id.
-7. `update_gas` — закінчення, **займання** від вогню цього тику, сповільнення.
-8. `apply_flame_damage` (у порядку id).
+3. `update_players` in ascending id order: jump → **dash** (instead of
+   walking) → walking → map teleporters → **portals** → item pickup →
+   actions (action, gadget, cancel, **ability**, bomb) → **history** record
+   for clones.
+4. `update_drones`, `update_mines`, `update_sliding_bombs` (+ **portals for
+   bombs**, a sliding sticky bomb **sticking** to a player).
+5. `update_sticky`: attached bombs follow their carrier, contact with a bomb
+   on the ground, shaking off.
+6. `update_fuses`: detonations in id order.
+7. `update_gas`: expiry, **ignition** by this tick's fire, slowdown.
+8. `apply_flame_damage` (in id order).
 9. `update_clones`, `update_walls`, `update_portals`, `recharge_abilities`.
-10. Знімки та події (`send_updates`).
+10. Snapshots and events (`send_updates`).
 
-Об'єкт, створений у тику N, не активується повторно в тому ж тику: газ,
-випущений у тику N, може зайнятися лише з тику N+1; новий портал блокує
-(`portal_lock`) тих, хто на ньому стоїть.
+An object created in tick N doesn't activate again in that tick: gas
+released in tick N can ignite from tick N+1 on, and a new portal locks out
+(`portal_lock`) whoever is standing on it.
 
-## 2. Механіки (коротко)
+## 2. Mechanics in brief
 
-**Будівельник** (`builder.rs`). Стіна ставиться в клітинку перед гравцем
-(`placementRange`). Дозволено лише на підлозі чи льоду, без бомби, предмета,
-порталу, бази прапора і без будь-якого гравця, що хоч трохи перекриває
-клітинку. Стіна — тайл `Built`: твердий для руху (і для «привидів»),
-вибухів, газу, прогнозування клієнта та ШІ. Звичайний вибух знімає 1 HP і
-зупиняється на стіні; пробивний іде далі; атомний знищує. Під стіною
-зберігається початковий тайл і повертається після руйнування чи закінчення
-часу. Стіни переживають смерть власника.
+**Builder** (`builder.rs`). The wall goes in the cell in front of the player
+(`placementRange`). Allowed only on floor or ice, with no bomb, item, portal
+or flag base, and no player overlapping the cell even slightly. A wall is the
+`Built` tile: solid for movement (ghosts included), blasts, gas, client
+prediction and the AI. A normal blast takes 1 HP and stops at the wall; a
+piercing blast continues; an atomic blast destroys it. The original tile is
+saved underneath and restored when the wall is destroyed or expires. Walls
+outlive their owner.
 
-**Газова бомба** (`gas.rs`). Бомба з тим самим таймером, але замість вогню —
-хрест газу радіусом `radius` (+ до `rangeBonus` від бонусів радіуса), що
-зупиняється перед твердими клітинками. Усі всередині щотику отримують
-`gassed_until = tick + slowAfterExit`. Множник швидкості не накопичується:
-застосовується найсильніше з уповільнень (газ, прокляття, хуртовина).
-Вогонь у будь-якій клітинці хмари (з наступного тику після викиду) запалює
-її один раз: усі гравці в хмарі отримують одну подію шкоди (щит рятує),
-хмара зникає. Займання не створює вогню на клітинках, тому не детонує
-бомби й не може дати ланцюг. Максимум `maxActiveClouds` хмар на гравця:
-найстаріша звільняє місце.
+**Gas Bomb** (`gas.rs`). A bomb with the usual fuse, but instead of fire it
+releases a cross of gas with radius `radius` (+ up to `rangeBonus` from range
+power-ups), stopping in front of solid cells. Everyone inside gets
+`gassed_until = tick + slowAfterExit` every tick. The speed multiplier
+doesn't stack: the strongest slowdown applies (gas, curse, blizzard). Fire
+in any cell of the cloud (from the tick after release) ignites it once: every
+player in the cloud gets one damage event (a shield protects), and the cloud
+is gone. Ignition creates no fire on the cells, so it doesn't set off bombs
+and can't start a chain. At most `maxActiveClouds` clouds per player: the
+oldest makes room.
 
-**Клон** (`clone.rs`). Кожен гравець пише кадр руху щотику в кільцевий
-буфер на 64 тики (3,2 с). Клон з'являється там, де власник був
-`playbackDelay` тому, і програє запис. Сервер не пускає клона в клітинку,
-що стала твердою, і не дає перестрибувати клітинки (телепорт у записі):
-клон чекає, поки запис знову опиниться поруч. Подія встановлення бомби в
-записі створює псевдобомбу (лише картинка в окремому списку `decoys`).
-Клон не збирає предмети, не користується порталами, на нього не
-прилипають бомби, газ на нього не діє; вибух його знищує; смерть власника —
-теж.
+**Clone** (`clone.rs`). Every player writes a movement frame each tick into a
+64-tick (3.2 s) ring buffer. A clone appears where its owner was
+`playbackDelay` ago and replays the recording. The server doesn't let it
+into a cell that has become solid, or skip cells (a teleport in the
+recording): the clone waits until the recording comes back next to it. A
+bomb placement in the recording creates a decoy bomb (only a picture, in a
+separate `decoys` list). A clone picks nothing up, doesn't use portals,
+can't be stuck to, and ignores gas; a blast destroys it, and so does its
+owner's death.
 
-**Липка бомба** (`sticky.rs`). Кидається на `throwRange` клітинок уперед:
-прилипає до першого допустимого гравця на шляху, інакше лягає на останню
-вільну клітинку (або під ноги). Бомба на землі прилипає до того, хто
-заходить у її клітинку або впирається в неї. Прикріплена бомба знімається
-з сітки бомб (не блокує, не штовхається), її позиція щотику дорівнює
-клітинці носія (тож вона переходить через портали разом із ним). Власник не
-змінюється. Утримання клавіші скидання `detachDuration` скидає бомбу на
-найближчу вільну клітинку (таймер не скидається); якщо таймер закінчився
-раніше — вибух. Смерть чи вихід носія — бомба лишається на його останній
-клітинці. Щит блокує шкоду, але не прилипання.
+**Sticky Bomb** (`sticky.rs`). Thrown `throwRange` cells ahead: it sticks to
+the first eligible player in its path, otherwise lands on the last free cell
+(or at the thrower's feet). A bomb on the ground sticks to whoever walks into
+its cell or pushes against it. An attached bomb leaves the bomb grid (it
+doesn't block and can't be kicked); its position is the carrier's cell every
+tick, so it goes through portals with them. The owner never changes. Holding
+the detach key for `detachDuration` drops the bomb on the nearest free cell
+(the fuse keeps running); if the fuse runs out first, it explodes. If the
+carrier dies or leaves, the bomb stays on their last cell. A shield blocks
+the damage, not the sticking.
 
-**Портальна пара** (`portal.rs`). Перше натискання ставить неактивний
-портал на найдальшу вільну клітинку до `placementRange` попереду (лінія
-обривається на твердому; інакше — власна клітинка), друге — пару; заряд і
-cooldown витрачаються лише на повну пару. Портал, що чекає, зникає через
-`placementTimeout` або скасовується (X). Перехід: гравець у центрі
-клітинки активного порталу (ривок — будь-де в клітинці), вихід вільний (не
-твердий, без бомби й без іншого гравця) → переміщення в центр виходу,
-`portal_lock` на клітинку виходу і `teleportCooldown`. Новий перехід лише
-після виходу з клітинки **і** закінчення cooldown. Заблокований вихід —
-перехід скасовується без cooldown і без пошуку альтернатив. Бомби, що
-ковзають (штовхнуті, на конвеєрі), проходять так само, зберігаючи власника,
-таймер і напрямок. Вогонь і газ через портали не проходять. Пара зникає з
-часом, зі смертю власника і якщо клітинка стала твердою.
+**Portal Pair** (`portal.rs`). The first press places an inactive portal on
+the farthest free cell up to `placementRange` ahead (the line stops at
+anything solid; otherwise the player's own cell), the second press places its
+partner; a charge and the cooldown are spent only on a full pair. A waiting
+portal disappears after `placementTimeout` or is cancelled (X). A trip
+happens when a player is at the centre of an active portal's cell (anywhere
+in the cell while dashing) and the exit is free (not solid, no bomb, no other
+player): they move to the exit's centre, get a `portal_lock` on the exit cell
+and the `teleportCooldown`. The next trip needs both leaving that cell
+**and** the cooldown ending. A blocked exit cancels the trip, with no
+cooldown and no search for an alternative. Sliding bombs (kicked, on a
+conveyor) go through the same way, keeping owner, fuse and direction. Fire
+and gas don't pass through portals. A pair disappears on expiry, on its
+owner's death, and if its cell turns solid.
 
-**Ривок** (`dash.rs`). Напрямок — затиснутий (або куди гравець дивиться),
-фіксується на старті. Кожен тик дистанція ділиться на підкроки < 0,5
-клітинки (swept): рух зупиняється перед стіною/бомбою/краєм, кожна нова
-клітинка перевіряється на вогонь (шкода за звичайними правилами), газ,
-предмети і портал (один перехід за ривок). Невразливості немає (опція
-`invulnerable`). Липка бомба лишається на гравцеві.
+**Dash** (`dash.rs`). The direction is the one held (or faced) and is fixed
+at the start. Each tick's distance is split into sub-steps under 0.5 cells
+(swept): movement stops in front of walls, bombs and the map edge, and each
+new cell is checked for fire (damage by the normal rules), gas, items and
+portals (one trip per dash). No invulnerability (the `invulnerable` option
+turns it on). A sticky bomb stays on the player.
 
-## 3. Конфігурація
+## 3. Configuration
 
-`config/abilities.json` вбудовано в бінарник; `--abilities <file>` (або
-`ABILITIES_CONFIG`) замінює його. Будь-яке поле можна пропустити — діє
-значення за замовчуванням. Невідомі поля, неправильна версія або значення
-поза межами зупиняють сервер із повідомленням.
+`config/abilities.json` is embedded in the binary; `--abilities <file>` (or
+`ABILITIES_CONFIG`) replaces it. Any field may be left out to use its
+default. Unknown fields, a wrong version or out-of-range values stop the
+server with a message.
 
-* **Правило округлення:** `ticks = round_half_up(ms × 20 / 1000)`; тривалості,
-  що мають бути додатними, не менші за 1 тик.
-* **Валідація:** заряди 1..9; радіус газу 1..8 і `radius + rangeBonus ≤ 8`;
-  `movementMultiplier` у (0, 1]; дистанція ривку у (0, 8]; затримка клона
-  менша за буфер історії (3,2 с); `teleportCooldownMs > 0` (інакше можливий
-  цикл A→B→A); усі тривалості додатні; ліміти об'єктів обмежені.
-* **Feature flags:** `enabled: false` вимикає бонус: він не випадає зі
-  скринь і секретних скриньок, а вже наявний не активується
-  (`AbilityRejected` з причиною «вимкнено»). Список вимкнених іде клієнту.
+* **Rounding rule:** `ticks = round_half_up(ms × 20 / 1000)`; durations that
+  must be positive are at least 1 tick.
+* **Validation:** charges 1..9; gas radius 1..8 and `radius + rangeBonus ≤ 8`;
+  `movementMultiplier` in (0, 1]; dash distance in (0, 8]; clone delay
+  shorter than the history buffer (3.2 s); `teleportCooldownMs > 0`
+  (otherwise an A→B→A loop would be possible); all durations positive;
+  object limits bounded.
+* **Feature flags:** `enabled: false` switches a power-up off: it no longer
+  drops from crates or secret boxes, and one already held won't activate
+  (`AbilityRejected` with reason "disabled"). The list of disabled ones is
+  sent to the client.
 
-## 4. Мережевий протокол
+## 4. Network protocol
 
-### 4.1. Команди клієнта
+### 4.1. Client commands
 
-| Команда ТЗ | У протоколі |
+| Specification command | In the protocol |
 |---|---|
-| `UseAbility`, `PlaceBuilderWall`, `SpawnClone`, `PlacePortal`, `ActivateDash` | `cop::ABILITY` (9) — один байт; яку здібність використати, вирішує сервер за інвентарем гравця |
-| `PlaceGasBomb`, `PlaceStickyBomb` | наявна `cop::BOMB`: наступна бомба стає газовою/липкою за модифікатором |
-| `DetachStickyBomb` | біт 7 у байті напрямків `cop::IN` (утримувана клавіша, як стрибок) |
-| скасування пари порталів | `cop::CANCEL` (10) |
+| `UseAbility`, `PlaceBuilderWall`, `SpawnClone`, `PlacePortal`, `ActivateDash` | `cop::ABILITY` (9), a single byte; the server picks the ability from the player's inventory |
+| `PlaceGasBomb`, `PlaceStickyBomb` | the existing `cop::BOMB`: the next bomb becomes gas/sticky by modifier |
+| `DetachStickyBomb` | bit 7 of the direction byte in `cop::IN` (a held key, like jump) |
+| cancelling a portal pair | `cop::CANCEL` (10) |
 
-`playerId` у командах немає взагалі: гравець — це власник WebSocket-сесії,
-тож підробити його неможливо. Натискання рахуються лічильниками в
-лок-фрі слоті, тож кілька натискань за тик дають одну дію, а повторне
-читання того самого лічильника — нічого. Сервер перевіряє стан персонажа,
-наявність бонусу, заряди, cooldown, позицію та ліміти об'єктів.
+Commands carry no `playerId` at all: the player is the owner of the
+WebSocket session, so it can't be forged. Presses are counted by counters in
+the lock-free slot, so several presses in one tick give one action, and
+reading the same counter again does nothing. The server checks the
+character's state, that the power-up is held, charges, cooldown, position and
+object limits.
 
-### 4.2. Події сервера
+### 4.2. Server events
 
-Усі — `op::EVENT` із видом `ev::ABILITY` (11); значення:
-`[підвид, тик сервера, ...]` (`game::abilities::ab`):
+All are `op::EVENT` with kind `ev::ABILITY` (11); values are
+`[sub-kind, server tick, ...]` (`game::abilities::ab`):
 
-| Подія ТЗ | Підвид | Значення після тику | Кому |
+| Specification event | Sub-kind | Values after the tick | To |
 |---|---|---|---|
-| AbilityActivated | 1 | гравець, код бонусу | поруч |
-| AbilityRejected | 2 | код бонусу, причина | гравцю |
-| AbilityCooldownStarted | 3 | код бонусу, тики | гравцю |
-| WallCreated | 4 | id, власник, x, y, тики | поруч |
-| WallDestroyed | 5 | id, x, y, 1 = зруйнована / 0 = час вийшов | поруч |
-| GasCloudCreated | 6 | id, власник, x, y, тики | поруч |
-| GasCloudExpired | 7 | id, x, y | поруч |
-| GasIgnited | 8 | id, x, y | поруч |
-| CloneSpawned | 9 | id, власник, x, y | власнику й команді |
-| CloneDestroyed | 10 | id, x, y, 1 = вибух | поруч |
-| StickyBombAttached | 11 | бомба, ціль, власник, x, y | поруч |
-| StickyBombDetached | 12 | бомба, ціль, x, y | поруч |
-| PortalCreated | 13 | id, власник, x, y | поруч |
-| PortalLinked | 14 | id першого, id другого, власник, x, y | поруч |
-| PortalDestroyed | 15 | id, x, y | поруч |
-| EntityTeleported | 16 | 0 гравець / 1 бомба, id, звідки x, y, куди x, y | поруч |
-| DashStarted | 17 | гравець, напрямок, x, y | поруч |
-| DashEnded | 18 | гравець, x, y | поруч |
+| AbilityActivated | 1 | player, item code | nearby (owner and team for a clone) |
+| AbilityRejected | 2 | item code, reason | the player |
+| AbilityCooldownStarted | 3 | item code, ticks | the player |
+| WallCreated | 4 | id, owner, x, y, ticks | nearby |
+| WallDestroyed | 5 | id, x, y, 1 = destroyed / 0 = expired | nearby |
+| GasCloudCreated | 6 | id, owner, x, y, ticks | nearby |
+| GasCloudExpired | 7 | id, x, y | nearby |
+| GasIgnited | 8 | id, x, y | nearby |
+| CloneSpawned | 9 | id, owner, x, y | owner and team |
+| CloneDestroyed | 10 | id, x, y, 1 = blast | nearby |
+| StickyBombAttached | 11 | bomb, target, owner, x, y | nearby |
+| StickyBombDetached | 12 | bomb, target, x, y | nearby |
+| PortalCreated | 13 | id, owner, x, y | nearby |
+| PortalLinked | 14 | first id, second id, owner, x, y | nearby |
+| PortalDestroyed | 15 | id, x, y | nearby |
+| EntityTeleported | 16 | 0 player / 1 bomb, id, from x, y, to x, y | nearby |
+| DashStarted | 17 | player, direction, x, y | nearby |
+| DashEnded | 18 | player, x, y | nearby |
 
-«Поруч» — гравці, чия найбільша можлива зона видимості містить клітинку.
+"Nearby" means players whose largest possible view contains the cell.
 
-### 4.3. Знімки
+### 4.3. Snapshots
 
-* Нова секція `EXTRA` (біт 128 маски секцій): підсписки `GAS`, `PORTALS`,
-  `CLONES`, `DECOYS`, `STUCK`, у межах зони видимості, щоразу повністю (не
-  дельтою): вони невеликі і так сам клієнт не залежить від втрачених подій.
-* Бомби отримали прапорці `sticky` (64) і `gas` (128); прикріплена бомба є в
-  списку бомб із клітинкою носія, а `STUCK` каже, хто її несе.
-* Прапорці гравця розширено до 10 біт: `dashing` (256), `gassed` (512).
-* Поля `me` (47 замість 35): `ability`, `ability_n`, `ability_max`,
-  `ability_cd`, `gas_bombs`, `sticky_bombs`, `stuck` (таймер бомби на мені + 1),
-  `detach` (прогрес скидання), `gassed`, `dash`, `dash_dir`, `portal_wait`.
-* Welcome містить `abilities` (версія `v`, cooldown-и, тривалості, крок
-  ривку, множник газу, вимкнені бонуси).
+* A new `EXTRA` section (bit 128 of the section mask): sub-lists `GAS`,
+  `PORTALS`, `CLONES`, `DECOYS`, `STUCK` within the area of interest, sent
+  whole every time (not as deltas): they are small, and this way the client
+  doesn't depend on events that might be missed.
+* Bombs gained the flags `sticky` (64) and `gas` (128); an attached bomb is
+  in the bomb list at its carrier's cell, and `STUCK` says who carries it.
+* Player flags grew to 10 bits: `dashing` (256), `gassed` (512).
+* `me` fields (47 instead of 35): `ability`, `ability_n`, `ability_max`,
+  `ability_cd`, `gas_bombs`, `sticky_bombs`, `stuck` (fuse of the bomb on me
+  + 1), `detach` (shake-off progress), `gassed`, `dash`, `dash_dir`,
+  `portal_wait`.
+* The welcome carries `abilities` (version `v`, cooldowns, durations, dash
+  step, gas multiplier, disabled power-ups).
 
-Критичні події (прикріплення, детонація, телепортація, стіна) виконує лише
-сервер; клієнт показує їх зі знімків. Прогнозування клієнта знає про стіни,
-уповільнення газом і продовжує ривок, щойно знімок його показав;
-телепортацію порталом виправляє узгодження (reconciliation) зі знімком.
-Перепідключення отримує повний знімок, тож стан здібностей відновлюється з
-нього (самі здібності, як і інші тимчасові бонуси, після 30-секундного
-«паркування» не зберігаються).
+Critical events (sticking, detonation, teleporting, walls) are decided by the
+server alone; the client shows them from snapshots. Client prediction knows
+about walls and the gas slowdown, and continues a dash as soon as a snapshot
+shows it; a portal trip is corrected by reconciliation with the snapshot. A
+reconnecting client gets a full snapshot, so ability state is restored from
+it (the abilities themselves, like other temporary power-ups, aren't kept by
+the 30-second parking on disconnect).
 
-## 5. Зміни в наявних системах бомб і колізій
+## 5. Changes to the existing bomb and collision systems
 
-* `Map::is_solid` включає `Tile::Built`; рух гравця і прогнозування
-  клієнта вважають `Built` твердим і для «привидів»; `trace_blast` обробляє
-  `Built` як скриню (зупиняє непробивний вибух); `explode` і атомний вибух
-  пошкоджують/знищують стіну без випадання предметів.
-* `explode`, `remove_bomb` і очищення на старті матчу знімають бомбу з сітки,
-  лише якщо в клітинці саме вона (прикріплена липка бомба на сітці не стоїть).
-* `kick_bomb` і `update_sliding_bombs` ігнорують прикріплені бомби;
-  ковзна липка бомба, що впирається в гравця, прилипає; ковзна бомба на
-  порталі телепортується.
-* `update_fuses` і `apply_flame_damage` обробляють бомби та жертв у порядку
-  id (раніше порядок залежав від `HashMap`), щоб однакові команди давали
-  однаковий результат.
-* Перевірку шкоди від вогню винесено в `World::flame_threat` — її
-  використовують і звичайна шкода, і swept-перевірка ривку.
-* `Item::crate_drop` отримав фільтр увімкнених бонусів; ваги випадання
-  перераховано на 224 (кожен новий бонус — 4/224).
-* Боти використовують ривок для втечі, стіни й клонів поруч із ворогами та
-  портали; модифікатори бомб працюють для них автоматично.
+* `Map::is_solid` includes `Tile::Built`; player movement and client
+  prediction treat `Built` as solid for ghosts too; `trace_blast` handles
+  `Built` like a crate (it stops a non-piercing blast); `explode` and the
+  atomic blast damage/destroy the wall without dropping items.
+* `explode`, `remove_bomb` and the clean-up at the start of a match clear a
+  bomb grid cell only if it holds that very bomb (an attached sticky bomb
+  isn't on the grid).
+* `kick_bomb` and `update_sliding_bombs` ignore attached bombs; a sliding
+  sticky bomb that runs into a player sticks to them; a sliding bomb on a
+  portal goes through it.
+* `update_fuses` and `apply_flame_damage` handle bombs and victims in id
+  order (the order used to depend on `HashMap`), so identical commands give
+  an identical result.
+* The fire damage check moved into `World::flame_threat`, used by both normal
+  damage and the dash's swept check.
+* `Item::crate_drop` takes a filter for enabled power-ups; drop weights are
+  now out of 224 (each new power-up gets 4/224).
+* Bots dash to escape, use walls and clones near enemies, and place portals;
+  bomb modifiers work for them automatically.
 
-## 6. Тести
+## 6. Tests
 
-`cargo test` — 170 тестів, із них 63 нові (`src/game/ability_tests.rs`,
-`src/game/ability_config.rs`, оновлені тести протоколу). Назви тестів
-починаються з ідентифікатора сценарію ТЗ:
+`cargo test` runs 171 tests, 64 of them new (`src/game/ability_tests.rs`,
+`src/game/ability_config.rs`, updated protocol tests). Test names start with
+the specification's scenario id:
 
-| Група | Сценарії |
+| Group | Scenarios |
 |---|---|
-| Builder | B01–B08 + привиди й гравці не проходять крізь стіну |
-| Gas Bomb | G01–G08 + ліміт хмар на гравця |
-| Clone | C01–C08 + псевдобомби та нові стіни на шляху запису |
-| Sticky Bomb | S01–S08, S09 (ривок), підбір бомби з землі |
-| Portal Pair | P01–P10 + правила розміщення, скасування, таймаут |
-| Dash | D01–D09 (D09 — разом із S04), незмінність напрямку, відсутність щита |
-| Мережа/система | N01, N04–N10; конфігурація: значення ТЗ, правило округлення, часткові файли, некоректні значення; вимкнені бонуси |
+| Builder | B01–B08 + ghosts and players can't pass a wall |
+| Gas Bomb | G01–G08 + cloud limit per player |
+| Clone | C01–C08 + decoy bombs, new walls in the recording's path, the clone hidden from enemies |
+| Sticky Bomb | S01–S08, S09 (dash), picking a bomb up from the ground |
+| Portal Pair | P01–P10 + placement rules, cancel, timeout |
+| Dash | D01–D09 (D09 together with S04), fixed direction, no shield |
+| Network/system | N01, N04–N10; configuration: specification values, rounding rule, partial files, invalid values; disabled power-ups |
 
-N02 (затримка 150 мс) і N03 (втрата пакетів) покриває наявна архітектура:
-дельта-знімки від підтвердженої бази, повний знімок, якщо база невідома, і
-узгодження прогнозу. Окремих мережевих тестів із емуляцією затримки немає
-(див. розділ 8).
+N02 (150 ms latency) and N03 (packet loss) are covered by the existing
+architecture: delta snapshots against an acknowledged base, a full snapshot
+when the base is unknown, and prediction reconciliation. There are no
+separate network tests that emulate latency (see section 8).
 
-## 7. Профілювання
+## 7. Profiling
 
-`cargo run --release --bin simbench -- --ticks 2000` (200 ботів, 150
-клієнтів зі справжнім кодуванням знімків, карта 101×101), до змін і після,
-по три прогони:
+`cargo run --release --bin simbench -- --ticks 2000` (200 bots, 150 clients
+with real snapshot encoding, a 101×101 map), before and after, three runs
+each:
 
-| | середній тик | p99 тику | алокацій на тик | знімок на клієнта за тик |
+| | average tick | p99 tick | allocations per tick | snapshot per client per tick |
 |---|---|---|---|---|
-| до змін | 1,36–1,39 мс | 2,01–2,22 мс | 0,09–0,14 (29–56 Б) | 112 Б |
-| після | 1,37–1,44 мс | 2,04–2,99 мс | 0,10 (26 Б) | 117 Б |
+| before | 1.36–1.39 ms | 2.01–2.22 ms | 0.09–0.14 (29–56 B) | 112 B |
+| after | 1.37–1.44 ms | 2.04–2.99 ms | 0.10 (26 B) | 117 B |
 
-Бюджет тику — 50 мс. За 2000 тиків боти зробили 76 ривків, 36 клонів, 19
-пар порталів (56 телепортацій), 6 прикріплень липких бомб, 10 займань газу
-(1130 подій здібностей). Новий код не додав алокацій у сталому режимі
-(списки об'єктів і робочі буфери перевикористовуються), а +5 Б на знімок —
-це секція `EXTRA`. Три прогони після змін дали **побітово однаковий**
-результат (до змін результати різнилися через порядок обходу `HashMap`) —
-це ж перевіряє тест N08.
+The tick budget is 50 ms. In 2000 ticks the bots made 76 dashes, 36 clones,
+19 portal pairs (56 teleports), 6 sticky bomb hits and 10 gas ignitions
+(1130 ability events). The new code adds no allocations in steady state
+(object lists and working buffers are reused), and the extra 5 B per
+snapshot is the `EXTRA` section. The three runs after the change gave
+**bit-identical** results (before, results differed run to run because of
+`HashMap` iteration order), which test N08 also checks.
 
-## 8. Відомі обмеження та відкриті питання
+## 8. Known limitations and open questions
 
-* **20 Гц замість 30 Гц** (див. розділ 1). Ривок за 0,2 с = 4 тики по
-  0,625 клітинки, з підкроками.
-* **«Номер покоління» id** не додано окремим полем: усі об'єкти (бомби,
-  стіни, хмари, клони, портали) беруть id з одного 32-бітного лічильника,
-  тож id не повторюється за життя арени (≈ 2 млрд об'єктів); застарілі
-  події з тим самим id неможливі на практиці.
-* **Кидок липкої бомби миттєвий** (стан `FLYING` розв'язується в тику
-  кидка): простіше синхронізувати, анімації польоту немає.
-* **Прогнозування клієнта не передбачає старт ривку і портали** — їх
-  запускає сервер; клієнт підхоплює ривок зі знімка (≈ RTT), а телепорт
-  виправляється узгодженням.
-* **Видимість у газі** погіршується лише локальною рамкою на клієнті;
-  сервер нічого не приховує.
-* **Клон** розпізнає модифікований клієнт (окремий підсписок у знімку);
-  чесному клієнту він невідрізний (ім'я, кольори, капелюх власника).
-* **Займання газу не детонує бомби** всередині хмари (інакше вибух вийшов
-  би за межі хмари всупереч ТЗ). Якщо потрібна детонація — це рішення
-  гейм-дизайну.
-* **Ліміти навантаження** з розділу 14 ТЗ не задаються жорстко: стіни,
-  хмари, клони й портали обмежені на гравця конфігурацією.
-* Окремих піксель-арт іконок для нових бонусів немає — у піксельному стилі
-  використовуються SVG-іконки (`static/assets/pu_*.svg`).
+* **20 Hz instead of 30 Hz** (see section 1). A dash of 0.2 s is 4 ticks of
+  0.625 cells, with sub-steps.
+* **No separate id "generation" field**: every object (bombs, walls, clouds,
+  clones, portals) takes its id from one 32-bit counter, so ids don't repeat
+  during an arena's life (about 2 billion objects); stale events about a
+  reused id can't happen in practice.
+* **The sticky bomb throw is instant** (the `FLYING` state resolves in the
+  throw's tick): simpler to synchronize, but there's no flight animation.
+* **Client prediction doesn't predict a dash starting or portal trips**: the
+  server starts them; the client picks up a dash from the snapshot (about one
+  round trip later), and a teleport is fixed by reconciliation.
+* **Visibility in gas** is reduced only by a local frame on the client; the
+  server hides nothing.
+* **A clone** can be recognized by a modified client (it's a separate
+  sub-list in the snapshot); to an honest client it's indistinguishable
+  (the owner's name, colours, hat).
+* **Gas ignition doesn't set off bombs** inside the cloud (otherwise the blast
+  would reach beyond the cloud, against the specification). If detonation is
+  wanted, that's a game-design decision.
+* **The load targets** of section 14 of the specification aren't hard limits:
+  walls, clouds, clones and portals are capped per player by the
+  configuration.
+* There are no dedicated pixel-art icons for the new power-ups: the pixel art
+  style uses the SVG icons (`static/assets/pu_*.svg`).
 
-## 9. Як додати новий бонус
+## 9. How to add a new power-up
 
-1. **Предмет.** Додайте варіант у `Item` (`items.rs`) з наступним кодом,
-   оновіть `ALL_ITEMS`, `from_u8`, ваги в `Item::random`, пул
-   `Mystery::open`, `is_ability` (якщо це здібність).
-2. **Конфігурація.** Структура з `#[serde(default)]` у `ability_config.rs`,
-   поле в `Abilities`, валідація й переведення в тики в
-   `Tuning::from_abilities`, значення в `config/abilities.json`, гілка в
-   `Tuning::item_enabled`.
-3. **Інвентар.** Гілка в `grant_ability` (слот активної здібності чи окремий
-   лічильник-модифікатор), cooldown у `ability_cooldown`.
-4. **Механіка.** Новий модуль `src/game/<name>.rs` з `impl World`:
-   активація (`Result<bool, i64>`: `Ok(true)` — витратити заряд,
-   `Err(reject::…)` — відмова без витрат), `update_<name>` і `clear_<name>`.
-   Додайте гілку в `use_ability`, виклик `update_<name>` у правильне місце
-   `step` (див. 1.2), прибирання в `abilities_on_death` і
+1. **Item.** Add a variant to `Item` (`items.rs`) with the next code, update
+   `ALL_ITEMS`, `from_u8`, the weights in `Item::random`, the
+   `Mystery::open` pool, and `is_ability` (if it's an ability).
+2. **Configuration.** A struct with `#[serde(default)]` in
+   `ability_config.rs`, a field in `Abilities`, validation and tick
+   conversion in `Tuning::from_abilities`, values in
+   `config/abilities.json`, a branch in `Tuning::item_enabled`.
+3. **Inventory.** A branch in `grant_ability` (the active ability slot or a
+   separate modifier counter), its cooldown in `ability_cooldown`.
+4. **Mechanics.** A new module `src/game/<name>.rs` with `impl World`:
+   activation (`Result<bool, i64>`: `Ok(true)` spends a charge,
+   `Err(reject::…)` refuses at no cost), `update_<name>` and `clear_<name>`.
+   Add a branch in `use_ability`, a call to `update_<name>` at the right place
+   in `step` (see 1.2), and clean-up in `abilities_on_death` and
    `reset_abilities_for_round`.
-5. **Протокол.** Новий підвид у `abilities::ab` (і `AB` у
-   `static/js/protocol.js`); якщо об'єкти треба показувати — підсписок
-   `EXTRA` у `protocol::snap`, `World::write_extra`, тестовий декодер у
-   `protocol::testing` і декодер у `protocol.js`; нові поля `me` — у кінець
-   `ME_FIELDS` в обох місцях.
-6. **Клієнт.** Іконка `static/assets/pu_<name>.svg` (+ `STATIC`,
-   `ITEM_SPRITES` в `assets.js`, колір ореолу `HALO` у `render.js`), тексти
-   в `i18n.js` (en, uk, ru), малювання в `render.js`, звуки/сповіщення в
-   `abilityEvent` (`main.js`).
-7. **Тести** в `ability_tests.rs`: щонайменше успішна активація, відмова
-   без витрати заряду, закінчення дії, смерть власника, кінець раунду,
-   серіалізація в знімок.
+5. **Protocol.** A new sub-kind in `abilities::ab` (and `AB` in
+   `static/js/protocol.js`); if its objects must be shown, an `EXTRA`
+   sub-list in `protocol::snap`, `World::write_extra`, the test decoder in
+   `protocol::testing` and the decoder in `protocol.js`; new `me` fields go at
+   the end of `ME_FIELDS` in both places.
+6. **Client.** An icon `static/assets/pu_<name>.svg` (+ `STATIC` and
+   `ITEM_SPRITES` in `assets.js`, a halo colour in `HALO` in `render.js`),
+   texts in `i18n.js` (en, uk, ru), drawing in `render.js`, sounds and notices
+   in `abilityEvent` (`main.js`).
+7. **Tests** in `ability_tests.rs`: at least a successful activation, a
+   refusal that costs nothing, expiry, the owner's death, the end of a round,
+   and serialization into the snapshot.
