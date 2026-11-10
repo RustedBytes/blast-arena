@@ -68,7 +68,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
-| `--static-dir` | `STATIC_DIR` | `./static` | Client files |
+| `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload. |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 

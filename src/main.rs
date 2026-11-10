@@ -17,6 +17,13 @@ use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
+#[cfg(not(debug_assertions))]
+mod embedded;
+
+/// Where debug builds serve the client from when `--static-dir` isn't given.
+#[cfg(debug_assertions)]
+const DEV_STATIC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static");
+
 /// Blast Arena game server.
 #[derive(Parser)]
 #[command(version, about)]
@@ -49,9 +56,11 @@ struct Args {
     /// SQLite database for player profiles ("" disables persistence).
     #[arg(long, env = "DB_PATH", default_value = "blast.db")]
     db: String,
-    /// Directory with the browser client.
-    #[arg(long, env = "STATIC_DIR", default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/static"))]
-    static_dir: String,
+    /// Serve the browser client from this directory. Without it, release
+    /// builds serve the copy compiled into the binary, and debug builds the
+    /// source tree's `static/`.
+    #[arg(long, env = "STATIC_DIR")]
+    static_dir: Option<String>,
     /// Log filter, e.g. "info" or "`info,blast_arena::net=debug`".
     /// `RUST_LOG`, when set, takes precedence.
     #[arg(long, env = "LOG_LEVEL", default_value = "info")]
@@ -137,14 +146,25 @@ async fn main() {
         started: Instant::now(),
         sys: Arc::new(std::sync::Mutex::new(sysinfo::System::new().expect("system info available"))),
     };
-    let app = Router::new()
+    let routes = Router::new()
         .route("/ws", get(net::ws_handler))
         .route("/api/arenas", get(api::arenas))
         .route("/api/leaderboard", get(api::leaderboard))
         .route("/api/profile", get(api::profile))
         .route("/api/stats", get(api::stats))
-        .route("/metrics", get(api::metrics))
-        .fallback_service(ServeDir::new(&args.static_dir))
+        .route("/metrics", get(api::metrics));
+    // The browser client: a directory, or the files built into the binary.
+    #[cfg(not(debug_assertions))]
+    let (routes, client) = match &args.static_dir {
+        Some(dir) => (routes.fallback_service(ServeDir::new(dir)), dir.clone()),
+        None => (routes.fallback(embedded::serve), format!("built in ({} files)", embedded::count())),
+    };
+    #[cfg(debug_assertions)]
+    let (routes, client) = {
+        let dir = args.static_dir.clone().unwrap_or_else(|| DEV_STATIC_DIR.to_owned());
+        (routes.fallback_service(ServeDir::new(&dir)), dir)
+    };
+    let app = routes
         .with_state(state)
         // One span per HTTP request; visible with RUST_LOG=tower_http=debug.
         .layer(
@@ -161,7 +181,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    tracing::info!(static_dir = %args.static_dir, "Blast Arena listening on http://localhost:{port}");
+    tracing::info!(client = %client, "Blast Arena listening on http://localhost:{port}");
     let server = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown_signal());
     if let Err(e) = server.await {
         tracing::error!(error = %e, "server error");
