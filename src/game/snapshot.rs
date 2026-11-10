@@ -327,8 +327,13 @@ impl World {
                 let seen = worm.body.iter().any(|&(x, y)| inside(x, y, 1));
                 let flags = (u8::from(worm.chasing) * worms::flag::CHASING)
                     | (u8::from(worm.emerging(tick)) * worms::flag::EMERGING)
-                    | (u8::from(!seen) * worms::flag::FAR);
-                w.id(worm.id).u8(flags).uvar(worm.step_ticks).uvar(tick.saturating_sub(worm.last_step));
+                    | (u8::from(!seen) * worms::flag::FAR)
+                    | (u8::from(worm.lunging) * worms::flag::LUNGE)
+                    | (u8::from(worm.lurking) * worms::flag::LURK);
+                // While it burrows out, the "step" is the whole emergence,
+                // so clients can show how soon it comes out.
+                let step = if worm.emerging(tick) { self.worms.tuning.emerge_ticks } else { worm.step_ticks };
+                w.id(worm.id).u8(flags).uvar(step).uvar(tick.saturating_sub(worm.last_step));
                 if seen {
                     w.len(worm.body.len() + 1);
                     for &(x, y) in worm.body.iter().chain(std::iter::once(&worm.trail)) {

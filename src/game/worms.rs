@@ -10,6 +10,14 @@
 //! shorter one dies. Whoever's fire ends a worm (destroys its head, or
 //! leaves it too short) scores for it. Lost worms come back over time.
 //!
+//! Hunting worms are cunning: they head for where a running player is
+//! going rather than where they are, lie in wait when they'll get there
+//! first, split up to come at the same player from two sides, lunge at
+//! prey a step or two away, remember where prey slipped out of reach, and
+//! keep out of blasts about to go off. Idle worms drift towards players.
+//! New worms burrow out near the action (never right on top of anyone)
+//! and away from other worms.
+//!
 //! Worms step on whole cells, so their state is tiny: the cells, head first,
 //! and the cell the tail just left, which lets clients slide every segment
 //! smoothly between steps. Every number worth tuning is in [`WormTuning`].
@@ -18,8 +26,9 @@ use std::collections::VecDeque;
 
 use crate::protocol::ev;
 
-use super::player::{DIRS, OPPOSITE};
-use super::{TICK_RATE, World};
+use super::ai::{DangerScratch, SAFE};
+use super::player::{DIRS, OPPOSITE, Player};
+use super::{DT, TICK_RATE, World};
 
 /// Seconds to ticks.
 const SEC: u64 = TICK_RATE as u64;
@@ -43,6 +52,18 @@ pub struct WormTuning {
     pub wander_step_ticks: u64,
     /// How far (in steps along the lanes) a worm smells a player.
     pub sense_range: u16,
+    /// Prey this many steps away gets a lunge: steps of `lunge_step_ticks`.
+    pub lunge_range: u16,
+    pub lunge_step_ticks: u64,
+    /// How many cells ahead of a running player a worm considers cutting
+    /// them off.
+    pub intercept_cells: i32,
+    /// How long a worm keeps going for the cell where prey slipped away.
+    pub memory_ticks: u64,
+    /// Idle worms drift towards players within this many cells (Chebyshev),
+    /// taking the turn that closes in this often at a junction.
+    pub roam_range: i32,
+    pub roam_bias: f32,
     /// A worm burrows out of the ground for this long: it neither moves
     /// nor bites yet, but fire already hurts it.
     pub emerge_ticks: u64,
@@ -50,8 +71,12 @@ pub struct WormTuning {
     /// worms are missing, one more arrives every `spawn_gap_ticks`.
     pub respawn_ticks: u64,
     pub spawn_gap_ticks: u64,
-    /// New worms spawn at least this far (Chebyshev cells) from players.
+    /// New worms spawn at least this far (Chebyshev cells) from players,
+    /// preferably no farther than `spawn_reach`, out of the best of
+    /// `spawn_candidates` spots.
     pub spawn_clearance: i32,
+    pub spawn_reach: i32,
+    pub spawn_candidates: u32,
     /// Score for ending a worm.
     pub kill_points: i32,
     /// Profile XP for ending a worm.
@@ -70,10 +95,18 @@ impl Default for WormTuning {
             chase_step_ticks: 7,
             wander_step_ticks: 10,
             sense_range: 12,
-            emerge_ticks: SEC,
+            lunge_range: 2,
+            lunge_step_ticks: 4,
+            intercept_cells: 6,
+            memory_ticks: 4 * SEC,
+            roam_range: 28,
+            roam_bias: 0.6,
+            emerge_ticks: 3 * SEC / 2,
             respawn_ticks: 8 * SEC,
             spawn_gap_ticks: 2 * SEC,
             spawn_clearance: 7,
+            spawn_reach: 18,
+            spawn_candidates: 24,
             kill_points: 1,
             kill_xp: 5,
         }
@@ -88,6 +121,10 @@ pub mod flag {
     pub const EMERGING: u8 = 2;
     /// Out of the client's view: only the head is sent, for the minimap.
     pub const FAR: u8 = 4;
+    /// Lunging at prey a step or two away.
+    pub const LUNGE: u8 = 8;
+    /// Lying in wait for prey running its way.
+    pub const LURK: u8 = 16;
 }
 
 /// What a worm event ([`ev::WORM`]) reports.
@@ -114,6 +151,15 @@ pub struct Worm {
     /// Ticks per cell of the current pace.
     pub step_ticks: u64,
     pub chasing: bool,
+    pub lunging: bool,
+    /// Holding still in ambush.
+    pub lurking: bool,
+    /// Who it hunts (0: nobody) and the cell it's making for, which other
+    /// worms after the same prey avoid, so they come from another side.
+    pub prey: u32,
+    pub target: (i32, i32),
+    /// Where its prey was last smelt, until when it keeps looking there.
+    pub memory: Option<((i32, i32), u64)>,
     /// Steps in a row it couldn't move.
     pub stuck: u8,
     pub emerge_until: u64,
@@ -146,10 +192,18 @@ pub struct Worms {
     /// Segments per cell, all worms together.
     pub occupied: Vec<u8>,
     seen: Vec<u32>,
+    /// Per cell, for cells seen by the current search: steps from the
+    /// head, and the first step on the way.
+    dist: Vec<u16>,
+    first: Vec<u8>,
     generation: u32,
-    /// Breadth-first search nodes: (cell, index of the first step).
-    queue: Vec<((i32, i32), u8, u16)>,
-    prey: Vec<(i32, i32)>,
+    /// Breadth-first search queue.
+    queue: Vec<(i32, i32)>,
+    /// Prey in range: (id, cell, running direction or 0, ticks per cell).
+    prey: Vec<(u32, (i32, i32), u8, f32)>,
+    /// Ticks until fire per cell, refreshed once a tick when a worm thinks.
+    danger: DangerScratch,
+    danger_tick: Option<u64>,
     victims: Vec<(u32, usize)>,
     hit: Vec<bool>,
 }
@@ -157,7 +211,7 @@ pub struct Worms {
 impl Worms {
     #[must_use]
     pub fn new(cells: usize) -> Self {
-        Worms { occupied: vec![0; cells], seen: vec![0; cells], ..Worms::default() }
+        Worms { occupied: vec![0; cells], seen: vec![0; cells], dist: vec![0; cells], first: vec![0; cells], ..Worms::default() }
     }
 }
 
@@ -208,6 +262,11 @@ impl World {
             next_step: self.tick + t.emerge_ticks,
             step_ticks: t.wander_step_ticks,
             chasing: false,
+            lunging: false,
+            lurking: false,
+            prey: 0,
+            target: cell,
+            memory: None,
             stuck: 0,
             emerge_until: self.tick + t.emerge_ticks,
         };
@@ -217,31 +276,87 @@ impl World {
         id
     }
 
-    /// A worm comes out of the ground somewhere open, away from players,
-    /// bombs and fire. Gives up quietly (to try again later) on a crowded map.
+    /// A worm burrows out somewhere open and safe: never within
+    /// `spawn_clearance` of a player, but preferably within `spawn_reach`
+    /// of one (where the game is), on a lane it can leave both ways, and
+    /// away from other worms. The best of `spawn_candidates` valid spots
+    /// wins. Gives up quietly (to try again later) on a crowded map.
     pub(super) fn spawn_worm(&mut self) -> bool {
-        let clear = self.worms.tuning.spawn_clearance;
-        for attempt in 0..300 {
-            let x = self.rng.between(1, self.map.w - 2);
-            let y = self.rng.between(1, self.map.h - 2);
+        let t = &self.worms.tuning;
+        let (clear, reach, wanted) = (t.spawn_clearance, t.spawn_reach.max(t.spawn_clearance + 1), t.spawn_candidates.max(1));
+        let mut best: Option<((i32, i32), i32)> = None;
+        let mut found = 0;
+        for attempt in 0..400 {
+            if found >= wanted {
+                break;
+            }
+            // Half the tries look around a random player, so a spot within
+            // reach turns up even on a huge map; the rest anywhere.
+            let around = (attempt % 2 == 0).then(|| self.random_player_cell()).flatten();
+            let (x, y) = match around {
+                Some((px, py)) => (
+                    self.rng.between((px - reach).max(1), (px + reach).min(self.map.w - 2)),
+                    self.rng.between((py - reach).max(1), (py + reach).min(self.map.h - 2)),
+                ),
+                None => (self.rng.between(1, self.map.w - 2), self.rng.between(1, self.map.h - 2)),
+            };
             // Late attempts settle for less room around the burrow.
-            let clear = if attempt < 200 { clear } else { clear / 2 };
+            let clear = if attempt < 250 { clear } else { clear / 2 };
             if self.map.is_solid(x, y)
                 || self.bomb_at(x, y).is_some()
                 || self.worms.occupied[self.map.idx(x, y)] != 0
                 || self.sudden_death_unsafe(x, y)
                 || self.danger_near(x, y, 2)
+                || self.in_nuke_zone(x, y)
                 || self.worm_near(x, y, 2)
                 || self.players_in_rect(x - clear, y - clear, x + clear, y + clear).any(|p| p.alive)
                 || self.map.open_cells_near(x, y) < 5
             {
                 continue;
             }
-            let length = self.worms.tuning.length;
-            self.add_worm((x, y), length);
-            return true;
+            found += 1;
+            let score = self.spawn_score(x, y, reach);
+            if best.is_none_or(|(_, s)| score > s) {
+                best = Some(((x, y), score));
+            }
         }
-        false
+        let Some((cell, _)) = best else { return false };
+        let length = self.worms.tuning.length;
+        self.add_worm(cell, length);
+        true
+    }
+
+    /// How good a burrow (x, y) is: near players but not too near (the
+    /// clearance is checked already), far from other worms, with ways out.
+    fn spawn_score(&self, x: i32, y: i32, reach: i32) -> i32 {
+        let cheb = |a: (i32, i32)| (a.0 - x).abs().max((a.1 - y).abs());
+        let player = self.players.values().filter(|p| p.alive).map(|p| cheb(p.cell())).min();
+        let worm = self.worms.list.iter().map(|w| cheb(w.head())).min().unwrap_or(99).min(20);
+        let exits = (1..=4).filter(|&d| !self.map.is_solid(x + DIRS[d].0, y + DIRS[d].1)).count() as i32;
+        // In reach of the nearest player scores best; farther off, less the farther.
+        let near = match player {
+            Some(d) if d <= reach => 40,
+            Some(d) => 40 - (4 * (d - reach)).min(40),
+            None => 0,
+        };
+        near + worm * 2 + exits.min(3) * 4 + self.rng_jitter(x, y)
+    }
+
+    /// The cell of a random living player, if any.
+    fn random_player_cell(&mut self) -> Option<(i32, i32)> {
+        let n = self.players.values().filter(|p| p.alive).count();
+        if n == 0 {
+            return None;
+        }
+        let k = self.rng.below(n as u32) as usize;
+        self.players.values().filter(|p| p.alive).nth(k).map(Player::cell)
+    }
+
+    /// A little deterministic noise so equal spots aren't always picked
+    /// in scan order.
+    fn rng_jitter(&self, x: i32, y: i32) -> i32 {
+        let h = (x as u32).wrapping_mul(73_856_093) ^ (y as u32).wrapping_mul(19_349_663) ^ (self.tick as u32).wrapping_mul(83_492_791);
+        (h % 5) as i32
     }
 
     /// The worm step of the tick: blasts cut and kill worms, missing worms
@@ -324,7 +439,7 @@ impl World {
                 // Cut-off pieces are dazed for a moment before they crawl on.
                 let next_step = if id == worm.id { worm.next_step } else { self.tick + self.worms.tuning.wander_step_ticks };
                 let dir = dir_of(body.get(1).copied(), body[0]).unwrap_or(worm.dir);
-                self.worms.list.insert(k, Worm { id, body, trail: tail, dir, next_step, stuck: 0, chasing: false, ..worm });
+                self.worms.list.insert(k, Worm { id, body, trail: tail, dir, next_step, stuck: 0, chasing: false, lunging: false, lurking: false, prey: 0, memory: None, ..worm });
                 kept += 1;
             }
             if head_lives {
@@ -364,24 +479,39 @@ impl World {
     }
 
     /// Players a hungry worm goes for: alive, on the ground and unshielded.
-    fn is_prey(&self, p: &super::player::Player) -> bool {
+    fn is_prey(&self, p: &Player) -> bool {
         p.alive && p.invulnerable_until <= self.tick
     }
 
-    /// The first step towards the nearest prey within smelling range, by a
-    /// breadth-first search along the lanes.
-    fn hunt(&mut self, head: (i32, i32)) -> Option<u8> {
-        let range = self.worms.tuning.sense_range;
-        let r = i32::from(range);
-        let mut prey = std::mem::take(&mut self.worms.prey);
-        prey.clear();
-        prey.extend(self.players_in_rect(head.0 - r, head.1 - r, head.0 + r, head.1 + r).filter(|p| self.is_prey(p)).map(super::player::Player::cell));
-        let found = if prey.is_empty() { None } else { self.search_prey(head, range, &prey) };
-        self.worms.prey = prey;
-        found
+    /// The danger map, at most once a tick.
+    fn refresh_worm_danger(&mut self) {
+        if self.worms.danger_tick == Some(self.tick) {
+            return;
+        }
+        let mut sc = std::mem::take(&mut self.worms.danger);
+        self.refresh_danger(&mut sc);
+        self.worms.danger = sc;
+        self.worms.danger_tick = Some(self.tick);
     }
 
-    fn search_prey(&mut self, head: (i32, i32), range: u16, prey: &[(i32, i32)]) -> Option<u8> {
+    /// Ticks until fire reaches (x, y) (`SAFE`: never).
+    fn fire_eta(&self, x: i32, y: i32) -> u16 {
+        self.worms.danger.danger.get(self.map.idx(x, y)).copied().unwrap_or(SAFE)
+    }
+
+    /// Whether a worm `len` long, reaching (x, y) `steps` steps from now
+    /// at `step_ticks` a step, would still have some of its body there
+    /// when fire comes.
+    fn worm_risky(&self, x: i32, y: i32, steps: u16, len: usize, step_ticks: u64) -> bool {
+        let d = self.fire_eta(x, y);
+        d != SAFE && u64::from(d) <= (u64::from(steps) + len as u64 + 1) * step_ticks
+    }
+
+    /// Breadth-first search from `head` over cells a worm may crawl into
+    /// (and prey cells), up to `range` steps, filling `dist` and `first`
+    /// for every cell it reaches; cells it would be caught in fire at are
+    /// left out.
+    fn worm_search(&mut self, head: (i32, i32), range: u16, len: usize, step_ticks: u64) {
         let mut queue = std::mem::take(&mut self.worms.queue);
         let mut seen = std::mem::take(&mut self.worms.seen);
         self.worms.generation = self.worms.generation.wrapping_add(1);
@@ -391,55 +521,130 @@ impl World {
         }
         let g = self.worms.generation;
         queue.clear();
-        seen[self.map.idx(head.0, head.1)] = g;
-        // Prey right next to the head (or even under it) is a step away.
-        for d in 1..=4u8 {
-            let (dx, dy) = DIRS[d as usize];
-            let c = (head.0 + dx, head.1 + dy);
-            if prey.contains(&c) && self.map.in_bounds(c.0, c.1) && !self.map.is_solid(c.0, c.1) && self.bomb_at(c.0, c.1).is_none() {
-                self.worms.queue = queue;
-                self.worms.seen = seen;
-                return Some(d);
-            }
-            if self.worm_can_enter(c.0, c.1) {
-                seen[self.map.idx(c.0, c.1)] = g;
-                queue.push((c, d, 1));
-            }
-        }
-        let mut found = None;
+        let hi = self.map.idx(head.0, head.1);
+        seen[hi] = g;
+        self.worms.dist[hi] = 0;
+        self.worms.first[hi] = 0;
+        queue.push(head);
         let mut i = 0;
         while i < queue.len() && queue.len() < SEARCH_LIMIT {
-            let (cell, first, dist) = queue[i];
+            let cell = queue[i];
             i += 1;
-            if prey.contains(&cell) {
-                found = Some(first);
-                break;
+            let ci = self.map.idx(cell.0, cell.1);
+            let dist = self.worms.dist[ci];
+            if dist >= range || (dist > 0 && self.worms.prey.iter().any(|q| q.1 == cell)) {
+                continue; // no crawling on through a player
             }
-            if dist >= range {
-                continue;
-            }
-            for &(dx, dy) in &DIRS[1..] {
-                let c = (cell.0 + dx, cell.1 + dy);
+            for d in 1..=4u8 {
+                let c = (cell.0 + DIRS[d as usize].0, cell.1 + DIRS[d as usize].1);
                 if !self.map.in_bounds(c.0, c.1) {
                     continue;
                 }
-                let ci = self.map.idx(c.0, c.1);
-                // Players stand where worms may go; the prey's own cell is fine.
-                if seen[ci] != g && (self.worm_can_enter(c.0, c.1) || prey.contains(&c) && !self.map.is_solid(c.0, c.1)) {
-                    seen[ci] = g;
-                    queue.push((c, first, dist + 1));
+                let ni = self.map.idx(c.0, c.1);
+                if seen[ni] == g {
+                    continue;
                 }
+                // Players stand where worms may go; the prey's own cell is fine.
+                let prey_cell = self.worms.prey.iter().any(|q| q.1 == c) && !self.map.is_solid(c.0, c.1) && self.bomb_at(c.0, c.1).is_none();
+                if !(prey_cell || self.worm_can_enter(c.0, c.1)) || self.worm_risky(c.0, c.1, dist + 1, len, step_ticks) {
+                    continue;
+                }
+                seen[ni] = g;
+                self.worms.dist[ni] = dist + 1;
+                self.worms.first[ni] = if dist == 0 { d } else { self.worms.first[ci] };
+                queue.push(c);
             }
         }
         self.worms.queue = queue;
         self.worms.seen = seen;
-        found
+    }
+
+    /// Steps from the head to (x, y) found by the last search, if any.
+    fn searched(&self, x: i32, y: i32) -> Option<(u16, u8)> {
+        if !self.map.in_bounds(x, y) {
+            return None;
+        }
+        let i = self.map.idx(x, y);
+        (self.worms.seen[i] == self.worms.generation).then(|| (self.worms.dist[i], self.worms.first[i]))
+    }
+
+    /// Prey within smelling range of worm `k`'s head: who, where, which way
+    /// they're running and how fast.
+    fn smell_prey(&mut self, head: (i32, i32)) {
+        let r = i32::from(self.worms.tuning.sense_range);
+        let mut prey = std::mem::take(&mut self.worms.prey);
+        prey.clear();
+        let (weather, gas) = (self.weather_slow(), self.tuning.raw.gas_bomb.movement_multiplier);
+        for p in self.players_in_rect(head.0 - r, head.1 - r, head.0 + r, head.1 + r) {
+            if !self.is_prey(p) {
+                continue;
+            }
+            let running = if p.moving && p.input_dir != 0 { p.facing } else { 0 };
+            let per_cell = 1.0 / (p.move_speed(self.tick, weather, gas) * DT).max(0.01);
+            prey.push((p.id, p.cell(), running, per_cell));
+        }
+        self.worms.prey = prey;
+    }
+
+    /// Worm `k`'s hunt: which prey, which cell to make for, and the first
+    /// step there (0: wait where it is). For every prey in range it weighs
+    /// the prey's cell and the cells ahead of a running prey, by when the
+    /// two would meet there; a cell it gets to first is an ambush. A cell
+    /// another worm already makes for, for the same prey, counts as taken.
+    fn plan_hunt(&mut self, k: usize, step_ticks: u64) -> Option<(u8, u32, (i32, i32))> {
+        let me = self.worms.list[k].id;
+        let lookahead = self.worms.tuning.intercept_cells;
+        let mut best: Option<(f32, u8, u32, (i32, i32))> = None;
+        for q in 0..self.worms.prey.len() {
+            let (pid, cell, running, per_cell) = self.worms.prey[q];
+            let consider = |c: (i32, i32), pt: f32, best: &mut Option<(f32, u8, u32, (i32, i32))>| {
+                let Some((dist, first)) = self.searched(c.0, c.1) else { return };
+                let wt = f32::from(dist) * step_ticks as f32;
+                // Getting there first means meeting when the prey arrives;
+                // getting there late is worth much less.
+                let mut score = if wt <= pt { pt } else { wt + 2.0 * (wt - pt) };
+                let taken = self.worms.list.iter().any(|o| o.id != me && o.prey == pid && o.target == c && !o.emerging(self.tick));
+                if taken {
+                    score += 6.0 * step_ticks as f32;
+                }
+                if best.is_none_or(|b| score < b.0) {
+                    *best = Some((score, first, pid, c));
+                }
+            };
+            consider(cell, 0.0, &mut best);
+            if running != 0 {
+                let (dx, dy) = DIRS[running as usize];
+                for n in 1..=lookahead {
+                    let c = (cell.0 + dx * n, cell.1 + dy * n);
+                    if !self.map.in_bounds(c.0, c.1) || self.map.is_solid(c.0, c.1) || self.bomb_at(c.0, c.1).is_some() {
+                        break;
+                    }
+                    consider(c, n as f32 * per_cell, &mut best);
+                }
+            }
+        }
+        best.map(|(_, first, pid, c)| (first, pid, c))
+    }
+
+    /// A worm in the path of fire (or about to be) gets out: the open
+    /// neighbour that burns latest, ideally never.
+    fn flee(&self, head: (i32, i32), len: usize, step_ticks: u64) -> Option<u8> {
+        if !self.worm_risky(head.0, head.1, 0, len, step_ticks) {
+            return None;
+        }
+        (1..=4u8)
+            .filter(|&d| self.worm_can_enter(head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1))
+            .max_by_key(|&d| self.fire_eta(head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1))
     }
 
     /// A wandering worm keeps going, turns at junctions now and then, and
-    /// turns when it must. Never straight back into its own neck.
-    fn wander(&mut self, (hx, hy): (i32, i32), ahead: u8) -> Option<u8> {
-        let open: [bool; 5] = std::array::from_fn(|d| d != 0 && self.worm_can_enter(hx + DIRS[d].0, hy + DIRS[d].1));
+    /// turns when it must; it tends to take the turn towards the nearest
+    /// player within `roam_range`, and keeps out of fire to come. Never
+    /// straight back into its own neck.
+    fn wander(&mut self, (hx, hy): (i32, i32), ahead: u8, len: usize) -> Option<u8> {
+        let step_ticks = self.worms.tuning.wander_step_ticks;
+        let open: [bool; 5] =
+            std::array::from_fn(|d| d != 0 && self.worm_can_enter(hx + DIRS[d].0, hy + DIRS[d].1) && !self.worm_risky(hx + DIRS[d].0, hy + DIRS[d].1, 1, len, step_ticks));
         let straight = open[ahead as usize];
         let mut turns = [0u8; 4];
         let mut n = 0;
@@ -447,6 +652,23 @@ impl World {
             if d != ahead && d != OPPOSITE[ahead as usize] && open[d as usize] {
                 turns[n] = d;
                 n += 1;
+            }
+        }
+        // The scent of the nearest player farther off.
+        let r = self.worms.tuning.roam_range;
+        let scent = self
+            .players_in_rect(hx - r, hy - r, hx + r, hy + r)
+            .filter(|p| self.is_prey(p))
+            .map(Player::cell)
+            .min_by_key(|&(x, y)| (x - hx).abs() + (y - hy).abs());
+        if let Some((px, py)) = scent
+            && (n > 0 || straight)
+            && self.rng.chance(self.worms.tuning.roam_bias)
+        {
+            let closer = |d: u8| ((hx + DIRS[d as usize].0 - px).abs() + (hy + DIRS[d as usize].1 - py).abs(), d);
+            let pick = turns[..n].iter().copied().chain(straight.then_some(ahead)).min_by_key(|&d| closer(d));
+            if pick.is_some() {
+                return pick;
             }
         }
         if straight && (n == 0 || !self.rng.chance(0.3)) {
@@ -461,19 +683,59 @@ impl World {
 
     fn step_worm(&mut self, k: usize) {
         let tick = self.tick;
-        let head = self.worms.list[k].head();
-        let hunt = self.hunt(head);
-        let chasing = hunt.is_some();
-        let dir = match hunt {
-            Some(d) => Some(d),
-            None => self.wander(head, self.worms.list[k].dir),
+        self.refresh_worm_danger();
+        let (head, len, facing) = {
+            let w = &self.worms.list[k];
+            (w.head(), w.body.len(), w.dir)
         };
         let t = &self.worms.tuning;
-        let step_ticks = if chasing { t.chase_step_ticks } else { t.wander_step_ticks };
+        let (chase, lunge, range, lunge_range) = (t.chase_step_ticks, t.lunge_step_ticks, t.sense_range, t.lunge_range);
+        self.smell_prey(head);
+        // Fire first: a worm about to burn gets out of the way, unless prey
+        // is right there to bite.
+        let adjacent = self.worms.prey.iter().find_map(|q| (1..=4u8).find(|&d| (head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1) == q.1));
+        let fleeing = if adjacent.is_none() { self.flee(head, len, chase) } else { None };
+        let mut plan = None;
+        if fleeing.is_none() && (!self.worms.prey.is_empty() || self.worms.list[k].memory.is_some()) {
+            self.worm_search(head, range, len, chase);
+            plan = self.plan_hunt(k, chase);
+            if plan.is_none() {
+                // Lost the scent: go and look where the prey was last.
+                let w = &self.worms.list[k];
+                if let Some((cell, until)) = w.memory {
+                    let back = (until > tick && cell != head).then(|| self.searched(cell.0, cell.1)).flatten();
+                    match back {
+                        Some((_, first)) => plan = Some((first, 0, cell)),
+                        None => self.worms.list[k].memory = None,
+                    }
+                }
+            }
+        }
+        let memory_ticks = self.worms.tuning.memory_ticks;
+        let (dir, chasing, lunging, lurking, prey, target) = match (fleeing, adjacent, plan) {
+            (Some(d), _, _) => (Some(d), false, false, false, 0, head),
+            (None, Some(d), _) => (Some(d), true, true, false, self.worms.list[k].prey, head),
+            (None, None, Some((first, pid, cell))) => {
+                let close = self.worms.prey.iter().find(|q| q.0 == pid).and_then(|q| self.searched(q.1.0, q.1.1)).is_some_and(|(d, _)| d <= lunge_range);
+                if let Some(q) = self.worms.prey.iter().find(|q| q.0 == pid) {
+                    self.worms.list[k].memory = Some((q.1, tick + memory_ticks));
+                }
+                (if first == 0 { None } else { Some(first) }, true, close, first == 0, pid, cell)
+            }
+            (None, None, None) => (self.wander(head, facing, len), false, false, false, 0, head),
+        };
+        let wander = self.worms.tuning.wander_step_ticks;
+        let step_ticks = if lunging { lunge } else if chasing || fleeing.is_some() { chase } else { wander };
         let w = &mut self.worms.list[k];
-        w.chasing = chasing;
+        (w.chasing, w.lunging, w.lurking, w.prey, w.target) = (chasing, lunging, lurking, prey, target);
         w.step_ticks = step_ticks;
         w.next_step = tick + step_ticks;
+        if lurking {
+            // Lying in wait: still, and not stuck.
+            w.stuck = 0;
+            w.trail = *w.body.back().unwrap();
+            return;
+        }
         let next = dir.map(|d| (d, (head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1)));
         let Some((d, cell)) = next.filter(|&(_, c)| self.map.in_bounds(c.0, c.1) && !self.map.is_solid(c.0, c.1)) else {
             let w = &mut self.worms.list[k];

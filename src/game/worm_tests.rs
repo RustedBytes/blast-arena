@@ -92,7 +92,9 @@ fn worm_hunts_down_and_eats_a_player() {
             break;
         }
         assert!(w.worm(id).chasing, "it smells the player");
-        assert_eq!(w.worm(id).step_ticks, w.worms.tuning.chase_step_ticks);
+        let t = &w.worms.tuning;
+        let pace = if w.worm(id).lunging { t.lunge_step_ticks } else { t.chase_step_ticks };
+        assert_eq!(w.worm(id).step_ticks, pace);
     }
     assert!(!w.players[&p].alive, "eaten");
     assert_eq!(w.stats.worm_bites, 1);
@@ -327,3 +329,115 @@ fn bots_see_worms_as_danger_and_targets() {
     let (bx, by) = w.players[&bot].cell();
     assert!((bx - 7).abs() + (by - 7).abs() >= 2, "kept its distance");
 }
+
+#[test]
+fn a_worm_cuts_off_a_running_player() {
+    // The player runs right along row 9; the worm comes down column 11.
+    let mut w = quiet(test_world(Map::empty(25, 21)));
+    let id = w.place_worm(&[(11, 3), (11, 2), (11, 1)]);
+    let p = w.spawn_test_player(3.5, 9.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    w.hold(p, 2, 0);
+    w.step();
+    w.step();
+    let worm = w.worm(id);
+    let (px, py) = w.players[&p].cell();
+    assert!(worm.chasing && worm.prey == p);
+    assert_eq!(worm.target.1, py, "it makes for the player's row");
+    assert!(worm.target.0 > px, "ahead of the player, not behind: {:?} vs {px}", worm.target);
+}
+
+#[test]
+fn two_worms_after_one_player_come_from_different_sides() {
+    let mut w = quiet(test_world(Map::empty(31, 21)));
+    let a = w.place_worm(&[(13, 3), (13, 2), (13, 1)]);
+    let b = w.place_worm(&[(15, 3), (15, 2), (15, 1)]);
+    let p = w.spawn_test_player(5.5, 9.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    w.hold(p, 2, 0);
+    for _ in 0..3 {
+        w.step();
+    }
+    let (ta, tb) = (w.worm(a).target, w.worm(b).target);
+    assert!(w.worm(a).prey == p && w.worm(b).prey == p, "both hunt the player");
+    assert_ne!(ta, tb, "they split up");
+}
+
+#[test]
+fn a_worm_lunges_at_close_prey() {
+    let mut w = quiet(test_world(Map::empty(15, 15)));
+    let id = w.place_worm(&[(4, 7), (3, 7), (2, 7)]);
+    let p = w.spawn_test_player(6.5, 7.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    w.step();
+    assert!(w.worm(id).lunging);
+    assert_eq!(w.worm(id).step_ticks, w.worms.tuning.lunge_step_ticks);
+}
+
+#[test]
+fn a_worm_keeps_looking_where_its_prey_slipped_away() {
+    let mut w = quiet(test_world(Map::empty(41, 15)));
+    let id = w.place_worm(&[(4, 7), (3, 7), (2, 7)]);
+    let p = w.spawn_test_player(10.5, 7.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    w.step();
+    assert!(w.worm(id).chasing);
+    // Gone out of range in an instant (a portal, say).
+    let pl = w.players.get_mut(&p).unwrap();
+    (pl.x, pl.y) = (38.5, 13.5);
+    w.rebuild_buckets();
+    let start = w.worm(id).head();
+    for _ in 0..3 * w.worms.tuning.chase_step_ticks {
+        w.step();
+    }
+    let worm = w.worm(id);
+    assert!(worm.chasing, "still on the trail");
+    assert!(worm.head().0 > start.0, "towards where it last smelt the player");
+}
+
+#[test]
+fn a_hunting_worm_waits_out_a_bomb_across_its_path() {
+    let mut w = quiet(test_world(Map::empty(21, 15)));
+    let id = w.place_worm(&[(4, 7), (3, 7), (2, 7)]);
+    let p = w.spawn_test_player(15.5, 7.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    // A wall of fire to come across the worm's way: column 9, rows 4..10.
+    bomb_from(&mut w, (9, 4), 6);
+    w.step();
+    for _ in 0..FUSE_TICKS + 20 {
+        w.step();
+        assert!(w.worms.list.iter().any(|x| x.id == id), "it stayed out of the blast");
+    }
+}
+
+#[test]
+fn new_worms_come_up_near_players_but_not_on_top_of_them() {
+    let mut w = quiet(test_world(Map::empty(81, 81)));
+    let p = w.spawn_test_player(40.5, 40.5);
+    let (px, py) = w.players[&p].cell();
+    let (clear, reach) = (w.worms.tuning.spawn_clearance, w.worms.tuning.spawn_reach);
+    for _ in 0..10 {
+        w.worms.list.clear();
+        w.recount_worms();
+        assert!(w.spawn_worm());
+        let head = w.worms.list[0].head();
+        let d = (head.0 - px).abs().max((head.1 - py).abs());
+        assert!(d > clear && d <= reach, "at {d} cells");
+    }
+}
+
+#[test]
+fn idle_worms_drift_towards_players() {
+    let mut w = quiet(test_world(Map::empty(61, 9)));
+    let id = w.place_worm(&[(5, 4), (4, 4), (3, 4)]);
+    w.spawn_test_player(30.5, 4.5);
+    let start = w.worm(id).head().0;
+    for _ in 0..200 {
+        w.step();
+    }
+    let worm = w.worm(id);
+    assert!(!worm.chasing || worm.head().0 > 15);
+    assert!(worm.head().0 > start + 6, "it came closer: {}", worm.head().0);
+}
+
+

@@ -145,7 +145,9 @@ pub mod ev {
 ///   [WORMS]      n, n × (id, u8 flags, ticks per step, ticks since the
 ///                last step, n cells, n × (x, y)): every worm in the arena.
 ///                Cells are head first, then the cell the tail just left;
-///                a worm out of view (flag FAR) sends only its head.
+///                a worm out of view (flag FAR) sends only its head. Flags:
+///                1 chasing, 2 emerging (the step is then the whole
+///                emergence), 4 far, 8 lunging, 16 lying in wait.
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///

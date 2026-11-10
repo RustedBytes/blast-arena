@@ -27,6 +27,29 @@ All notable changes to Blast Arena are documented here. The format follows
   - On touch screens the lobby hides the keyboard key list, and fields no
     longer zoom the page when focused.
 
+- **Worms hunt cleverly** (tuning in `WormTuning`):
+  - they make for where a running player is going, not where they are,
+    and wait in ambush where they'll get there first;
+  - two worms after the same player split up to come from different sides;
+  - prey a step or two away gets a lunge, faster than a player runs;
+  - when prey slips out of range, a worm keeps searching where it was last
+    smelt for a few seconds;
+  - idle worms drift towards the nearest player instead of only wandering;
+  - worms see blasts coming (chain reactions and nukes included) and keep
+    their whole body out of them.
+  In a 15 bot-minute simulation, worms now catch 48 players (2 before)
+  and get blown up more often (102 against 77), as they're where the action is.
+- **Worm spawning**: new worms burrow out near players (within 18 cells,
+  never within 7), away from other worms, on lanes with a way out, and
+  never in a nuke's zone; they take 1.5 s to come out (was 1 s).
+- **Worm looks**: a pointed tail, a paler saddle band, outlined
+  segments, shadows, and jaws that open wider as a worm hunts and gape
+  when it lunges, with glowing eyes. Hunters kick up dirt. A burrowing
+  worm shows a red warning ring that tightens as it gets ready, cracks in
+  the ground and flying clods.
+- Snapshots carry two more worm flags (8 lunging, 16 lying in wait), and an
+  emerging worm's step is the length of its emergence.
+
 ### Fixed
 
 - On phones, the top of the lobby (logo, name and language) was pushed out

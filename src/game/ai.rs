@@ -166,6 +166,15 @@ struct DangerBomb {
     t: u16,
 }
 
+/// A danger map (see [`World::danger_map`]) with its reusable buffers, for
+/// whoever needs one outside the bots (the worms).
+#[derive(Default)]
+pub struct DangerScratch {
+    pub danger: Vec<u16>,
+    bombs: Vec<DangerBomb>,
+    bomb_index: HashMap<u32, usize>,
+}
+
 /// Per-tick view of the world shared by all bots, plus search buffers.
 #[derive(Default)]
 pub struct AiScratch {
@@ -285,7 +294,7 @@ impl World {
                 }
             }
         }
-        self.fill_danger(&mut sc.danger, &mut sc.bombs, &mut sc.bomb_index);
+        self.fill_danger(&mut sc.danger, &mut sc.bombs, &mut sc.bomb_index, true);
     }
 
     /// Ticks until fire reaches each cell (0 = burning now, `SAFE` = never),
@@ -294,11 +303,18 @@ impl World {
     #[must_use]
     pub fn danger_map(&self) -> Vec<u16> {
         let mut danger = vec![SAFE; (self.map.w * self.map.h) as usize];
-        self.fill_danger(&mut danger, &mut Vec::new(), &mut HashMap::new());
+        self.fill_danger(&mut danger, &mut Vec::new(), &mut HashMap::new(), true);
         danger
     }
 
-    fn fill_danger(&self, danger: &mut [u16], bombs: &mut Vec<DangerBomb>, index: &mut HashMap<u32, usize>) {
+    /// Fills `sc.danger` with when fire comes, worms left out: the worms' own view.
+    pub(super) fn refresh_danger(&self, sc: &mut DangerScratch) {
+        sc.danger.clear();
+        sc.danger.resize((self.map.w * self.map.h) as usize, SAFE);
+        self.fill_danger(&mut sc.danger, &mut sc.bombs, &mut sc.bomb_index, false);
+    }
+
+    fn fill_danger(&self, danger: &mut [u16], bombs: &mut Vec<DangerBomb>, index: &mut HashMap<u32, usize>, worms: bool) {
         // Burning now is 0; fire an atomic shockwave hasn't reached yet
         // counts down to when it will.
         for ((d, &until), &from) in danger.iter_mut().zip(&self.flame_until).zip(&self.flame_from) {
@@ -376,7 +392,9 @@ impl World {
                 danger[i] = danger[i].min(t.saturating_add(delay));
             });
         }
-        self.worm_danger(danger);
+        if worms {
+            self.worm_danger(danger);
+        }
     }
 
     /// Worms bite: their bodies are deadly now, and the cells around a

@@ -15,7 +15,7 @@ export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_
 /** What a worm event reports (values: [what, x, y, player id + 1]); mirrors `game::worms::news`. */
 export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 };
 /** Worm flags in snapshots; mirrors `game::worms::flag`. */
-export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4 };
+export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4, LUNGE: 8, LURK: 16 };
 /** Sub-kinds of ability events (values: [kind, tick, ...]); mirrors `game::abilities::ab`. */
 export const AB = {
   ACTIVATED: 1, REJECTED: 2, COOLDOWN: 3, WALL_CREATED: 4, WALL_REMOVED: 5, GAS_CREATED: 6, GAS_EXPIRED: 7,
