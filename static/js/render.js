@@ -1827,8 +1827,18 @@ export class Renderer {
     if (state.flags) {
       for (let k = 0; k < 2; k++) {
         const f = state.flags[k];
+        let fx = f.pos[0] + 0.5, fy = f.pos[1] + 0.5;
+        if (f.state === 1) {
+          // Carried: show it on the carrier, if in view.
+          const fr = this.frame;
+          let found = false;
+          for (let i = 0; i < fr.nPlayers; i++) {
+            if (fr.players[i].id === f.carrier) { fx = fr.players[i].x; fy = fr.players[i].y; found = true; }
+          }
+          if (!found) continue;
+        }
         c.fillStyle = TEAM_COLORS[k + 1];
-        c.fillRect((f.pos[0] + 0.5) * scale - 3 * this.dpr, (f.pos[1] + 0.5) * scale - 3 * this.dpr, 6 * this.dpr, 6 * this.dpr);
+        c.fillRect(fx * scale - 3 * this.dpr, fy * scale - 3 * this.dpr, 6 * this.dpr, 6 * this.dpr);
       }
     }
     const T = this.T;

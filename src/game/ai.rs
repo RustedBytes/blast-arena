@@ -295,6 +295,31 @@ impl World {
         for ((d, &until), &from) in danger.iter_mut().zip(&self.flame_until).zip(&self.flame_from) {
             *d = if until > self.tick { from.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16 } else { SAFE };
         }
+        // Sudden death: the next two rings turn to stone on schedule.
+        let events = &self.events;
+        if events.sd_active && events.sd_radius > super::events::SUDDEN_DEATH_MIN_RADIUS {
+            let (centre, radius) = (events.sd_center, events.sd_radius);
+            let first = events.sd_next.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
+            let second = first.saturating_add(events.sd_every.min(u64::from(SAFE)) as u16);
+            for y in 0..self.map.h {
+                for x in 0..self.map.w {
+                    let ring = (x - centre.0).abs().max((y - centre.1).abs());
+                    let at = if ring >= radius { first } else if ring == radius - 1 { second } else { continue };
+                    let i = self.map.idx(x, y);
+                    danger[i] = danger[i].min(at);
+                }
+            }
+        }
+        // Meteors on their way (they hit a tick after landing).
+        for &(x, y, at) in &events.meteors {
+            let t = (at + 1).saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
+            let i = self.map.idx(x, y);
+            danger[i] = danger[i].min(t);
+            self.trace_blast(x, y, 1, false, true, |_, _, cx, cy| {
+                let i = self.map.idx(cx, cy);
+                danger[i] = danger[i].min(t);
+            });
+        }
         bombs.clear();
         index.clear();
         for b in self.bombs.values() {
@@ -347,12 +372,12 @@ impl World {
         if p.jump_left > 0 {
             return; // mid-air: nothing to steer
         }
-        // Flag carriers can't jump.
-        sc.search.jumps = p.carrying == 0;
+        // Plan hops only with a jump ready (flag carriers can't jump at all).
+        sc.search.jumps = p.carrying == 0 && p.jump_ready_at <= self.tick && p.stunned_until <= self.tick;
         let mut trapped = false;
         let me = Me {
             cur: p.cell(),
-            spt: p.speed(self.tick) * DT,
+            spt: p.speed(self.tick) * self.weather_slow() * DT,
             range: p.range,
             pierce: p.pierce,
             nuke: p.nukes > 0,
@@ -704,10 +729,12 @@ mod tests {
 
     #[test]
     fn bot_never_bombs_a_dead_end() {
-        // (1,1) and (2,1) open; (3,1) and (1,2) crates; (2,2) pillar.
+        // (1,1) and (2,1) open; (3,1) and (1,2) crates; (2,2) pillar, with a
+        // crate behind it at (2,3) so it can't be hopped over either.
         let mut map = Map::empty(15, 15);
         map.set(3, 1, Tile::Crate);
         map.set(1, 2, Tile::Crate);
+        map.set(2, 3, Tile::Crate);
         let mut w = test_world(map);
         let bot = w.spawn_test_bot(1.5, 1.5);
         for _ in 0..200 {
@@ -715,6 +742,28 @@ mod tests {
         }
         assert!(w.bombs.is_empty());
         assert!(w.players[&bot].alive);
+    }
+
+    #[test]
+    fn bot_outruns_sudden_death() {
+        let mut w = test_world(Map::empty(41, 41));
+        let bot = w.spawn_test_bot(1.5, 1.5);
+        w.round_end = w.tick + crate::game::events::SUDDEN_DEATH_TICKS;
+        w.step();
+        // Bots see the closing rings coming.
+        let (c, r) = (w.events.sd_center, w.events.sd_radius);
+        let d = w.danger_map();
+        // A cell of the second ring to close, on whichever side is on the map.
+        let edge = if c.0 + r - 1 < w.map.w { c.0 + r - 1 } else { c.0 - r + 1 };
+        assert_ne!(d[w.map.idx(edge, c.1)], SAFE, "the next rings are dangerous");
+        assert_eq!(d[w.map.idx(c.0, c.1)], SAFE, "the middle is safe");
+        for _ in 0..crate::game::events::SUDDEN_DEATH_TICKS - 20 {
+            w.step();
+        }
+        assert!(w.events.sd_active);
+        assert_eq!(w.events.sd_radius, crate::game::events::SUDDEN_DEATH_MIN_RADIUS, "fully shrunk");
+        assert!(w.players[&bot].alive, "the bot moved inwards in time");
+        assert_eq!(w.stats.deaths, 0);
     }
 
     #[test]

@@ -69,7 +69,7 @@ pub struct Events {
     pub sd_center: (i32, i32),
     pub sd_radius: i32,
     pub sd_next: u64,
-    sd_every: u64,
+    pub sd_every: u64,
     sd_saved: Vec<(i32, i32, Tile)>,
     next_event: u64,
     /// The event running now and when it ends.
@@ -195,7 +195,15 @@ impl World {
         for &(x, y) in &cells {
             let t = self.map.get(x, y);
             if t != Tile::Wall {
-                self.events.sd_saved.push((x, y, t));
+                // Save what the cell really is: temporary ice from a freeze
+                // blast is floor, and a reversed belt its original direction
+                // (their timers won't touch a stone cell).
+                let original = if self.frozen.iter().any(|f| (f.0, f.1) == (x, y)) {
+                    Tile::Floor
+                } else {
+                    self.events.flipped.iter().find(|f| (f.0, f.1) == (x, y)).map_or(t, |f| f.2)
+                };
+                self.events.sd_saved.push((x, y, original));
                 self.set_tile(x, y, Tile::Wall);
             }
             self.set_item(x, y, 0);
@@ -609,6 +617,13 @@ impl World {
         if self.events.ctf {
             let v = self.flag_values();
             out.push(protocol::encode_event(self.event_arenas.current(), ev::FLAGS, &v));
+        }
+        // An event under way (a blizzard, say), with the time it has left.
+        if let Some((kind, end)) = self.events.current
+            && end > self.tick
+        {
+            let left = (end - self.tick).div_ceil(SEC) as i64;
+            out.push(protocol::encode_event(self.event_arenas.current(), ev::ANNOUNCE, &[kind as i64, left]));
         }
         out
     }

@@ -795,6 +795,7 @@ fn meteors_strike_where_announced() {
     let strikes = w.events.meteors.clone();
     assert!(!strikes.is_empty());
     let (x, y, at) = strikes[0];
+    assert_ne!(w.danger_map()[w.map.idx(x, y)], ai::SAFE, "bots see it coming");
     w.tick = at;
     w.update_events();
     w.update_fuses();
@@ -903,5 +904,24 @@ fn a_rocket_point_blank_spares_the_shooter() {
     assert!(w.players[&me].alive, "the shooter survives their own rocket");
     assert!(!w.players[&target].alive, "the target doesn't");
     assert!(w.flame_active(2, 1), "it blew up in the target's cell");
+}
+
+#[test]
+fn sudden_death_restores_the_floor_under_temporary_ice() {
+    let mut w = test_world(Map::empty(21, 21));
+    w.round_end = w.tick + events::SUDDEN_DEATH_TICKS;
+    w.update_events();
+    // Freeze a corner cell that the first ring will close.
+    w.freeze_cell(1, 1);
+    assert_eq!(w.map.get(1, 1), Tile::Ice);
+    while w.map.get(1, 1) != Tile::Wall {
+        w.tick += 1;
+        w.update_events();
+        w.melt_ice();
+    }
+    w.tick += gadgets::FREEZE_TICKS;
+    w.melt_ice();
+    w.end_round();
+    assert_eq!(w.map.get(1, 1), Tile::Floor, "not stuck as ice forever");
 }
 

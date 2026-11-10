@@ -522,7 +522,7 @@ let hudKey = '';
 function updateHud(me) {
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
-    me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun > 0, me.carrying,
+    me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying,
     getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
