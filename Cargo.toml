@@ -2,6 +2,10 @@
 name = "blast-arena"
 version = "0.1.0"
 edition = "2024"
+description = "A real-time multiplayer bomb arena game server with a browser client"
+authors = ["Yehor Smoliakov <egorsmkv@gmail.com>"]
+license = "Apache-2.0"
+repository = "https://github.com/RustedBytes/blast-arena"
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }

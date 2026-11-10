@@ -276,3 +276,9 @@ static/js/            main, render, prediction, particles, input, audio, i18n,
 static/assets/        SVG art
 Dockerfile, docker-compose.yml, Caddyfile   deployment
 ```
+
+## License
+
+Copyright 2026 Yehor Smoliakov <egorsmkv@gmail.com>.
+
+Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE).
