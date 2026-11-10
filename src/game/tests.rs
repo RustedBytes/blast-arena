@@ -424,6 +424,17 @@ fn teleporters_never_drop_you_in_a_nukes_red_zone() {
 }
 
 #[test]
+fn nobody_spawns_inside_a_nukes_red_zone() {
+    let mut w = test_world(Map::empty(21, 21));
+    let nuke = bomb::BombKind { pierce: true, nuke: true, ..bomb::BombKind::plain(bomb::NUKE_RADIUS, 1000) };
+    w.place_bomb_at(0, (9, 9), nuke);
+    for _ in 0..200 {
+        let (x, y) = w.find_spawn();
+        assert!(!w.in_nuke_zone(x, y), "spawned at ({x}, {y}), inside the red zone");
+    }
+}
+
+#[test]
 fn ice_keeps_you_sliding_until_you_hit_something() {
     let mut map = Map::empty(15, 15);
     for x in 1..8 {
@@ -1046,6 +1057,22 @@ fn a_shared_blast_on_the_last_two_still_leaves_a_winner() {
     w.update_royale();
     assert!(!w.royale.match_on, "decided");
     assert_eq!(w.royale.last_winner, Some(b), "the better of the last two wins");
+}
+
+#[test]
+fn an_early_joiner_makes_a_lone_match_a_real_one() {
+    let mut w = royale_world(41);
+    let first = w.spawn_test_player(20.5, 20.5);
+    w.update_royale();
+    assert_eq!(w.royale.started_with, 1);
+    let late = w.add_bot(); // before the zone first moves: in the match
+    assert!(w.players[&late].alive);
+    w.update_royale();
+    w.players.get_mut(&late).unwrap().invulnerable_until = 0;
+    w.kill(late, None);
+    w.update_royale();
+    assert!(!w.royale.match_on, "decided");
+    assert_eq!(w.royale.last_winner, Some(first));
 }
 
 #[test]

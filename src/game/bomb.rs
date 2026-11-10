@@ -586,6 +586,14 @@ impl World {
         })
     }
 
+    /// Whether a player can be put down at (x, y) without dying on arrival:
+    /// no fire burning there, no worm on it, and outside every nuke's red
+    /// zone. Portals and teleporter pads only take you somewhere safe.
+    #[must_use]
+    pub fn safe_arrival(&self, x: i32, y: i32) -> bool {
+        !self.flame_active(x, y) && !self.worm_near(x, y, 0) && !self.in_nuke_zone(x, y)
+    }
+
     /// Every cell a bomb's fire reaches, excluding its own cell, with the
     /// ticks after detonation it catches fire: the cross of `trace_blast`
     /// (all at once), or an atomic disc (as the shockwave arrives).

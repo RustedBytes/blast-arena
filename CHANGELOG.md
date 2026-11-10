@@ -6,6 +6,16 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Portals and teleporter pads no longer drop a player into burning fire or
+  onto a worm.
+- Players no longer (re)spawn inside a ticking nuke's red zone: the disc
+  is wider than the spawn safety check looked, and the fuse outlasts the
+  spawn shield.
+- Battle royale: players who join before the zone first moves count as in
+  the match, so a match started alone ends with a winner when they're out.
+
 ### Added
 
 - German, French, Spanish, Italian and Polish translations of the client.

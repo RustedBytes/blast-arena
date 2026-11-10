@@ -285,11 +285,14 @@ impl World {
     pub(super) fn royale_on_join(&mut self, id: u32) {
         let z = &self.royale;
         let early = z.phase == 0 && z.state == ZoneState::Waiting;
-        if self.is_royale()
-            && z.match_on
-            && !early
-            && let Some(p) = self.players.get_mut(&id)
-        {
+        if !self.is_royale() || !z.match_on {
+            return;
+        }
+        if early {
+            // In the match like everyone else: it needs a winner now.
+            self.royale.started_with += 1;
+            self.royale.survivors.push(id);
+        } else if let Some(p) = self.players.get_mut(&id) {
             (p.alive, p.respawn_at) = (false, u64::MAX);
         }
     }

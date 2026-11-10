@@ -663,6 +663,19 @@ fn p05b_exit_in_a_nukes_red_zone_refuses_the_trip() {
 }
 
 #[test]
+fn p05c_exit_on_fire_refuses_the_trip() {
+    let (mut w, id, _rx) = portal_world();
+    place_pair(&mut w, id);
+    let t = w.tick;
+    w.set_flame(1, 4, 0, t, t + 1000);
+    w.hold(id, 2, 0);
+    steps(&mut w, 15);
+    assert_eq!(w.players[&id].cell(), (4, 1), "stays at the entrance");
+    assert!(w.players[&id].alive);
+    assert_eq!(w.stats.teleports, 0);
+}
+
+#[test]
 fn p06_bombs_go_through_keeping_fuse_and_owner() {
     let (mut w, id, _rx) = portal_world();
     place_pair(&mut w, id);

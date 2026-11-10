@@ -294,7 +294,7 @@ impl World {
         // Anything walkable and free of bombs and fire.
         let free = |w: &World, (x, y): (i32, i32)| {
             let i = w.map.idx(x, y);
-            !w.map.is_solid(x, y) && w.bomb_grid[i] == 0 && w.flame_until[i] <= w.tick && w.map.get(x, y) != Tile::Teleport
+            !w.map.is_solid(x, y) && w.bomb_grid[i] == 0 && w.flame_until[i] <= w.tick && w.map.get(x, y) != Tile::Teleport && !w.in_nuke_zone(x, y)
         };
         if let Some(&cell) = cells.iter().find(|&&cell| free(self, cell)) {
             return cell;
