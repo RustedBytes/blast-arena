@@ -37,6 +37,9 @@ pub struct InputSlot {
     emote: AtomicU32,
     /// Requested view half extents as `w << 16 | h`; 0 when never set.
     view: AtomicU32,
+    /// Cell the client watches instead of its player, as
+    /// `(x + 1) << 16 | (y + 1)`; 0 for its own player.
+    look: AtomicU32,
     /// Newest snapshot tick the client has decoded (delta baseline).
     ack: AtomicU32,
 }
@@ -148,6 +151,19 @@ impl InputSlot {
 
     pub fn set_view(&self, w: u16, h: u16) {
         self.view.store(u32::from(w) << 16 | u32::from(h), Relaxed);
+    }
+
+    pub fn set_look(&self, at: Option<(u16, u16)>) {
+        let v = at.map_or(0, |(x, y)| u32::from(x.min(0xfffe) + 1) << 16 | u32::from(y.min(0xfffe) + 1));
+        self.look.store(v, Relaxed);
+    }
+
+    /// The cell the client watches, if not its own player.
+    pub fn look(&self) -> Option<(i32, i32)> {
+        match self.look.load(Relaxed) {
+            0 => None,
+            v => Some(((v >> 16) as i32 - 1, (v & 0xffff) as i32 - 1)),
+        }
     }
 
     pub fn view(&self) -> Option<(i32, i32)> {

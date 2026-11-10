@@ -83,6 +83,9 @@ pub mod cop {
     pub const ABILITY: u8 = 9;
     /// Cancel a half-placed ability (the first portal of a pair).
     pub const CANCEL: u8 = 10;
+    /// Watch another part of the map: uvar x + 1, uvar y + 1 of the cell
+    /// to centre the view on; 0, 0 to watch your own player again.
+    pub const LOOK: u8 = 11;
 }
 
 /// Kinds of [`op::EVENT`] messages and their values.
@@ -344,6 +347,8 @@ pub enum ClientMsg<'a> {
     Ping { c: f64 },
     /// Requested view half extents in tiles.
     View { w: u16, h: u16 },
+    /// Centre the view on this cell instead of the player (`None`: back to the player).
+    Look { at: Option<(u16, u16)> },
 }
 
 impl<'a> ClientMsg<'a> {
@@ -381,6 +386,10 @@ impl<'a> ClientMsg<'a> {
             cop::EMOTE => ClientMsg::Emote { e: r.u8()?.min(15) },
             cop::PING => ClientMsg::Ping { c: r.f64()? },
             cop::VIEW => ClientMsg::View { w: clamp(r.uvar()?, 1000) as u16, h: clamp(r.uvar()?, 1000) as u16 },
+            cop::LOOK => {
+                let (x, y) = (clamp(r.uvar()?, 4096) as u16, clamp(r.uvar()?, 4096) as u16);
+                ClientMsg::Look { at: (x > 0 && y > 0).then(|| (x - 1, y - 1)) }
+            }
             _ => return None,
         })
     }
@@ -420,6 +429,10 @@ impl<'a> ClientMsg<'a> {
             }
             ClientMsg::View { w: vw, h } => {
                 w.u8(cop::VIEW).uvar(u64::from(vw)).uvar(u64::from(h));
+            }
+            ClientMsg::Look { at } => {
+                let (x, y) = at.map_or((0, 0), |(x, y)| (u64::from(x) + 1, u64::from(y) + 1));
+                w.u8(cop::LOOK).uvar(x).uvar(y);
             }
         }
         buf.freeze()
@@ -939,6 +952,8 @@ mod tests {
         assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 128, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: false, h: true, q: 1, k: 1 }), "detach bit");
         assert_eq!(ClientMsg::decode(&[cop::EMOTE, 200]), Some(ClientMsg::Emote { e: 15 }));
         assert_eq!(ClientMsg::decode(&[cop::VIEW, 0xff, 0x7f, 5]), Some(ClientMsg::View { w: 1000, h: 5 }));
+        assert_eq!(ClientMsg::decode(&[cop::LOOK, 0, 0]), Some(ClientMsg::Look { at: None }));
+        assert_eq!(ClientMsg::decode(&[cop::LOOK, 13, 4]), Some(ClientMsg::Look { at: Some((12, 3)) }));
         assert_eq!(ClientMsg::decode(&[]), None);
         assert_eq!(ClientMsg::decode(&[0x82, 0xa1]), None, "old MessagePack frames are rejected");
         assert_eq!(ClientMsg::decode(&[cop::IN, 0]), None, "truncated");

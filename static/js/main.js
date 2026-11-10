@@ -127,6 +127,9 @@ const net = new Net({
       mine: null,
       self: { x: m.w / 2, y: m.h / 2 },
       focus: { x: m.w / 2, y: m.h / 2 },
+      look: null, // the map spot watched from the minimap, if any
+      lookFrom: null,
+      lookBlend: 0,
       zone: null,      // battle royale zone: { state, start, end, from, to, phase }
       royale: null,    // battle royale match: { alive, on, nextAt }
       zoom: settings.get('zoom'),
@@ -145,6 +148,10 @@ const net = new Net({
       // Ability tuning from the server (ticks; see protocol::AbilityInfo).
       abilities: m.abilities ?? null,
     };
+    // A new game watches your own player (the server too).
+    lookDrag = null;
+    $('look-pill').classList.add('hidden');
+    net.send({ t: 'look', at: null });
     for (const [x, y, k] of m.items) state.itemMap.set(y * m.w + x, k);
     rebuildItems();
     seenExplosions.clear();
@@ -485,11 +492,12 @@ const input = new Input({
   // Send a changed direction immediately instead of at the next 50 ms step.
   onDir: () => { if (state) predictor.inputChanged(input.current, sendInput); },
   onBomb: () => {
+    stopLooking();
     net.send({ t: 'bomb' });
   },
-  onAct: () => net.send({ t: 'act' }),
-  onGadget: () => net.send({ t: 'gadget' }),
-  onAbility: () => net.send({ t: 'ability' }),
+  onAct: () => { stopLooking(); net.send({ t: 'act' }); },
+  onGadget: () => { stopLooking(); net.send({ t: 'gadget' }); },
+  onAbility: () => { stopLooking(); net.send({ t: 'ability' }); },
   onCancel: () => net.send({ t: 'cancel' }),
   onEmote: (e) => sendEmote(e),
   onZoom: (factor) => {
@@ -679,6 +687,80 @@ function setZoom(z) {
   $('set-zoom').value = zz;
   requestView();
 }
+
+// ------------------------------------------------------- watching the map
+// Dragging (or clicking) the minimap moves its view box: the camera goes
+// there and the server sends what's around it. The pill, or moving,
+// jumping, bombing or using an item, brings the camera back.
+const LOOK_SEND_MS = 100;
+let lookDrag = null; // { dx, dy }: where the box was grabbed, in tiles from its centre
+let lookSentAt = 0;
+let lookTimer = 0;
+
+/** The map position (in tiles) under a pointer event on the minimap. */
+function minimapPoint(e) {
+  const r = $('minimap').getBoundingClientRect();
+  const scale = r.width / Math.max(state.map.w, state.map.h);
+  return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
+}
+
+function lookAt(x, y) {
+  state.look = { x: Math.max(0, Math.min(state.map.w, x)), y: Math.max(0, Math.min(state.map.h, y)) };
+  $('look-pill').classList.remove('hidden');
+  renderer.lastMinimap = 0; // the box moves at once, not at the next refresh
+  sendLook();
+}
+
+/** Tells the server where we watch, at most every `LOOK_SEND_MS`. */
+function sendLook() {
+  clearTimeout(lookTimer);
+  const wait = LOOK_SEND_MS - (performance.now() - lookSentAt);
+  if (wait > 0) {
+    lookTimer = setTimeout(sendLook, wait);
+    return;
+  }
+  lookSentAt = performance.now();
+  const l = state?.look;
+  net.send({ t: 'look', at: l ? [Math.floor(l.x), Math.floor(l.y)] : null });
+}
+
+function stopLooking() {
+  if (!state?.look) return;
+  state.look = null;
+  lookDrag = null;
+  $('minimap').classList.remove('dragging');
+  $('look-pill').classList.add('hidden');
+  renderer.lastMinimap = 0;
+  lookSentAt = 0; // right away
+  sendLook();
+}
+
+$('minimap').addEventListener('pointerdown', (e) => {
+  if (!state || e.button !== 0) return;
+  e.preventDefault();
+  const [x, y] = minimapPoint(e);
+  // Grabbing the box keeps it under the pointer; clicking elsewhere centres it there.
+  const T = renderer.T || 1;
+  const vw = renderer.canvas.width / T, vh = renderer.canvas.height / T;
+  const cx = renderer.camX / T + vw / 2, cy = renderer.camY / T + vh / 2;
+  const grabbed = Math.abs(x - cx) <= vw / 2 && Math.abs(y - cy) <= vh / 2;
+  lookDrag = grabbed ? { dx: cx - x, dy: cy - y } : { dx: 0, dy: 0 };
+  $('minimap').setPointerCapture(e.pointerId);
+  $('minimap').classList.add('dragging');
+  lookAt(x + lookDrag.dx, y + lookDrag.dy);
+});
+$('minimap').addEventListener('pointermove', (e) => {
+  if (!lookDrag || !state) return;
+  const [x, y] = minimapPoint(e);
+  lookAt(x + lookDrag.dx, y + lookDrag.dy);
+});
+for (const end of ['pointerup', 'pointercancel']) {
+  $('minimap').addEventListener(end, () => {
+    lookDrag = null;
+    $('minimap').classList.remove('dragging');
+  });
+}
+$('look-pill').addEventListener('click', stopLooking);
 
 /** Tells the server how much of the arena this client's zoom needs. */
 function requestView() {
@@ -1014,6 +1096,25 @@ function frame(now) {
         state.focus.y += (f.players[i].y - state.focus.y) * k;
       }
     }
+  }
+  // Watching another part of the map: the camera glides there (and
+  // follows the pointer while dragging); moving or jumping comes back,
+  // gliding home from wherever the view was.
+  if (state.look && !state.replay) {
+    if (input.current.d || input.current.j) stopLooking();
+    else {
+      const k = lookDrag ? 1 : 1 - Math.exp(-dt * 10);
+      state.focus.x += (state.look.x - state.focus.x) * k;
+      state.focus.y += (state.look.y - state.focus.y) * k;
+      state.lookFrom = { x: state.focus.x, y: state.focus.y };
+      state.lookBlend = 1;
+    }
+  }
+  if (!state.look && state.lookBlend > 0) {
+    state.lookBlend = Math.max(0, state.lookBlend - dt * 5);
+    const b = state.lookBlend * state.lookBlend;
+    state.focus.x += (state.lookFrom.x - state.focus.x) * b;
+    state.focus.y += (state.lookFrom.y - state.focus.y) * b;
   }
   state.zoom += (state.zoomTarget - state.zoom) * (1 - Math.exp(-dt * 12));
   renderer.draw(state, now, dt);

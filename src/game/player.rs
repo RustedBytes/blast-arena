@@ -87,6 +87,9 @@ pub struct Player {
     pub emote_seq: u32,
     /// Half extents of this player's area of interest.
     pub aoi: (i32, i32),
+    /// The cell this client watches on the minimap instead of the player
+    /// (snapshots centre on it); `None` follows the player.
+    pub look: Option<(i32, i32)>,
     pub facing: u8,
     pub moving: bool,
     /// Direction a player keeps sliding in on ice.
@@ -205,6 +208,7 @@ impl Player {
             act_presses: 0,
             emote_seq: 0,
             aoi: AOI_DEFAULT,
+            look: None,
             facing: 3,
             moving: false,
             slide_dir: 0,

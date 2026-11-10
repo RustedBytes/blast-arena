@@ -22,7 +22,7 @@ export const AB = {
   GAS_IGNITED: 8, CLONE_SPAWNED: 9, CLONE_DESTROYED: 10, STICKY_ATTACHED: 11, STICKY_DETACHED: 12,
   PORTAL_CREATED: 13, PORTAL_LINKED: 14, PORTAL_DESTROYED: 15, TELEPORTED: 16, DASH_STARTED: 17, DASH_ENDED: 18,
 };
-const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8, ability: 9, cancel: 10 };
+const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8, ability: 9, cancel: 10, look: 11 };
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
 const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 };
 const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32 };
@@ -140,6 +140,8 @@ export function encodeClient(m) {
     case 'emote': w.u8(m.e); break;
     case 'ping': w.f64(m.c); break;
     case 'view': w.uvar(m.w).uvar(m.h); break;
+    // The cell to watch, each + 1; 0, 0 is back to your own player.
+    case 'look': w.uvar(m.at ? m.at[0] + 1 : 0).uvar(m.at ? m.at[1] + 1 : 0); break;
     case 'bomb': case 'act': case 'gadget': case 'ability': case 'cancel': break;
     default: throw new Error(`protocol: unknown client message ${m.t}`);
   }

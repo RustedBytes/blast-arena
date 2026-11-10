@@ -2412,8 +2412,9 @@ export class Renderer {
       }
     }
     const T = this.T;
-    c.strokeStyle = 'rgba(255,255,255,0.7)';
-    c.lineWidth = this.dpr;
+    // The view box (yellow while watching elsewhere: drag it to look around).
+    c.strokeStyle = state.look ? '#ffd34a' : 'rgba(255,255,255,0.7)';
+    c.lineWidth = this.dpr * (state.look ? 2 : 1);
     c.strokeRect(this.camX / T * scale, this.camY / T * scale, this.canvas.width / T * scale, this.canvas.height / T * scale);
     const f = this.frame;
     const dot = this.dpr * 1.5;

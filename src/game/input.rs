@@ -9,6 +9,7 @@ impl World {
     /// Copies each client's latest input from its lock-free slot.
     pub(super) fn read_inputs(&mut self) {
         let tick = self.tick;
+        let (map_w, map_h) = (self.map.w, self.map.h);
         for p in self.players.values_mut() {
             let Some(link) = &p.link else { continue };
             let (d, s, jump, seq) = link.input.dirs();
@@ -53,9 +54,11 @@ impl World {
                 }
             }
             p.snap_ack = link.input.ack();
-            if let Some((w, h)) = link.input.view() {
+            let (view, look) = (link.input.view(), link.input.look());
+            if let Some((w, h)) = view {
                 p.set_aoi(w, h);
             }
+            p.look = look.map(|(x, y)| (x.clamp(0, map_w - 1), y.clamp(0, map_h - 1)));
         }
     }
 

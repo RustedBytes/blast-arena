@@ -1207,3 +1207,18 @@ fn earthquakes_shake_the_volcano() {
     assert_eq!(w.map.count(Tile::Wall), pillars, "pillars are back next round");
 }
 
+
+#[test]
+fn watching_another_part_of_the_map_shows_whats_there() {
+    let mut w = test_world(Map::empty(81, 81));
+    let me = w.spawn_test_player(5.5, 5.5);
+    let far = w.spawn_test_player(61.5, 61.5);
+    let ids = |w: &World| -> Vec<u64> { w.full_snapshot(me)["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect() };
+    assert!(!ids(&w).contains(&u64::from(far)), "out of view at first");
+    w.players.get_mut(&me).unwrap().look = Some((61, 61));
+    let seen = ids(&w);
+    assert!(seen.contains(&u64::from(far)), "watching there shows them");
+    assert!(seen.contains(&u64::from(me)), "and still your own player");
+    w.players.get_mut(&me).unwrap().look = None;
+    assert!(!ids(&w).contains(&u64::from(far)), "back to your own view");
+}

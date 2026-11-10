@@ -280,6 +280,7 @@ async fn read_loop(
                 tracing::trace!(w, h, "view requested");
                 input.set_view(w, h);
             }
+            Some(ClientMsg::Look { at }) => input.set_look(at),
             Some(ClientMsg::Ping { c }) => {
                 // Answer directly so latency doesn't include tick wait.
                 if let Some(tx) = pong_tx.upgrade() {

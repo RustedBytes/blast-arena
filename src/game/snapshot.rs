@@ -58,12 +58,16 @@ impl World {
                 })
             })?
         });
-        let (cx, cy) = spectating.map_or(p.cell(), super::player::Player::cell);
+        let (cx, cy) = p.look.unwrap_or_else(|| spectating.map_or(p.cell(), super::player::Player::cell));
         let (x0, y0, x1, y1) = aoi_rect(cx, cy, p.aoi);
+        let (px, py) = p.cell();
+        let me_outside = p.alive && !(px >= x0 && px <= x1 && py >= y0 && py <= y1);
 
-        // What the client should see now, sorted by id for diffing.
+        // What the client should see now, sorted by id for diffing. A
+        // client watching elsewhere still gets its own player.
         cur.players.clear();
-        cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).map(|o| {
+        let me = me_outside.then_some(p);
+        cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).chain(me).map(|o| {
             let flags = u16::from(o.moving)
                 | u16::from(o.invulnerable_until > tick) << 1
                 | u16::from(o.curse(tick).0 != 0) << 2
