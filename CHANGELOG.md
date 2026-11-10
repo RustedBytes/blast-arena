@@ -6,6 +6,8 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-10
+
 ### Added
 
 - Settings can hide the minimap (also the **N** key) and set its size
@@ -178,6 +180,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.4.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.4.0
 [0.3.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.3.0
 [0.2.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.2.0
 [0.1.0]: https://github.com/RustedBytes/blast-arena/tree/3873267
