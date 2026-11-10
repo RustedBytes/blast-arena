@@ -1010,3 +1010,44 @@ fn royale_bots_head_into_the_zone() {
     assert!(inside * 4 >= alive.len() * 3, "{inside} of {} alive bots inside the zone", alive.len());
 }
 
+#[test]
+fn earthquakes_shake_the_volcano() {
+    // Map::empty's classic regions put a volcano in the lower left.
+    let mut map = Map::empty(41, 41);
+    let volcano: Vec<(i32, i32)> = (2..39)
+        .flat_map(|y| (2..39).map(move |x| (x, y)))
+        .filter(|&(x, y)| map.biome(x, y) == map::Biome::Volcano && map.get(x, y) == Tile::Floor)
+        .collect();
+    assert!(!volcano.is_empty());
+    for &(x, y) in &volcano {
+        map.set(x, y, Tile::Crate);
+    }
+    let pillars = map.count(Tile::Wall);
+    let crates = map.count(Tile::Crate);
+    let mut w = test_world(map);
+    // A bomb in the volcano (on a cleared cell) gets jolted.
+    let (bx, by) = volcano[volcano.len() / 2];
+    for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
+        if w.map.get(bx + dx, by + dy) == Tile::Crate {
+            w.set_tile(bx + dx, by + dy, Tile::Floor);
+        }
+    }
+    w.place_bomb_at(0, (bx, by), bomb::BombKind::plain(1, 1000));
+    w.start_event(events::MapEvent::Earthquake);
+    assert!(w.flame_until.iter().any(|&u| u > w.tick), "fissures are on their way");
+    let (_, end) = w.events.current.unwrap();
+    let mut jolted = false;
+    while w.tick < end {
+        w.tick += 1;
+        w.update_events();
+        w.update_sliding_bombs();
+        jolted |= w.bomb_at(bx, by).is_none();
+    }
+    assert!(jolted, "the tremor moved the bomb");
+    assert!(w.map.count(Tile::Crate) < crates, "crates broke");
+    let crumbled = pillars - w.map.count(Tile::Wall);
+    assert!(crumbled > 0, "some pillars crumbled");
+    w.end_round();
+    assert_eq!(w.map.count(Tile::Wall), pillars, "pillars are back next round");
+}
+

@@ -19,8 +19,9 @@ All notable changes to Blast Arena are documented here. The format follows
   ring towards a random centre; the next ring is shown in red and crushes
   whoever stays in it. The arena reopens for the next round.
 - **Map events** every one to two minutes: meteor showers, blizzards (slower
-  movement, fogged minimap), lava surges in volcanic regions and reversed
-  conveyors.
+  movement, fogged minimap), lava surges and earthquakes in volcanic regions
+  (fissures of fire, bombs jolted by tremors, crates breaking and pillars
+  crumbling into rubble until the next round) and reversed conveyors.
 - **Capture the flag** in the Teams arena: bases, flags, carriers (who can't
   jump or bomb), drops, returns, captures worth 5 points, and respawning
   near your base.

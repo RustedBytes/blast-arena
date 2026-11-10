@@ -33,6 +33,8 @@ const TEAM_COLORS = ['#ffd34a', '#ff5a4a', '#5aa0ff'];
 // Map events (src/game/events.rs): meteor warning, and kinds as announced.
 const METEOR_WARN_MS = 1500;
 const EVENT_BLIZZARD = 2;
+const EVENT_EARTHQUAKE = 5;
+const BIOME_VOLCANO = 3;
 // Atomic bomb, mirroring the server (src/game/bomb.rs): fuse, how long each
 // cell burns after the shockwave reaches it, how long the blast is shown,
 // and shockwave speed in cells per second.
@@ -644,6 +646,13 @@ export class Renderer {
 
     // Camera follows the focus (yourself, or whoever you're watching).
     this.shake *= Math.exp(-dt * 7);
+    // An earthquake keeps the ground rumbling, hardest in the volcano.
+    const w = this.weather;
+    if (w && w.kind === EVENT_EARTHQUAKE && now < w.end) {
+      const inVolcano = biome(map, Math.floor(state.focus.x), Math.floor(state.focus.y)) === BIOME_VOLCANO;
+      const fade = Math.min(1, (w.end - now) / 800);
+      this.shake = Math.max(this.shake, (inVolcano ? 0.32 : 0.12) * fade * (0.7 + 0.3 * Math.sin(now / 90)));
+    }
     const sx = (Math.random() - 0.5) * this.shake * T, sy = (Math.random() - 0.5) * this.shake * T;
     this.camX = clampCam(state.focus.x * T - W / 2, map.w * T, W);
     this.camY = clampCam(state.focus.y * T - H / 2, map.h * T, H);

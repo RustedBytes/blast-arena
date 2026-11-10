@@ -348,7 +348,8 @@ const net = new Net({
       case EV.ANNOUNCE:
         banner(t('mapEvents')[v[0]] ?? '!');
         renderer.mapEvent(v[0], now, v[1] * 1000);
-        audio.mystery();
+        if (v[0] === 5) audio.nuke(22, 0); // an earthquake: a deep rumble
+        else audio.mystery();
         break;
       case EV.STRIKES:
         for (let i = 0; i + 2 < v.length; i += 3) renderer.addMeteor(v[i], v[i + 1], now + v[i + 2] * state.tickMs);

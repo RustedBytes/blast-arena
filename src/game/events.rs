@@ -5,6 +5,8 @@
 use crate::protocol::{self, ev};
 
 use super::bomb::BombKind;
+use super::items::Item;
+use super::player::DIRS;
 use super::map::{Biome, Tile};
 use super::{Mode, TICK_RATE, World};
 
@@ -30,6 +32,16 @@ const LAVA_WARNING_TICKS: u64 = 2 * SEC;
 const LAVA_BURN_TICKS: u64 = 2 * SEC;
 const LAVA_MAX_CELLS: usize = 160;
 const CONVEYOR_FLIP_TICKS: u64 = 20 * SEC;
+/// Earthquake (volcano maps): how long it shakes, fissures of fire (count,
+/// length, warning, burning), and what crumbles when it's over.
+pub const QUAKE_TICKS: u64 = 6 * SEC;
+const FISSURES: (i32, i32) = (3, 5);
+const FISSURE_LEN: (i32, i32) = (5, 9);
+const FISSURE_WARNING_TICKS: u64 = 30;
+const FISSURE_BURN_TICKS: u64 = 30;
+const QUAKE_CRATE_BREAK: f32 = 0.33;
+const QUAKE_ARMOR_CRACK: f32 = 0.2;
+const QUAKE_PILLAR_CRUMBLE: f32 = 0.08;
 /// Capture the flag: points for a capture, and how long a dropped flag
 /// waits before going home.
 pub const CAPTURE_POINTS: i32 = 5;
@@ -42,6 +54,7 @@ pub enum MapEvent {
     Blizzard = 2,
     Lava = 3,
     Conveyors = 4,
+    Earthquake = 5,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -78,6 +91,8 @@ pub struct Events {
     pub meteors: Vec<(i32, i32, u64)>,
     /// Conveyors flipped by the event: (x, y, original tile).
     flipped: Vec<(i32, i32, Tile)>,
+    /// Pillars an earthquake crumbled into rubble; they're back next round.
+    crumbled: Vec<(i32, i32)>,
     /// Capture the flag (team arenas): the red and blue flags, captures.
     pub ctf: bool,
     pub flags: [Flag; 2],
@@ -301,6 +316,7 @@ impl World {
         }
         self.events.sd_saved = saved;
         self.events.sd_saved.clear();
+        self.rebuild_pillars();
         if self.events.sd_active {
             self.events.sd_active = false;
             self.announce_shrink();
@@ -326,12 +342,17 @@ impl World {
             self.events.next_event = tick + EVENT_FIRST_TICKS;
         }
         self.update_meteors();
-        if let Some((kind, end)) = self.events.current
-            && tick >= end
-        {
-            self.events.current = None;
-            if kind == MapEvent::Conveyors {
-                self.unflip_conveyors();
+        if let Some((kind, end)) = self.events.current {
+            if kind == MapEvent::Earthquake && tick < end && (end - tick).is_multiple_of(SEC) {
+                self.tremor();
+            }
+            if tick >= end {
+                self.events.current = None;
+                match kind {
+                    MapEvent::Conveyors => self.unflip_conveyors(),
+                    MapEvent::Earthquake => self.crumble(),
+                    _ => {}
+                }
             }
         }
         // No new events during (or right before) sudden death.
@@ -351,6 +372,7 @@ impl World {
         }
         if has(Biome::Volcano) {
             options.push(MapEvent::Lava);
+            options.push(MapEvent::Earthquake);
         }
         if conveyors {
             options.push(MapEvent::Conveyors);
@@ -378,6 +400,10 @@ impl World {
             MapEvent::Conveyors => {
                 self.flip_conveyors();
                 CONVEYOR_FLIP_TICKS
+            }
+            MapEvent::Earthquake => {
+                self.open_fissures();
+                QUAKE_TICKS
             }
         };
         tracing::debug!(?kind, "map event");
@@ -455,6 +481,93 @@ impl World {
             values.extend([i64::from(x), i64::from(y)]);
         }
         self.broadcast_event(ev::LAVA, &values);
+    }
+
+    fn in_volcano(&self, x: i32, y: i32) -> bool {
+        self.map.biome(x, y) == Biome::Volcano
+    }
+
+    /// Cracks of fire run along volcano lanes: shown first, then burning
+    /// (sent to clients like a lava surge).
+    fn open_fissures(&mut self) {
+        let floors: Vec<(i32, i32)> = (1..self.map.h - 1)
+            .flat_map(|y| (1..self.map.w - 1).map(move |x| (x, y)))
+            .filter(|&(x, y)| self.in_volcano(x, y) && !self.map.is_solid(x, y))
+            .collect();
+        if floors.is_empty() {
+            return;
+        }
+        let mut cells: Vec<(i32, i32)> = Vec::new();
+        for _ in 0..self.rng.between(FISSURES.0, FISSURES.1) {
+            let (mut x, mut y) = floors[self.rng.below(floors.len() as u32) as usize];
+            let (dx, dy) = DIRS[self.rng.between(1, 4) as usize];
+            for _ in 0..self.rng.between(FISSURE_LEN.0, FISSURE_LEN.1) {
+                if !self.map.in_bounds(x, y) || self.map.get(x, y) == Tile::Wall || !self.in_volcano(x, y) {
+                    break;
+                }
+                if !cells.contains(&(x, y)) {
+                    cells.push((x, y));
+                }
+                (x, y) = (x + dx, y + dy);
+            }
+        }
+        let from = self.tick + FISSURE_WARNING_TICKS;
+        let mut values = vec![FISSURE_WARNING_TICKS as i64, FISSURE_BURN_TICKS as i64];
+        for &(x, y) in &cells {
+            self.set_flame(x, y, 0, from, from + FISSURE_BURN_TICKS);
+            values.extend([i64::from(x), i64::from(y)]);
+        }
+        self.broadcast_event(ev::LAVA, &values);
+    }
+
+    /// A tremor jolts resting bombs in the volcano one cell in a random direction.
+    fn tremor(&mut self) {
+        let mut jolt: Vec<u32> = self.bombs.values().filter(|b| b.slide_dir == 0 && self.in_volcano(b.x, b.y)).map(|b| b.id).collect();
+        jolt.sort_unstable();
+        for id in jolt {
+            let dir = self.rng.between(1, 4) as u8;
+            self.kick_bomb(id, dir);
+        }
+    }
+
+    /// When the shaking stops: some crates break (and may drop power-ups),
+    /// some armor cracks, and a few pillars crumble into rubble.
+    fn crumble(&mut self) {
+        let (w, h) = (self.map.w, self.map.h);
+        for y in 2..h - 2 {
+            for x in 2..w - 2 {
+                if !self.in_volcano(x, y) || self.bomb_at(x, y).is_some() {
+                    continue;
+                }
+                match self.map.get(x, y) {
+                    Tile::Crate if self.rng.chance(QUAKE_CRATE_BREAK) => {
+                        self.set_tile(x, y, Tile::Floor);
+                        self.stats.crates_destroyed += 1;
+                        if let Some(item) = Item::crate_drop(&mut self.rng) {
+                            self.set_item(x, y, item as u8);
+                        }
+                    }
+                    Tile::Armored if self.rng.chance(QUAKE_ARMOR_CRACK) => self.set_tile(x, y, Tile::Crate),
+                    Tile::Wall if self.rng.chance(QUAKE_PILLAR_CRUMBLE) => {
+                        self.set_tile(x, y, Tile::Crate);
+                        self.events.crumbled.push((x, y));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Puts crumbled pillars back where nothing is in the way.
+    fn rebuild_pillars(&mut self) {
+        let crumbled = std::mem::take(&mut self.events.crumbled);
+        for &(x, y) in &crumbled {
+            let occupied = self.bomb_at(x, y).is_some() || self.players.values().any(|p| p.alive && p.cell() == (x, y));
+            if !occupied && matches!(self.map.get(x, y), Tile::Floor | Tile::Crate) {
+                self.set_item(x, y, 0);
+                self.set_tile(x, y, Tile::Wall);
+            }
+        }
     }
 
     fn flip_conveyors(&mut self) {
