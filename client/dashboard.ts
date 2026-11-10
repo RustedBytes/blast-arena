@@ -1,23 +1,33 @@
 // Live server dashboard: polls /api/stats and draws simple line charts of
 // the last 10 minutes.
 
-const $ = (id) => document.getElementById(id);
+import { byId as $ } from './dom.js';
+
 const POLL_MS = 2000;
 const HISTORY = 300; // samples (10 minutes)
 const COLORS = ['#ffb02e', '#56b4e9', '#6ff2a0', '#ff7af0', '#f0e442', '#ff5a4a'];
 
-const history = { t: [], arenas: {}, cpu: [], mem: [] };
-let lastBytes = null, lastTime = 0;
+/** One arena in `/api/stats`. */
+interface ArenaStats {
+  name: string; mode: string; map: number; players: number; humans: number; bots: number; bombs: number;
+  tick_ms: number; max_tick_ms: number; round_secs: number; deaths: number; bytes_out: number;
+}
+interface Stats { cpu_percent: number; memory_mb: number; uptime_s: number; arenas: ArenaStats[] }
+interface ArenaHistory { players: number[]; humans: number[]; tick: number[]; kbs: number[] }
+interface Line { name: string; values: number[]; color: string }
 
-function push(arr, v) {
+const history: { t: number[]; arenas: Record<string, ArenaHistory>; cpu: number[]; mem: number[] } = { t: [], arenas: {}, cpu: [], mem: [] };
+let lastBytes: Record<string, number> | null = null, lastTime = 0;
+
+function push(arr: number[], v: number): void {
   arr.push(v);
   if (arr.length > HISTORY) arr.shift();
 }
 
-async function poll() {
-  let s;
+async function poll(): Promise<void> {
+  let s: Stats;
   try {
-    s = await (await fetch('/api/stats', { cache: 'no-store' })).json();
+    s = await (await fetch('/api/stats', { cache: 'no-store' })).json() as Stats;
   } catch {
     $('status').textContent = 'server unreachable';
     return;
@@ -27,7 +37,7 @@ async function poll() {
   push(history.t, now);
   push(history.cpu, s.cpu_percent);
   push(history.mem, s.memory_mb);
-  const bytes = {};
+  const bytes: Record<string, number> = {};
   for (const a of s.arenas) {
     const h = history.arenas[a.name] ??= { players: [], humans: [], tick: [], kbs: [] };
     while (h.players.length < history.t.length - 1) { // arena appeared later
@@ -44,7 +54,7 @@ async function poll() {
   lastBytes = bytes;
   lastTime = now;
 
-  const sum = (f) => s.arenas.reduce((n, a) => n + f(a), 0);
+  const sum = (f: (a: ArenaStats) => number): string => String(s.arenas.reduce((n, a) => n + f(a), 0));
   $('k-players').textContent = sum((a) => a.players);
   $('k-humans').textContent = sum((a) => a.humans);
   $('k-tick').textContent = Math.max(0, ...s.arenas.map((a) => a.tick_ms)).toFixed(2);
@@ -59,11 +69,11 @@ async function poll() {
   draw();
 }
 
-function series(key) {
+function series(key: keyof ArenaHistory): Line[] {
   return Object.entries(history.arenas).map(([name, h], i) => ({ name, values: h[key], color: COLORS[i % COLORS.length] }));
 }
 
-function draw() {
+function draw(): void {
   chart('players', series('players'), 'count');
   chart('tick', series('tick'), 'ms');
   chart('net', series('kbs'), 'KB/s');
@@ -73,12 +83,12 @@ function draw() {
   ]);
 }
 
-function chart(id, lines, unit = '') {
-  const c = $(`c-${id}`);
+function chart(id: string, lines: Line[], unit = ''): void {
+  const c = $<HTMLCanvasElement>(`c-${id}`);
   const dpr = devicePixelRatio || 1;
   const w = c.clientWidth * dpr, h = c.clientHeight * dpr;
   if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-  const g = c.getContext('2d');
+  const g = c.getContext('2d')!;
   g.clearRect(0, 0, w, h);
   const pad = 34 * dpr;
   const max = Math.max(1, ...lines.flatMap((l) => l.values)) * 1.15;

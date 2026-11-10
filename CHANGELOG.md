@@ -6,6 +6,15 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The browser client is now TypeScript (`client/*.ts`, strict mode), compiled
+  by `tsc` into `static/js/` with the same module layout, so the pages load
+  it as before. The wire protocol, game state and settings are typed end to
+  end. Building needs Node.js: run `npm ci && npm run build` before
+  `cargo build` (build.rs stops with a hint if the client isn't built, and
+  warns when it's out of date); the Dockerfile and release workflow do it.
+
 ## [0.7.0] - 2026-11-10
 
 ### Added

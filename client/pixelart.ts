@@ -24,6 +24,9 @@ import {
 /** Rows 0..TOP-1 are a block's top face; rows TOP..N-2 its front face. */
 const TOP = 11;
 
+/** Colour of a block face pixel. */
+type Shade = (x: number, y: number) => string;
+
 // ------------------------------------------------------------------ palette
 // Each ramp runs dark to light, shifting hue along the way.
 
@@ -49,7 +52,7 @@ const RUNE = '#7ff6ff';
 // ------------------------------------------------------------------- floors
 
 /** Meadow grass. Kind 0: tufts; 1: pebbles and clover; 2: wildflowers. */
-function grass(seed, kind) {
+function grass(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand), p = new Pix();
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -77,7 +80,7 @@ function grass(seed, kind) {
 }
 
 /** A little three-blade tuft, lit on its tips. */
-function tuft(p, x, y) {
+function tuft(p: Pix, x: number, y: number) {
   p.wset(x, y + 1, GRASS[1]);
   p.wset(x + 1, y + 1, GRASS[1]);
   p.wset(x - 1, y, GRASS[4]);
@@ -89,7 +92,7 @@ function tuft(p, x, y) {
 }
 
 /** A 2x2 pebble with a highlight and a cast shadow. */
-function pebble(p, x, y, ramp, shadow) {
+function pebble(p: Pix, x: number, y: number, ramp: readonly string[], shadow: string) {
   p.wset(x + 2, y + 1, shadow);
   p.wset(x + 1, y + 2, shadow);
   p.wset(x + 2, y + 2, shadow);
@@ -100,7 +103,7 @@ function pebble(p, x, y, ramp, shadow) {
 }
 
 /** Wind-sculpted snow. Kind 1 adds a trail of little footprints. */
-function snow(seed, kind) {
+function snow(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand, [[2, 0.6], [4, 0.3], [8, 0.1]]), p = new Pix();
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -121,11 +124,11 @@ function snow(seed, kind) {
 }
 
 /** Desert sand with wind ripples. Kind 1 has a dry sprig instead of pebbles. */
-function sand(seed, kind) {
+function sand(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand), p = new Pix();
   const phase = rand() * Math.PI * 2;
   // Integer frequencies along x and y keep the ripples seamless.
-  const h = (x, y) => Math.sin((2 * Math.PI * (x + 3 * y)) / N + phase + at(f, x, y) * 3);
+  const h = (x: number, y: number) => Math.sin((2 * Math.PI * (x + 3 * y)) / N + phase + at(f, x, y) * 3);
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const lit = h(x + 1, y + 1) - h(x - 1, y - 1);
@@ -150,7 +153,7 @@ function sand(seed, kind) {
  * torus). Kind 0, the common one, is calm with a few loose embers; kind 1
  * has lava glowing in one crack.
  */
-function ash(seed, kind) {
+function ash(seed: number, kind: number) {
   const rand = rng(seed), lavaF = field(rand), p = new Pix();
   const pts = Array.from({ length: 6 }, () => [rand() * N, rand() * N, rand()]);
   const edge = new Uint8Array(N * N), cell = new Float32Array(N * N);
@@ -167,9 +170,9 @@ function ash(seed, kind) {
       cell[y * N + x] = tone;
     }
   }
-  const isEdge = (x, y) => edge[wrap(y) * N + wrap(x)] === 1;
+  const isEdge = (x: number, y: number) => edge[wrap(y) * N + wrap(x)] === 1;
   const lavaAt = kind === 0 ? 2 : 0.84;
-  const isLava = (x, y) => isEdge(x, y) && at(lavaF, x, y) > lavaAt;
+  const isLava = (x: number, y: number) => isEdge(x, y) && at(lavaF, x, y) > lavaAt;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       if (isLava(x, y)) {
@@ -200,7 +203,7 @@ function ash(seed, kind) {
  * lip where the top face meets the front, and a darker front face.
  * `top(x, y)` and `front(x, y)` colour the interiors.
  */
-function block(ramp, top, front) {
+function block(ramp: readonly string[], top: Shade, front: Shade) {
   const p = new Pix(), last = ramp.length - 1;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -220,18 +223,18 @@ function block(ramp, top, front) {
 }
 
 /** Plain front face: a single course of blocks split by mortar seams. */
-const masonry = (ramp, seams) => (x, y) => {
+const masonry = (ramp: readonly string[], seams: readonly number[]): Shade => (x: number, y: number) => {
   if (seams.includes(x)) return ramp[1];
   return y === TOP ? ramp[4] : ramp[3];
 };
 
 /** Is (x, y) inside a block's top face, excluding its rim? */
-const onTop = (x, y) => x > 1 && x < N - 2 && y > 1 && y < TOP - 1;
+const onTop = (x: number, y: number) => x > 1 && x < N - 2 && y > 1 && y < TOP - 1;
 
 /** Meadow stone. Kind 0: plain; 1: an engraved panel; 2: cracked and mossy. */
-function stonePillar(seed, kind) {
+function stonePillar(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand), moss = field(rand);
-  const top = (x, y) => pick(STONE, 0.55 + relief(f, x, y) * 1.5 + (at(f, x, y) - 0.5) * 0.35, x, y, 3, 6, 0.6);
+  const top = (x: number, y: number) => pick(STONE, 0.55 + relief(f, x, y) * 1.5 + (at(f, x, y) - 0.5) * 0.35, x, y, 3, 6, 0.6);
   const p = block(STONE, top, masonry(STONE, [5, 11]));
   if (kind === 1) {
     // Engraved panel: grooves are dark on the top-left edge and lit on the bottom-right.
@@ -243,7 +246,7 @@ function stonePillar(seed, kind) {
     p.set(7, 5, STONE[5]);
   }
   if (kind === 2) {
-    crack(rand, 3 + int(rand, 4), 2, 7, (x, y) => {
+    crack(rand, 3 + int(rand, 4), 2, 7, (x: number, y: number) => {
       if (!onTop(x, y)) return;
       p.set(x, y, STONE[1]);
       if (onTop(x + 1, y + 1)) p.set(x + 1, y + 1, STONE[5]);
@@ -268,9 +271,9 @@ function stonePillar(seed, kind) {
 }
 
 /** Stone under a snow cap, with icicles hanging off the lip. */
-function snowPillar(seed) {
+function snowPillar(seed: number) {
   const rand = rng(seed), f = field(rand);
-  const top = (x, y) => pick(SNOW, 0.6 + relief(f, x, y) * 2, x, y, 2, 5, 0.8);
+  const top = (x: number, y: number) => pick(SNOW, 0.6 + relief(f, x, y) * 2, x, y, 2, 5, 0.8);
   const p = block(STONE, top, masonry(STONE, [4, 10]));
   // The cap is snow too, with a bulging edge over the lip and a blue shadow under it.
   for (let x = 1; x < N - 1; x++) {
@@ -294,13 +297,13 @@ function snowPillar(seed) {
 }
 
 /** Carved limestone with strata. Kind 0 has a carved diamond glyph. */
-function sandPillar(seed, kind) {
+function sandPillar(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand);
-  const top = (x, y) => {
+  const top = (x: number, y: number) => {
     const band = (y + Math.round(at(f, x, y) * 2)) % 4 === 0;
     return pick(LIMESTONE, (band ? 0.25 : 0.65) + relief(f, x, y), x, y, 3, 5, 0.6);
   };
-  const front = (x, y) => (x === 7 ? LIMESTONE[1] : y % 2 ? LIMESTONE[2] : LIMESTONE[3]);
+  const front = (x: number, y: number) => (x === 7 ? LIMESTONE[1] : y % 2 ? LIMESTONE[2] : LIMESTONE[3]);
   const p = block(LIMESTONE, top, front);
   if (kind === 0) {
     for (let y = 2; y < TOP - 1; y++) {
@@ -313,24 +316,24 @@ function sandPillar(seed, kind) {
   } else {
     // Wind has worn the far corner.
     for (const [x, y] of [[13, 2], [12, 2], [13, 3], [12, 9], [13, 8], [13, 9]]) p.set(x, y, LIMESTONE[2]);
-    crack(rand, 4, 3, 5, (x, y) => { if (onTop(x, y)) p.set(x, y, LIMESTONE[2]); });
+    crack(rand, 4, 3, 5, (x: number, y: number) => { if (onTop(x, y)) p.set(x, y, LIMESTONE[2]); });
   }
   return p;
 }
 
 /** Faceted obsidian split by a glowing lava vein. */
-function obsidianPillar(seed, kind) {
+function obsidianPillar(seed: number, kind: number) {
   const rand = rng(seed), f = field(rand);
-  const facet = (x, y) => Math.floor(x * 0.7 + y * 1.3 + at(f, x, y) * 3) % 3;
-  const top = (x, y) => {
+  const facet = (x: number, y: number) => Math.floor(x * 0.7 + y * 1.3 + at(f, x, y) * 3) % 3;
+  const top = (x: number, y: number) => {
     if (facet(x, y) !== facet(x - 1, y - 1)) return OBSIDIAN[4]; // glint along facet edges
     return OBSIDIAN[1 + facet(x, y)];
   };
-  const front = (x, y) => (y === TOP ? OBSIDIAN[2] : OBSIDIAN[1]);
+  const front = (x: number, y: number) => (y === TOP ? OBSIDIAN[2] : OBSIDIAN[1]);
   const p = block(OBSIDIAN, top, front);
   // The vein runs across the top, spills over the lip and down the front.
   let vx = 4 + int(rand, 4);
-  crack(rand, vx, 3, kind === 0 ? 7 : 4, (x, y) => {
+  crack(rand, vx, 3, kind === 0 ? 7 : 4, (x: number, y: number) => {
     if (!onTop(x, y)) return;
     p.set(x, y, LAVA[3]);
     if (onTop(x - 1, y)) p.set(x - 1, y, LAVA[1]);
@@ -344,21 +347,21 @@ function obsidianPillar(seed, kind) {
 }
 
 /** The breakable wooden crate: a braced lid over a planked, iron-cornered front. */
-function crate(seed) {
+function crate(seed: number) {
   const rand = rng(seed), f = field(rand, [[2, 0.3], [8, 0.7]]);
-  const top = (x, y) => {
+  const top = (x: number, y: number) => {
     if (x === N - 3 || y === TOP - 2) return WOOD[4]; // inner frame, shaded side
     if (x === 2 || y === 2) return WOOD[6]; // inner frame, lit side
     if (y === 5 || y === 7) return WOOD[3]; // plank seams
     return pick(WOOD, at(f, x, y), x, y, 4, 5, 0.6); // grain
   };
-  const front = (x, y) => {
+  const front = (x: number, y: number) => {
     if (x === 5 || x === 10) return WOOD[2];
     return y === TOP ? WOOD[4] : WOOD[3];
   };
   const p = block(WOOD, top, front);
   // Diagonal brace across the lid, with its shadow.
-  line(3, 3, 12, 8, (x, y) => {
+  line(3, 3, 12, 8, (x: number, y: number) => {
     p.set(x, y, WOOD[6]);
     p.set(x, y + 1, WOOD[2]);
   });
@@ -375,16 +378,16 @@ function crate(seed) {
 }
 
 /** The armored crate: riveted steel, a warning lamp, and hazard stripes. */
-function armoredCrate(seed) {
+function armoredCrate(seed: number) {
   const rand = rng(seed), f = field(rand, [[2, 0.4], [8, 0.6]]);
-  const top = (x, y) => {
+  const top = (x: number, y: number) => {
     if (y === 5 && x > 2 && x < N - 3) return STEEL[5]; // cross plate, lit edge
     if (y === 6 && x > 2 && x < N - 3) return STEEL[2];
     if ((x === 7 || x === 8) && y > 2 && y < TOP - 2) return x === 7 ? STEEL[5] : STEEL[3];
     // Brushed metal: horizontal streaks.
     return pick(STEEL, at(f, x * 3, y) * 0.7 + 0.15, x, y, 3, 4, 0.5);
   };
-  const front = (x, y) => {
+  const front = (x: number, y: number) => {
     const stripe = (x + y) % 4 < 2;
     if (y === N - 3) return stripe ? HAZARD[1] : HAZARD[3];
     return stripe ? HAZARD[0] : HAZARD[2];
@@ -405,7 +408,7 @@ function armoredCrate(seed) {
 // ---------------------------------------------------------------- specials
 
 /** Seamless ice: diagonal shine bands, white fractures, trapped bubbles. */
-function ice(seed) {
+function ice(seed: number) {
   const rand = rng(seed), f = field(rand, [[2, 0.7], [4, 0.3]]), streak = field(rand), p = new Pix();
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -418,7 +421,7 @@ function ice(seed) {
     }
   }
   for (let i = 0; i < 2; i++) {
-    crack(rand, int(rand, N), int(rand, N), 5 + int(rand, 3), (x, y) => {
+    crack(rand, int(rand, N), int(rand, N), 5 + int(rand, 3), (x: number, y: number) => {
       p.wset(x, y, ICE[6]);
       p.wset(x, y + 1, ICE[1]);
     });
@@ -451,7 +454,7 @@ function conveyor() {
 }
 
 /** A stone ring around a swirling portal, with glowing runes. Transparent outside. */
-function teleport(seed) {
+function teleport(seed: number) {
   const rand = rng(seed), p = new Pix(), c = 7.5;
   const twist = rand() * Math.PI;
   for (let y = 0; y < N; y++) {
@@ -490,7 +493,7 @@ function teleport(seed) {
  * block to the north, 2 = to the west, 4 = to the north-west. Coverage is
  * combined before painting, so overlapping shadows never double up.
  */
-function shadow(mask) {
+function shadow(mask: number) {
   const p = new Pix();
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -508,7 +511,7 @@ function shadow(mask) {
  * A neighbouring biome's floor spilling over one edge of a cell, with a
  * wavy, seamless border line. `dir`: 0 north, 1 east, 2 south, 3 west.
  */
-function fringe(source, border, dir, seed) {
+function fringe(source: Pix, border: string, dir: number, seed: number) {
   const rand = rng(seed), p = new Pix();
   const a = rand() * Math.PI * 2, b = rand() * Math.PI * 2;
   for (let y = 0; y < N; y++) {
@@ -542,7 +545,7 @@ export const FRINGE_RANK = [2, 3, 1, 0];
  * - `edges[biome][dir]`: border fringes, see `fringe()`
  */
 export function buildPixelTiles(seed = 1) {
-  const s = (k) => (Math.imul(seed, 0x9e3779b1) ^ Math.imul(k, 0x85ebca6b)) >>> 0;
+  const s = (k: number): number => (Math.imul(seed, 0x9e3779b1) ^ Math.imul(k, 0x85ebca6b)) >>> 0;
   const floors = [
     [grass(s(1), 0), grass(s(2), 1), grass(s(3), 2)],
     [snow(s(4), 0), snow(s(5), 1)],
@@ -556,7 +559,7 @@ export function buildPixelTiles(seed = 1) {
     [obsidianPillar(s(17), 0), obsidianPillar(s(18), 1)],
   ];
   const borders = [GRASS[1], SNOW[2], SAND[2], ASH[1]];
-  const cv = (p) => p.canvas();
+  const cv = (p: Pix): HTMLCanvasElement => p.canvas();
   return {
     floor: cv(floors[0][0]),
     floor_b: cv(floors[0][1]),
@@ -576,3 +579,4 @@ export function buildPixelTiles(seed = 1) {
     edges: floors.map((vs, b) => [0, 1, 2, 3].map((d) => cv(fringe(vs[0], borders[b], d, s(30 + b * 4 + d))))),
   };
 }
+export type PixelTiles = ReturnType<typeof buildPixelTiles>;

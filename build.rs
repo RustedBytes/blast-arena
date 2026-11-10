@@ -8,10 +8,13 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 fn main() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("static");
     // A directory here makes Cargo rescan everything inside it.
     println!("cargo:rerun-if-changed=static");
+    println!("cargo:rerun-if-changed=client");
     println!("cargo:rerun-if-changed=build.rs");
+    check_client(manifest);
 
     let mut files = Vec::new();
     collect(&root, &mut files);
@@ -36,6 +39,32 @@ fn main() {
     out.push_str("];\n");
     let dest = Path::new(&env::var("OUT_DIR").expect("OUT_DIR set by cargo")).join("embedded_static.rs");
     fs::write(dest, out).expect("write the generated table");
+}
+
+/// The browser client is written in TypeScript (`client/`) and compiled by
+/// `npm run build` into `static/js/`, which is what gets embedded. Stops the
+/// build when it hasn't been compiled, and warns when a source file is newer
+/// than its output.
+fn check_client(manifest: &Path) {
+    let out = manifest.join("static/js");
+    if !out.join("main.js").is_file() {
+        panic!("the browser client isn't built: run `npm ci && npm run build` first (compiles client/*.ts into static/js/)");
+    }
+    let Ok(sources) = fs::read_dir(manifest.join("client")) else { return };
+    for src in sources.flatten().map(|e| e.path()) {
+        if src.extension().is_none_or(|e| e != "ts") {
+            continue;
+        }
+        let js = out.join(src.with_extension("js").file_name().expect("a file name"));
+        let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+        if let (Some(s), Some(j)) = (modified(&src), modified(&js))
+            && s <= j
+        {
+            continue;
+        }
+        println!("cargo:warning=static/js is out of date with client/ ({}): run `npm run build`", src.display());
+        return;
+    }
 }
 
 /// Every regular file under `dir`, skipping hidden ones (`.DS_Store` and such).

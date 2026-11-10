@@ -9,6 +9,53 @@ import { t } from './i18n.js';
 import { FRINGE_RANK } from './pixelart.js';
 import { hopHeight } from './prediction.js';
 import { GUARD_FLAG, WORM_FLAG } from './protocol.js';
+import type { Assets, PixelSet, PlayerColors, TileStyle } from './assets.js';
+import type { Particles } from './particles.js';
+import type { Arms, FlameEntry, GuardInfo } from './protocol.js';
+import type { GameMap, GameSnapshot, GameState } from './state.js';
+
+/** A player as drawn this frame (pooled, see `Renderer.frame`). */
+export interface FramePlayer {
+  id: number; x: number; y: number; facing: number; moving: boolean; shield: boolean; cursed: boolean; ghost: boolean;
+  bounty: boolean; jumpDir: number; lift: number; stunned: boolean; carrying: boolean; dashing: boolean; gassed: boolean;
+  /** Owner id when this is a clone, else 0. */
+  clone: number;
+  /** Key of the walk animation state. */
+  anim: number;
+}
+/** A bomb as drawn this frame. */
+export interface FrameBomb {
+  x: number; y: number; fuse: number; pierce: boolean; remote: boolean; nuke: boolean; freeze: boolean; rocket: boolean;
+  mine: boolean; sticky: boolean; gas: boolean; carrier: number; dx: number; dy: number;
+  /** Last heading of a rocket, kept while it stands still. */
+  rocketA?: number;
+}
+export interface FrameDrone { id: number; x: number; y: number; team: number }
+/** Interpolated entities of the current frame; arrays are pools, `n*` the counts in use. */
+export interface Frame {
+  players: FramePlayer[]; nPlayers: number;
+  bombs: FrameBomb[]; nBombs: number;
+  drones: FrameDrone[]; nDrones: number;
+}
+/** A cached chunk canvas with the chunk index it shows (-1: none). */
+type ChunkCanvas = HTMLCanvasElement & { key: number };
+type Effect =
+  | { kind: 'die'; x: number; y: number; start: number; duration: number; colors: PlayerColors; facing: number }
+  | { kind: 'shock' | 'beam'; x: number; y: number; start: number; duration: number };
+interface NukeShow { x: number; y: number; r: number; start: number; cells: number[] }
+interface Meteor { x: number; y: number; at: number; hit: boolean }
+interface LavaSurge { cells: number[]; warn: number; start: number; end: number }
+interface Weather { kind: number; start: number; end: number }
+interface Gait {
+  x: number; y: number; dist: number; vx: number; vy: number; amp: number; lean: number; settle: number; step: number;
+  walking: boolean; seen: number;
+}
+interface Look { team: number; cb: boolean; colors: PlayerColors; sprites: (HTMLCanvasElement | null)[] }
+interface Label {
+  canvas: HTMLCanvasElement; name?: string; fs?: number; me?: boolean; team?: number; hc?: boolean; cb?: boolean;
+  ax: number; ay: number;
+}
+interface Puffs { fire: HTMLCanvasElement; smoke: HTMLCanvasElement; dark: HTMLCanvasElement; dust: HTMLCanvasElement }
 
 export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9, T_BUILT = 10;
 // Ability objects (src/game/abilities.rs): portal pair colours by owner,
@@ -57,11 +104,11 @@ const NUKE_LIFE_S = 3.2;
 export const REPLAY_RATE = 0.6;
 const NUKE_RADIUS = 6;
 /** Whether offset (dx, dy) from ground zero is inside the atomic disc (as on the server). */
-const inNukeDisc = (dx, dy) => dx * dx + dy * dy <= NUKE_RADIUS * NUKE_RADIUS + NUKE_RADIUS;
+const inNukeDisc = (dx: number, dy: number): boolean => dx * dx + dy * dy <= NUKE_RADIUS * NUKE_RADIUS + NUKE_RADIUS;
 // The disc's cells and the outline around them (cell edges between inside
 // and outside), as offsets from ground zero.
-const NUKE_DISC = [];
-const NUKE_OUTLINE = []; // x0, y0, x1, y1 per edge, in cell units from the cell corner
+const NUKE_DISC: number[] = [];
+const NUKE_OUTLINE: number[] = []; // x0, y0, x1, y1 per edge, in cell units from the cell corner
 for (let dy = -NUKE_RADIUS; dy <= NUKE_RADIUS; dy++) {
   for (let dx = -NUKE_RADIUS; dx <= NUKE_RADIUS; dx++) {
     if (!inNukeDisc(dx, dy)) continue;
@@ -74,14 +121,14 @@ for (let dy = -NUKE_RADIUS; dy <= NUKE_RADIUS; dy++) {
 }
 export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
 const TRAIL_COLORS = [0, 10, 8, 9];
-const PLAYER_VIEWS = ['player_up', 'player_down', 'player_side'];
-const PIXEL_VIEWS = ['up', 'down', 'side'];
+const PLAYER_VIEWS = ['player_up', 'player_down', 'player_side'] as const;
+const PIXEL_VIEWS = ['up', 'down', 'side'] as const;
 // Where the fuse ends on each bomb sprite, in tiles from the cell centre.
 const FUSE_TIP = [0.34, -0.36];
 const FUSE_TIP_PIXEL = [0.28, -0.47];
 
 /** Picks one of `n` tile variants from a coordinate hash; the first is the most common. */
-function variant(h, n) {
+function variant(h: number, n: number) {
   if (n >= 3 && h % 7 === 0) return 2;
   if (n >= 2 && h % 3 === 0) return 1;
   return 0;
@@ -91,7 +138,7 @@ function variant(h, n) {
 // by the server in the welcome message (`map.biomes`); a cell takes the
 // biome of the nearest centre. Maps without them use the classic layout.
 const DEFAULT_BIOMES = [[0.5, 0.5, 0], [0.2, 0.2, 1], [0.8, 0.2, 2], [0.2, 0.8, 3], [0.8, 0.8, 0]];
-export function biome(map, x, y) {
+export function biome(map: GameMap, x: number, y: number) {
   const seeds = map.biomes ?? (map.w < 41 || map.h < 41 ? [] : DEFAULT_BIOMES);
   const fx = x / map.w, fy = y / map.h;
   let best = 0, bd = Infinity;
@@ -103,11 +150,83 @@ export function biome(map, x, y) {
 }
 
 export class Renderer {
-  constructor(canvas, minimap, assets, particles) {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  minimap: HTMLCanvasElement;
+  mctx: CanvasRenderingContext2D;
+  assets: Assets;
+  particles: Particles;
+  baseT: number;
+  T: number;
+  camX: number;
+  camY: number;
+  shake: number;
+  lastMinimap: number;
+  /** Chunk index -> canvas (insertion order = LRU). */
+  chunks: Map<number, ChunkCanvas>;
+  dirty: Set<number>;
+  repaintBudget = 0;
+  decalX: Float32Array;
+  decalY: Float32Array;
+  decalT: Float64Array;
+  decalHead: number;
+  halos: Record<string, HTMLCanvasElement>;
+  /** Death animations and spawn beams (event-driven, short-lived). */
+  effects: Effect[];
+  /** Atomic blasts being shown. */
+  nukes: NukeShow[];
+  /** Strength of the current atomic flash (0..1). */
+  flash: number;
+  flashAt: number;
+  /** Soft cloud sprites, built on first use. */
+  puffs: Puffs | null;
+  meteors: Meteor[];
+  lava: LavaSurge[];
+  /** The current map event. */
+  weather: Weather | null;
+  /** Blizzard flakes (x, y in 0..1, speed). */
+  snow: Float32Array | null;
+  dronePrev: Map<number, readonly number[]>;
+  clonePrev: Map<number, readonly number[]>;
+  /** Animation key -> walk state (see gait()). */
+  gaits: Map<number, Gait>;
+  gaitFrame: number;
+  /** Bomb id -> carrier id (this frame). */
+  stuckBy: Map<number, number>;
+  replaying: boolean;
+  /** [x, y, tile] of animated tiles (conveyors, pads). */
+  specials: [number, number, number][];
+  highContrast: boolean;
+  colorblind: boolean;
+  /** 'pixel' (default) or 'classic' map tiles. */
+  tileStyle: TileStyle;
+  frame: Frame;
+  prev: Map<number, readonly number[]>;
+  mapImage: HTMLCanvasElement;
+  mapPixels: ImageData | null;
+  /** Minimap tile layer needs rebuilding. */
+  mapDirty: boolean;
+  dpr: number;
+  /** Per-player caches, so drawing a player allocates nothing. */
+  looks: Map<number, Look>;
+  labels: Map<number, Label>;
+  minZoom?: number;
+  maxZoom?: number;
+  /** The atomic bomb whose zone the local player is in (for the alerts), or null. */
+  inNukeZone: FrameBomb | null = null;
+  wormSnap?: GameSnapshot;
+  wormTime = 0;
+  /** Scratch points of a worm's body (reused every frame). */
+  wormPts?: number[];
+  /** The vault as last seen. */
+  lastGuard?: GuardInfo;
+  fonts?: Map<number, string>;
+
+  constructor(canvas: HTMLCanvasElement, minimap: HTMLCanvasElement, assets: Assets, particles: Particles) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx = canvas.getContext('2d')!;
     this.minimap = minimap;
-    this.mctx = minimap.getContext('2d');
+    this.mctx = minimap.getContext('2d')!;
     this.assets = assets;
     this.particles = particles;
     this.baseT = 48;
@@ -163,7 +282,7 @@ export class Renderer {
   }
 
   /** Recomputes the base tile size so the default view matches the server's default area. */
-  resize(aoi, aoiMax) {
+  resize(aoi: readonly [number, number], aoiMax: readonly [number, number]) {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -185,17 +304,17 @@ export class Renderer {
   }
 
   /** Half extents in tiles the current zoom needs from the server. */
-  viewHalfExtents(zoom) {
+  viewHalfExtents(zoom: number) {
     const T = this.baseT * zoom;
     return [Math.ceil(this.canvas.width / T / 2) + 1, Math.ceil(this.canvas.height / T / 2) + 1];
   }
 
-  halo(color) {
+  halo(color: string) {
     let c = this.halos[color];
     if (!c) {
       c = this.halos[color] = document.createElement('canvas');
       c.width = c.height = 64;
-      const g = c.getContext('2d');
+      const g = c.getContext('2d')!;
       const grad = g.createRadialGradient(32, 32, 4, 32, 32, 32);
       grad.addColorStop(0, color);
       grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -214,11 +333,12 @@ export class Renderer {
   }
 
   /** A sprite in the current art style (pixel art falls back to the classic one). */
-  art(name) {
-    return this.pixelArt()?.[name] ?? this.assets.sprite(name);
+  art(name: string) {
+    const pix = this.pixelArt() as unknown as Record<string, HTMLCanvasElement | undefined> | null;
+    return pix?.[name] ?? this.assets.sprite(name);
   }
 
-  invalidateTile(map, x, y) {
+  invalidateTile(map: GameMap, x: number, y: number) {
     this.mapDirty = true;
     // A tile's shadow falls on its east and south neighbours, which may be
     // in another chunk.
@@ -236,7 +356,7 @@ export class Renderer {
   }
 
   /** Called on welcome: forget cached chunks and index animated tiles. */
-  resetMap(map) {
+  resetMap(map: GameMap) {
     this.chunks.clear();
     this.dirty.clear();
     this.mapDirty = true;
@@ -252,7 +372,7 @@ export class Renderer {
     }
   }
 
-  chunk(map, cx, cy) {
+  chunk(map: GameMap, cx: number, cy: number): ChunkCanvas {
     const key = cy * Math.ceil(map.w / CHUNK) + cx;
     let c = this.chunks.get(key);
     const stale = this.dirty.has(key);
@@ -260,11 +380,11 @@ export class Renderer {
       this.chunks.delete(key); // refresh LRU position
     } else {
       if (this.chunks.size >= MAX_CHUNKS) {
-        const oldest = this.chunks.keys().next().value;
-        c = this.chunks.get(oldest);
+        const oldest = this.chunks.keys().next().value!;
+        c = this.chunks.get(oldest)!;
         this.chunks.delete(oldest);
       } else {
-        c = document.createElement('canvas');
+        c = document.createElement('canvas') as ChunkCanvas;
         c.width = c.height = CHUNK * CHUNK_PX;
       }
       c.key = -1;
@@ -282,11 +402,11 @@ export class Renderer {
     return c;
   }
 
-  paintChunk(c, map, cx, cy) {
-    const g = c.getContext('2d');
+  paintChunk(c: HTMLCanvasElement, map: GameMap, cx: number, cy: number) {
+    const g = c.getContext('2d')!;
     const a = this.assets;
     const style = this.tileStyle;
-    const sprite = (name) => a.tile(name, style);
+    const sprite = (name: string): HTMLCanvasElement => a.tile(name, style);
     // Pixel art is scaled up with hard edges; vector art smoothly.
     g.imageSmoothingEnabled = style !== 'pixel';
     // Pixel art has variants per biome, block shadows and blended borders.
@@ -294,8 +414,8 @@ export class Renderer {
     const grass = [sprite('floor'), sprite('floor_b'), sprite('floor_c')];
     const biomeFloor = [grass, [sprite('floor_snow')], [sprite('floor_sand')], [sprite('floor_ash')]];
     const floors = pix ? pix.floors : biomeFloor;
-    const tileAt = (x, y) => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
-    const raised = (x, y) => {
+    const tileAt = (x: number, y: number): number => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
+    const raised = (x: number, y: number): boolean => {
       const t = tileAt(x, y);
       return t === T_WALL || t === T_CRATE || t === T_ARMORED || t === T_BUILT;
     };
@@ -325,7 +445,7 @@ export class Renderer {
             }
           }
         }
-        let s = null;
+        let s: HTMLCanvasElement | null = null;
         if (t === T_WALL) s = pix ? pix.pillars[b][variant(h, pix.pillars[b].length)] : sprite('pillar');
         else if (t === T_CRATE) s = sprite('crate');
         else if (t === T_ARMORED) s = sprite('crate_armored');
@@ -351,7 +471,7 @@ export class Renderer {
           }
           // Raised neighbours cast shadows down and to the right.
           const mask = (raised(x, y - 1) ? 1 : 0) | (raised(x - 1, y) ? 2 : 0) | (raised(x - 1, y - 1) ? 4 : 0);
-          if (mask) g.drawImage(pix.shadows[mask], px, py, P, P);
+          if (mask) g.drawImage(pix.shadows[mask] as HTMLCanvasElement, px, py, P, P);
         }
         if (this.highContrast && (t === T_CRATE || t === T_ARMORED || t === T_WALL || t === T_BUILT)) {
           g.strokeStyle = t === T_WALL ? '#000' : '#fff';
@@ -365,7 +485,7 @@ export class Renderer {
   // ----------------------------------------------------------- effects
 
   /** A new explosion appeared in a snapshot. */
-  explosion(x, y, arms, now, distance) {
+  explosion(x: number, y: number, arms: Arms, now: number, distance: number) {
     const p = this.particles;
     p.burst(P_SPARK, x + 0.5, y + 0.5, 26, 7, 0.5, 0.09, 0, 3);
     p.burst(P_SMOKE, x + 0.5, y + 0.5, 6, 1.2, 1.1, 0.35, 4, 2);
@@ -386,11 +506,11 @@ export class Renderer {
    * (non-zero when we only learn of it late). Sets up the flash, shockwave,
    * fire, mushroom cloud, fallout and a heavy screen shake.
    */
-  nuke(x, y, radius, now, distance, map, age = 0) {
+  nuke(x: number, y: number, radius: number, now: number, distance: number, map: GameMap, age = 0) {
     const start = now - age * 1000;
     // The disc of cells the fire covers (same shape as the server's), with
     // the time the shockwave reaches each.
-    const cells = [];
+    const cells: number[] = [];
     const r = radius;
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -423,10 +543,10 @@ export class Renderer {
 
   /** Soft round sprites the mushroom cloud is built from. */
   buildPuffs() {
-    const make = (stops) => {
+    const make = (stops: [number, string][]): HTMLCanvasElement => {
       const c = document.createElement('canvas');
       c.width = c.height = 128;
-      const g = c.getContext('2d');
+      const g = c.getContext('2d')!;
       const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
       for (const [o, col] of stops) grad.addColorStop(o, col);
       g.fillStyle = grad;
@@ -442,7 +562,7 @@ export class Renderer {
   }
 
   /** Ground layer of atomic blasts (under players): burning disc, shockwave, embers. */
-  drawNukeGround(now, camX, camY, T) {
+  drawNukeGround(now: number, camX: number, camY: number, T: number) {
     if (this.nukes.length === 0) return;
     const { ctx } = this;
     const pix = this.pixelArt();
@@ -511,12 +631,12 @@ export class Renderer {
   }
 
   /** Sky layer of atomic blasts (over players): fireball and mushroom cloud. */
-  drawNukeCloud(now, camX, camY, T) {
+  drawNukeCloud(now: number, camX: number, camY: number, T: number) {
     if (this.nukes.length === 0) return;
     if (!this.puffs) this.buildPuffs();
     const { ctx } = this;
-    const P = this.puffs;
-    const puff = (img, x, y, size, alpha) => {
+    const P = this.puffs!;
+    const puff = (img: HTMLCanvasElement, x: number, y: number, size: number, alpha: number): void => {
       if (alpha <= 0.01) return;
       ctx.globalAlpha = Math.min(1, alpha);
       ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
@@ -600,7 +720,7 @@ export class Renderer {
   }
 
   /** The blinding flash of a nearby atomic blast, over everything. */
-  drawFlash(now, W, H) {
+  drawFlash(now: number, W: number, H: number) {
     const t = (now - this.flashAt) / 1000;
     if (t > 0.6 || this.flash <= 0) return;
     const { ctx } = this;
@@ -611,32 +731,32 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  decal(x, y, now) {
+  decal(x: number, y: number, now: number) {
     const i = this.decalHead;
     this.decalX[i] = x; this.decalY[i] = y; this.decalT[i] = now;
     this.decalHead = (i + 1) % DECALS;
   }
 
-  crateBroken(x, y) {
+  crateBroken(x: number, y: number) {
     this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 10, 3.5, 0.8, 0.14, 6, 2);
     this.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 3, 0.8, 0.8, 0.3, 5, 1);
   }
 
   /** Death animation: the victim's sprite spins, shrinks and floats away. */
-  death(x, y, now, colors, facing) {
+  death(x: number, y: number, now: number, colors: PlayerColors, facing: number) {
     this.effects.push({ kind: 'die', x, y, start: now, duration: 900, colors, facing });
     this.particles.burst(P_SMOKE, x, y, 10, 1.6, 1.2, 0.3, 4, 2);
     this.particles.burst(P_STAR, x, y, 8, 3, 0.6, 0.25, 9, 1);
   }
 
   /** A worm's segment bursting (blown up, or cut in two at a cell). */
-  wormSplat(x, y, big) {
+  wormSplat(x: number, y: number, big: boolean) {
     this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, big ? 18 : 9, big ? 4 : 2.5, 0.8, 0.16, C_WORM, 2);
     this.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 3, 0.8, 0.8, 0.3, 5, 1);
   }
 
   /** The Warden's slam landing at cell (x, y): a shockwave, dust and a shake. */
-  wardenSlam(x, y, now, near) {
+  wardenSlam(x: number, y: number, now: number, near: boolean) {
     this.effects.push({ kind: 'shock', x: x + 0.5, y: y + 0.5, start: now, duration: 450 });
     this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 22, 4.5, 0.7, 0.14, 4, 2);
     this.particles.burst(P_SMOKE, x + 0.5, y + 0.6, 10, 2.2, 0.9, 0.35, 19, 1);
@@ -644,7 +764,7 @@ export class Renderer {
   }
 
   /** The Warden brought down: it bursts into rubble and gold. */
-  wardenDown(x, y, now) {
+  wardenDown(x: number, y: number, now: number) {
     this.effects.push({ kind: 'shock', x: x + 0.5, y: y + 0.5, start: now, duration: 800 });
     this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 40, 6, 1.2, 0.2, 4, 2);
     this.particles.burst(P_STAR, x + 0.5, y + 0.5, 30, 5, 1.2, 0.3, 10, 1);
@@ -653,21 +773,21 @@ export class Renderer {
   }
 
   /** A worm's gulp: a ring of dust where someone was eaten. */
-  wormGulp(x, y) {
+  wormGulp(x: number, y: number) {
     this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 10, 2, 0.6, 0.14, 6, 2);
   }
 
-  spawnBeam(x, y, now) {
+  spawnBeam(x: number, y: number, now: number) {
     this.effects.push({ kind: 'beam', x, y, start: now, duration: 700 });
     this.particles.burst(P_STAR, x, y, 12, 2.5, 0.7, 0.2, 8, 2);
   }
 
-  sparkle(x, y, mystery) {
+  sparkle(x: number, y: number, mystery: boolean) {
     this.particles.burst(P_STAR, x, y, mystery ? 24 : 10, mystery ? 4 : 2.5, 0.8, 0.25, mystery ? 9 : 10, mystery ? 3 : 1);
   }
 
   /** Round-end celebration around the camera. */
-  confetti(state) {
+  confetti(state: GameState) {
     const vw = this.canvas.width / this.T, vh = this.canvas.height / this.T;
     for (let i = 0; i < 160; i++) {
       const x = this.camX / this.T + Math.random() * vw;
@@ -678,7 +798,7 @@ export class Renderer {
 
   // ------------------------------------------------------------- frame
 
-  draw(state, now, dt) {
+  draw(state: GameState, now: number, dt: number) {
     const { ctx } = this;
     const W = this.canvas.width, H = this.canvas.height;
     const { map } = state;
@@ -741,7 +861,6 @@ export class Renderer {
     this.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
     this.drawPortals(state, camX, camY, T, sec);
     const inZone = this.drawNukeZones(state, f, camX, camY, T, sec);
-    /** The atomic bomb whose zone the local player is in (for the alerts), or null. */
     this.inNukeZone = inZone;
     this.drawItems(state.items, camX, camY, T, sec, W, H);
     this.drawBombs(f, camX, camY, T, sec, dt);
@@ -788,7 +907,7 @@ export class Renderer {
   }
 
   /** Moving chevrons on conveyors and spinning teleporter pads. */
-  drawSpecials(map, camX, camY, T, sec, W, H) {
+  drawSpecials(map: GameMap, camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const { ctx } = this;
     const spin = sec * 2.5, sc = Math.cos(spin), ss = Math.sin(spin);
     const phase = (sec * 1.6) % 1;
@@ -836,7 +955,7 @@ export class Renderer {
   }
 
   /** King-of-the-hill zones: pulsing golden 3x3 squares. */
-  drawHills(hills, camX, camY, T, sec) {
+  drawHills(hills: readonly (readonly [number, number])[] | null, camX: number, camY: number, T: number, sec: number) {
     if (!hills) return;
     const { ctx } = this;
     const pulse = 0.5 + 0.5 * Math.sin(sec * 3);
@@ -859,7 +978,7 @@ export class Renderer {
     }
   }
 
-  drawItems(items, camX, camY, T, sec, W, H) {
+  drawItems(items: readonly (readonly [number, number, number])[], camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const { ctx } = this;
     // Halos first, all in one additive pass (one composite switch per frame).
     ctx.globalCompositeOperation = 'lighter';
@@ -870,7 +989,7 @@ export class Renderer {
       if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
       const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
       const hs = T * 1.25 * (1 + 0.08 * Math.sin(sec * 3 + x * 2));
-      ctx.drawImage(this.halo(HALO[kind]), cx - hs / 2, cy - hs / 2 + bob, hs, hs);
+      ctx.drawImage(this.halo(HALO[kind]!), cx - hs / 2, cy - hs / 2 + bob, hs, hs);
     }
     ctx.globalCompositeOperation = 'source-over';
     const size = T * 0.82;
@@ -879,7 +998,7 @@ export class Renderer {
       const x = it[0], y = it[1], kind = it[2];
       const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
       if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
-      const s = this.art(ITEM_SPRITES[kind]);
+      const s = this.art(ITEM_SPRITES[kind]!);
       if (!s) continue;
       const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
       if (kind === 8) {
@@ -906,7 +1025,7 @@ export class Renderer {
    * and dim while the first one waits for its partner, flickering as the
    * pair runs out. Shape and motion, not just colour, tell them apart.
    */
-  drawPortals(state, camX, camY, T, sec) {
+  drawPortals(state: GameState, camX: number, camY: number, T: number, sec: number) {
     const portals = state.snaps.latest()?.x?.portals;
     if (!portals?.length) return;
     const { ctx } = this;
@@ -944,13 +1063,13 @@ export class Renderer {
   }
 
   /** Gas clouds: drifting green puffs over every cell, thinning as they fade. */
-  drawGas(state, camX, camY, T, sec, dt) {
+  drawGas(state: GameState, camX: number, camY: number, T: number, sec: number, dt: number) {
     const clouds = state.snaps.latest()?.x?.gas;
     if (!clouds?.length) return;
     const { ctx } = this;
     for (const [id, x, y, arms, left] of clouds) {
       const fade = Math.min(1, left / 15);
-      const cell = (cx, cy, k) => {
+      const cell = (cx: number, cy: number, k: number): void => {
         const px = (cx + 0.5) * T - camX, py = (cy + 0.5) * T - camY;
         const wob = Math.sin(sec * 1.7 + k * 1.3 + id) * T * 0.06;
         ctx.globalAlpha = 0.5 * fade;
@@ -983,10 +1102,10 @@ export class Renderer {
    * kicks up dirt. A worm still burrowing out is a dirt mound with the head
    * peeking out inside a warning ring that closes as it gets ready.
    */
-  drawWorms(state, camX, camY, T, sec, W, H) {
+  drawWorms(state: GameState, camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const s = this.wormSnap;
     const worms = s?.x?.worms;
-    if (!worms?.length) return;
+    if (!s || !worms?.length) return;
     const { ctx } = this;
     const pix = this.pixelArt();
     const pts = this.wormPts ?? (this.wormPts = []);
@@ -1020,7 +1139,7 @@ export class Renderer {
       let dx = hx - cells[2], dy = hy - cells[3];
       if (dx === 0 && dy === 0 && n > 1) { dx = hx - cells[4]; dy = hy - cells[5]; }
       if (dx === 0 && dy === 0) dx = 1;
-      const size = (i) => T * (0.92 - 0.3 * (n > 1 ? i / (n - 1) : 0));
+      const size = (i: number): number => T * (0.92 - 0.3 * (n > 1 ? i / (n - 1) : 0));
       const band = n >= 4 ? Math.round((n - 1) * 0.3) : -1;
       if (!pix) {
         // Shadows under the whole body first, then a red glow under a hunter's head.
@@ -1063,7 +1182,7 @@ export class Renderer {
     }
   }
 
-  drawWormBall(px, py, size, pix, i, band) {
+  drawWormBall(px: number, py: number, size: number, pix: PixelSet | null, i: number, band: boolean) {
     const { ctx } = this;
     if (pix) {
       const img = band ? pix.worm_band : pix.worm_segment;
@@ -1098,7 +1217,7 @@ export class Renderer {
   }
 
   /** The pointed tail tip at (px, py), pointing along (dx, dy). */
-  drawWormTail(px, py, size, dx, dy, pix) {
+  drawWormTail(px: number, py: number, size: number, dx: number, dy: number, pix: PixelSet | null) {
     const { ctx } = this;
     const a = Math.atan2(dy, dx);
     if (pix) {
@@ -1129,7 +1248,7 @@ export class Renderer {
   }
 
   /** `mode`: 0 roaming, 1 hunting (red-eyed, jaws working), 2 lunging (jaws wide). */
-  drawWormHead(px, py, size, dx, dy, mode, pix, sec) {
+  drawWormHead(px: number, py: number, size: number, dx: number, dy: number, mode: number, pix: PixelSet | null, sec: number) {
     const { ctx } = this;
     const angry = mode > 0;
     // Turned to face the way it crawls; a left-facing head is mirrored, so
@@ -1220,7 +1339,7 @@ export class Renderer {
    * harder as it gets ready (`prog` 0..1), the head peeking up, inside a
    * red warning ring that closes in until it comes out.
    */
-  drawWormMound(x, y, camX, camY, T, sec, id, pix, prog = 0.5) {
+  drawWormMound(x: number, y: number, camX: number, camY: number, T: number, sec: number, id: number, pix: PixelSet | null, prog = 0.5) {
     const { ctx } = this;
     const px = (x + 0.5) * T - camX, py = (y + 0.5) * T - camY;
     const shake = Math.sin(sec * 40 + id) * T * (0.015 + 0.035 * prog);
@@ -1274,7 +1393,7 @@ export class Renderer {
   }
 
   /** The vault and Warden as of the newest snapshot that has them. */
-  guardInfo(state) {
+  guardInfo(state: GameState) {
     const g = this.wormSnap?.x?.guard ?? state.snaps.latest()?.x?.guard;
     if (g) this.lastGuard = g;
     return this.lastGuard ?? null;
@@ -1285,7 +1404,7 @@ export class Renderer {
    * and glowing thresholds in the gates; while the Warden is away, how
    * long until it's back.
    */
-  drawVault(state, camX, camY, T, sec) {
+  drawVault(state: GameState, camX: number, camY: number, T: number, sec: number) {
     const g = this.guardInfo(state);
     if (!g) return;
     const [x0, y0, x1, y1] = g.vault;
@@ -1335,7 +1454,7 @@ export class Renderer {
    * filling up, a charge's lane), an aura when enraged, a stone shell for
    * its stone skin, a flash when hit, and its health above it.
    */
-  drawWarden(state, camX, camY, T, sec) {
+  drawWarden(state: GameState, camX: number, camY: number, T: number, sec: number) {
     const g = this.guardInfo(state);
     const d = g?.warden;
     if (!d) return;
@@ -1459,7 +1578,7 @@ export class Renderer {
   }
 
   /** The classic-style Warden, feet at the origin, facing the viewer. */
-  drawWardenBody(size, enraged, sec) {
+  drawWardenBody(size: number, enraged: boolean, sec: number) {
     const { ctx } = this;
     const u = size / 16;
     const glow = enraged ? '#ff3a1a' : '#ffd25a';
@@ -1534,7 +1653,7 @@ export class Renderer {
   }
 
   /** Sticky bombs ride on their carrier's back, fuse ring and all. */
-  drawStuckBombs(f, camX, camY, T, sec) {
+  drawStuckBombs(f: Frame, camX: number, camY: number, T: number, sec: number) {
     const { ctx } = this;
     for (let i = 0; i < f.nBombs; i++) {
       const b = f.bombs[i];
@@ -1556,7 +1675,7 @@ export class Renderer {
     }
   }
 
-  drawBombs(f, camX, camY, T, sec, dt) {
+  drawBombs(f: Frame, camX: number, camY: number, T: number, sec: number, dt: number) {
     const { ctx } = this;
     const pix = this.pixelArt();
     for (let i = 0; i < f.nBombs; i++) {
@@ -1633,7 +1752,7 @@ export class Renderer {
    * out), with a bold line where safety starts. Returns the zone the local
    * player stands in (the bomb), or null.
    */
-  drawNukeZones(state, f, camX, camY, T, sec) {
+  drawNukeZones(state: GameState, f: Frame, camX: number, camY: number, T: number, sec: number) {
     let mine = null;
     const { ctx } = this;
     const { map } = state;
@@ -1677,7 +1796,7 @@ export class Renderer {
   }
 
   /** Seconds left over each atomic bomb, above players and names. */
-  drawNukeCountdowns(f, camX, camY, T) {
+  drawNukeCountdowns(f: Frame, camX: number, camY: number, T: number) {
     const { ctx } = this;
     for (let i = 0; i < f.nBombs; i++) {
       const b = f.bombs[i];
@@ -1701,7 +1820,7 @@ export class Renderer {
    * The local player is inside an atomic bomb's zone: an arrow points the
    * way out (straight away from ground zero).
    */
-  drawRunWarning(state, b, camX, camY, T, sec, W) {
+  drawRunWarning(state: GameState, b: FrameBomb, camX: number, camY: number, T: number, sec: number, W: number) {
     const { ctx } = this;
     const sx = state.self.x, sy = state.self.y;
     let dx = sx - (b.x + 0.5), dy = sy - (b.y + 0.5);
@@ -1722,13 +1841,13 @@ export class Renderer {
     ctx.lineWidth = Math.max(2, T * 0.05);
     ctx.fill();
     ctx.stroke();
-    // (The "get out" message is a status alert: see main.js.)
+    // (The "get out" message is a status alert: see main.ts.)
   }
 
   // ------------------------------------------------- events and gadgets
 
   /** A conveyor or teleporter changed (map events): keep the animated list in step. */
-  updateSpecial(x, y, tile) {
+  updateSpecial(x: number, y: number, tile: number) {
     const i = this.specials.findIndex((s) => s[0] === x && s[1] === y);
     const special = CONVEYOR_DIR[tile] || tile === T_TELEPORT;
     if (i >= 0 && special) this.specials[i][2] = tile;
@@ -1737,21 +1856,21 @@ export class Renderer {
   }
 
   /** A map event started (1 meteors, 2 blizzard, 3 lava, 4 conveyors). */
-  mapEvent(kind, now, durationMs) {
+  mapEvent(kind: number, now: number, durationMs: number) {
     this.weather = { kind, start: now, end: now + durationMs };
   }
 
-  addMeteor(x, y, at) {
+  addMeteor(x: number, y: number, at: number) {
     this.meteors.push({ x, y, at, hit: false });
   }
 
   /** Lava surge: flat [x0, y0, x1, y1, ...] cells, erupting at `start` for `burnMs`. */
-  addLava(flat, start, burnMs) {
+  addLava(flat: number[], start: number, burnMs: number) {
     this.lava.push({ cells: flat, warn: performance.now(), start, end: start + burnMs });
   }
 
   /** A small five-pointed star. */
-  star(ctx, x, y, r) {
+  star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
     ctx.beginPath();
     for (let k = 0; k < 10; k++) {
       const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r;
@@ -1762,7 +1881,7 @@ export class Renderer {
   }
 
   /** A waving flag on a pole whose foot is at (x, y), `h` tall. */
-  drawFlag(x, y, h, color, sec) {
+  drawFlag(x: number, y: number, h: number, color: string, sec: number) {
     const { ctx } = this;
     ctx.strokeStyle = '#d8d8d8';
     ctx.lineWidth = Math.max(2, h * 0.06);
@@ -1790,7 +1909,7 @@ export class Renderer {
   }
 
   /** Your own hidden land mine: a dim disc with a blinking light. */
-  drawMine(px, py, T, sec) {
+  drawMine(px: number, py: number, T: number, sec: number) {
     const { ctx } = this;
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = '#3a3f4f';
@@ -1809,7 +1928,7 @@ export class Renderer {
   }
 
   /** A rocket pointing the way it flies, with an exhaust flame. */
-  drawRocket(b, px, py, T, sec) {
+  drawRocket(b: FrameBomb, px: number, py: number, T: number, sec: number) {
     const { ctx } = this;
     let a = Math.atan2(b.dy, b.dx);
     if (b.dx === 0 && b.dy === 0) a = (b.rocketA ?? 0);
@@ -1853,7 +1972,7 @@ export class Renderer {
    * about to close, lava surges, meteor targets, and capture-the-flag
    * bases and flags lying around.
    */
-  drawGroundEvents(state, now, camX, camY, T, sec, W, H) {
+  drawGroundEvents(state: GameState, now: number, camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const { ctx } = this;
     const sd = state.sd;
     if (sd) {
@@ -1951,7 +2070,7 @@ export class Renderer {
   }
 
   /** The battle royale safe zone right now (moving while it closes in). */
-  zoneNow(state, now) {
+  zoneNow(state: GameState, now: number) {
     const z = state.zone;
     if (!z) return null;
     if (z.state !== 1) return z.from;
@@ -1960,11 +2079,11 @@ export class Renderer {
   }
 
   /** The storm outside the zone (blue fog), its edge, and the next circle. */
-  drawZone(state, now, camX, camY, T, sec, W, H) {
+  drawZone(state: GameState, now: number, camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const cur = this.zoneNow(state, now);
     if (!cur || state.royale?.on === false) return;
     const { ctx } = this;
-    const z = state.zone;
+    const z = state.zone!;
     const cx = cur.x * T - camX, cy = cur.y * T - camY, r = Math.max(0, cur.r * T);
     ctx.fillStyle = 'rgba(40,80,220,0.32)';
     ctx.beginPath();
@@ -1990,7 +2109,7 @@ export class Renderer {
   }
 
   /** In the sky: falling meteors and bomber drones. */
-  drawSky(state, now, camX, camY, T, sec) {
+  drawSky(state: GameState, now: number, camX: number, camY: number, T: number, sec: number) {
     const { ctx } = this;
     for (const m of this.meteors) {
       const left = m.at - now;
@@ -2051,7 +2170,7 @@ export class Renderer {
   }
 
   /** Blizzard: driving snow over the whole view. */
-  drawWeather(now, dt, W, H) {
+  drawWeather(now: number, dt: number, W: number, H: number) {
     const w = this.weather;
     if (!w || w.kind !== EVENT_BLIZZARD || now > w.end) return;
     const { ctx } = this;
@@ -2078,7 +2197,7 @@ export class Renderer {
   }
 
   /** Letterbox and label while a death replay plays. */
-  drawReplayFrame(sec, W, H) {
+  drawReplayFrame(sec: number, W: number, H: number) {
     const { ctx } = this;
     const bar = Math.round(H * 0.07);
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
@@ -2092,7 +2211,7 @@ export class Renderer {
     ctx.fillText(`● ${t('replay')}`, W / 2, H - bar / 2);
   }
 
-  drawExplosions(explosions, camX, camY, T) {
+  drawExplosions(explosions: readonly FlameEntry[], camX: number, camY: number, T: number) {
     const { ctx } = this;
     const pix = this.pixelArt();
     // Pixel flames flicker through three frames; each explosion starts on its own.
@@ -2147,12 +2266,12 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  colorsFor(id, state) {
+  colorsFor(id: number, state: GameState) {
     return this.look(id, state).colors;
   }
 
   /** Cached colours and sprites of a player (rebuilt when team or palette changes). */
-  look(id, state) {
+  look(id: number, state: GameState) {
     const team = state.rosterInfo.get(id)?.team ?? 0;
     let l = this.looks.get(id);
     if (!l || l.team !== team || l.cb !== this.colorblind) {
@@ -2166,7 +2285,7 @@ export class Renderer {
    * `frame`: 0 standing, 1 and 2 the walk steps (pixel art only). `cache`
    * (a player's `look().sprites`) memoizes the sprite lookup.
    */
-  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0, cache = null, rot = 0) {
+  drawSprite(colors: PlayerColors, facing: number, px: number, py: number, T: number, sxs: number, sys: number, frame = 0, cache: (HTMLCanvasElement | null)[] | null = null, rot = 0) {
     const vi = facing === 1 ? 0 : facing === 3 ? 1 : 2;
     let sprite = null;
     if (this.pixelArt()) {
@@ -2210,7 +2329,7 @@ export class Renderer {
    * instead of switching, the body leans into horizontal motion, and a
    * stop settles with a little squash. Kicks up dust on footfalls.
    */
-  gait(p, dt, self) {
+  gait(p: FramePlayer, dt: number, self: boolean) {
     let g = this.gaits.get(p.anim);
     if (!g) {
       g = { x: p.x, y: p.y, dist: 0, vx: 0, vy: 0, amp: 0, lean: 0, settle: 0, step: 0, walking: false, seen: 0 };
@@ -2240,7 +2359,7 @@ export class Renderer {
     return g;
   }
 
-  drawPlayer(p, camX, camY, T, sec, dt, state) {
+  drawPlayer(p: FramePlayer, camX: number, camY: number, T: number, sec: number, dt: number, state: GameState) {
     const { ctx } = this;
     const info = state.rosterInfo.get(p.id);
     const look = this.look(p.id, state);
@@ -2380,7 +2499,7 @@ export class Renderer {
    * Pixel-art hat sitting on the helmet. `top` is the sprite's top edge;
    * hats overlap the helmet by two art pixels, and the halo floats above.
    */
-  drawPixelHat(hat, x, top, T, facing) {
+  drawPixelHat(hat: number, x: number, top: number, T: number, facing: number) {
     const h = hat && this.assets.pixel.hats[hat];
     if (!h) return;
     const u = T / 16;
@@ -2394,7 +2513,7 @@ export class Renderer {
   }
 
   /** Hats are drawn in code on top of the helmet. `y` is the head centre. */
-  drawHat(hat, x, y, T, facing) {
+  drawHat(hat: number, x: number, y: number, T: number, facing: number) {
     if (!hat) return;
     const { ctx } = this;
     const top = y - T * 0.24;
@@ -2475,7 +2594,7 @@ export class Renderer {
   }
 
   /** A cached CSS font string for a size and weight. */
-  font(px, weight) {
+  font(px: number, weight: number | string) {
     const key = weight ? -px : px;
     this.fonts ??= new Map();
     let f = this.fonts.get(key);
@@ -2484,16 +2603,16 @@ export class Renderer {
   }
 
   /** Name tag rendered once to its own canvas; redrawn only when it changes. */
-  label(p, state, fs) {
+  label(p: FramePlayer, state: GameState, fs: number) {
     const info = state.rosterInfo.get(p.id);
     const name = info?.name ?? '?';
     const me = p.id === state.myId;
     const team = info?.team ?? 0;
     let l = this.labels.get(p.id);
     if (l && l.name === name && l.fs === fs && l.me === me && l.team === team && l.hc === this.highContrast && l.cb === this.colorblind) return l;
-    if (!l) this.labels.set(p.id, (l = { canvas: document.createElement('canvas') }));
+    if (!l) this.labels.set(p.id, (l = { canvas: document.createElement('canvas'), ax: 0, ay: 0 }));
     Object.assign(l, { name, fs, me, team, hc: this.highContrast, cb: this.colorblind });
-    const c = l.canvas, g = c.getContext('2d');
+    const c = l.canvas, g = c.getContext('2d')!;
     const font = this.font(fs, 700);
     g.font = font;
     const tw = g.measureText(name).width;
@@ -2524,7 +2643,7 @@ export class Renderer {
     return l;
   }
 
-  drawName(p, camX, camY, T, state, now) {
+  drawName(p: FramePlayer, camX: number, camY: number, T: number, state: GameState, now: number) {
     const { ctx } = this;
     // Minimum sizes are CSS px, so they stay readable on high-DPI screens.
     const fs = Math.max(Math.round((this.highContrast ? 13 : 11) * this.dpr), Math.round(T * (this.highContrast ? 0.28 : 0.24)));
@@ -2552,7 +2671,7 @@ export class Renderer {
     }
   }
 
-  drawEffects(now, camX, camY, T) {
+  drawEffects(now: number, camX: number, camY: number, T: number) {
     const { ctx } = this;
     let keep = 0;
     for (let i = 0; i < this.effects.length; i++) {
@@ -2604,7 +2723,7 @@ export class Renderer {
    * (view box, hills, players) is redrawn every MINIMAP_MS. The canvas has
    * a device-pixel backing store, so it stays sharp on high-DPI screens.
    */
-  drawMinimap(state) {
+  drawMinimap(state: GameState) {
     const { map } = state;
     const m = this.minimap, c = this.mctx;
     // Hidden (the setting, touch layout, small screens): nothing to draw.
@@ -2617,7 +2736,7 @@ export class Renderer {
     if (this.mapImage.width !== map.w || this.mapImage.height !== map.h || !this.mapPixels) {
       this.mapImage.width = map.w;
       this.mapImage.height = map.h;
-      this.mapPixels = this.mapImage.getContext('2d').createImageData(map.w, map.h);
+      this.mapPixels = this.mapImage.getContext('2d')!.createImageData(map.w, map.h);
       this.mapDirty = true;
     }
     if (this.mapDirty) {
@@ -2635,7 +2754,7 @@ export class Renderer {
         else if (CONVEYOR_DIR[t]) { r = 70; g = 74; b = 84; }
         data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
       }
-      this.mapImage.getContext('2d').putImageData(this.mapPixels, 0, 0);
+      this.mapImage.getContext('2d')!.putImageData(this.mapPixels, 0, 0);
     }
     const scale = size / Math.max(map.w, map.h);
     c.imageSmoothingEnabled = false;
@@ -2658,7 +2777,7 @@ export class Renderer {
       c.strokeStyle = '#8ab8ff';
       c.lineWidth = this.dpr * 1.5;
       c.stroke();
-      const nz = state.zone;
+      const nz = state.zone!;
       if (nz.state === 0 || nz.state === 1) {
         c.strokeStyle = '#ffffff';
         c.beginPath();
@@ -2766,7 +2885,7 @@ export class Renderer {
    * two snapshots around the render time; the local player uses its
    * predicted position so controls feel immediate.
    */
-  interpolate(state, now) {
+  interpolate(state: GameState, now: number) {
     const ring = state.snaps;
     const latest = ring.latest();
     // A death replay plays recent snapshots again, slowly.
@@ -2774,7 +2893,7 @@ export class Renderer {
     this.replaying = !!rp;
     const rt = rp
       ? Math.min(latest.k, rp.from + ((now - rp.t0) / state.tickMs) * REPLAY_RATE)
-      : now / state.tickMs - state.offset - (state.interpDelay ?? INTERP_TICKS);
+      : now / state.tickMs - (state.offset ?? 0) - (state.interpDelay ?? INTERP_TICKS);
     let a = ring.get(0), b = a;
     for (let i = ring.len - 1; i >= 0; i--) {
       const s = ring.get(i);
@@ -2884,7 +3003,7 @@ export class Renderer {
   }
 }
 
-function setPlayer(o, q, x, y) {
+function setPlayer(o: FramePlayer, q: readonly number[], x: number, y: number) {
   o.id = q[0];
   o.anim = q[0];
   o.x = x;
@@ -2904,7 +3023,7 @@ function setPlayer(o, q, x, y) {
 }
 
 /** A builder's wall: a stack of orange bricks with mortar lines. */
-function paintBuiltWall(g, px, py, P, pixel) {
+function paintBuiltWall(g: CanvasRenderingContext2D, px: number, py: number, P: number, pixel: boolean) {
   g.fillStyle = '#7a3a18';
   g.fillRect(px, py, P, P);
   const rows = 4, h = P / rows;
@@ -2928,7 +3047,7 @@ function paintBuiltWall(g, px, py, P, pixel) {
 }
 
 /** Pink goo dripping off a sticky bomb. */
-function drawGoo(ctx, px, py, size, sec) {
+function drawGoo(ctx: CanvasRenderingContext2D, px: number, py: number, size: number, sec: number) {
   ctx.strokeStyle = '#ff7ad9';
   ctx.lineWidth = size * 0.07;
   ctx.lineCap = 'round';
@@ -2946,12 +3065,12 @@ function drawGoo(ctx, px, py, size, sec) {
   ctx.lineCap = 'butt';
 }
 
-function clampCam(cam, worldPx, viewPx) {
+function clampCam(cam: number, worldPx: number, viewPx: number) {
   if (worldPx <= viewPx) return (worldPx - viewPx) / 2;
   return Math.max(0, Math.min(worldPx - viewPx, cam));
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);

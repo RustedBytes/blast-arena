@@ -4,50 +4,57 @@
 
 const textDecoder = new TextDecoder();
 
+/** A decoded MessagePack value. */
+export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | { [key: string]: MsgValue };
+
 class Reader {
-  constructor(bytes) {
+  bytes: Uint8Array;
+  view: DataView;
+  pos: number;
+
+  constructor(bytes: Uint8Array) {
     this.bytes = bytes;
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     this.pos = 0;
   }
 
-  u8() { return this.view.getUint8(this.pos++); }
-  u16() { const v = this.view.getUint16(this.pos); this.pos += 2; return v; }
-  u32() { const v = this.view.getUint32(this.pos); this.pos += 4; return v; }
+  u8(): number { return this.view.getUint8(this.pos++); }
+  u16(): number { const v = this.view.getUint16(this.pos); this.pos += 2; return v; }
+  u32(): number { const v = this.view.getUint32(this.pos); this.pos += 4; return v; }
 
-  str(len) {
+  str(len: number): string {
     const s = textDecoder.decode(this.bytes.subarray(this.pos, this.pos + len));
     this.pos += len;
     return s;
   }
 
-  bin(len) {
+  bin(len: number): Uint8Array {
     const b = this.bytes.slice(this.pos, this.pos + len);
     this.pos += len;
     return b;
   }
 
-  array(len) {
-    const out = new Array(len);
+  array(len: number): MsgValue[] {
+    const out = new Array<MsgValue>(len);
     for (let i = 0; i < len; i++) out[i] = this.read();
     return out;
   }
 
-  map(len) {
-    const out = {};
+  map(len: number): { [key: string]: MsgValue } {
+    const out: { [key: string]: MsgValue } = {};
     for (let i = 0; i < len; i++) {
       const k = this.read();
-      out[k] = this.read();
+      out[String(k)] = this.read();
     }
     return out;
   }
 
-  ext(len) {
+  ext(len: number): null {
     this.pos += 1 + len; // type byte + payload; the protocol never sends ext
     return null;
   }
 
-  read() {
+  read(): MsgValue {
     const b = this.u8();
     if (b < 0x80) return b;
     if (b < 0x90) return this.map(b & 0x0f);
@@ -55,7 +62,7 @@ class Reader {
     if (b < 0xc0) return this.str(b & 0x1f);
     if (b >= 0xe0) return b - 0x100;
     const v = this.view;
-    let r;
+    let r: number;
     switch (b) {
       case 0xc0: return null;
       case 0xc2: return false;
@@ -93,6 +100,6 @@ class Reader {
   }
 }
 
-export function decode(bytes) {
+export function decode(bytes: Uint8Array): MsgValue {
   return new Reader(bytes).read();
 }

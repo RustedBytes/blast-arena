@@ -6,14 +6,19 @@
 import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
 import { Particles } from './particles.js';
 import { Renderer, T_ARMORED, T_CRATE, T_FLOOR, T_ICE, T_TELEPORT, T_WALL, biome } from './render.js';
+import type { PixelSet } from './assets.js';
+import { byId as $ } from './dom.js';
+import type { PlayerView } from './pixelsprites.js';
+import type { FlameEntry } from './protocol.js';
+import type { Frame, FrameBomb, FramePlayer } from './render.js';
+import type { GameMap, GameState } from './state.js';
 
 const SIZE = 49;
 const CHUNK = 8;
 const BIOMES = ['meadow', 'snow', 'desert', 'volcano'];
-const $ = (id) => document.getElementById(id);
 
 /** Small seeded generator for the sample map (separate from the art seed). */
-function rng(seed) {
+function rng(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
@@ -22,11 +27,11 @@ function rng(seed) {
 }
 
 /** A map laid out like the server's: pillar grid, crates, and each region's features. */
-function sampleMap() {
+function sampleMap(): GameMap {
   const rand = rng(7);
-  const map = { w: SIZE, h: SIZE, tiles: new Uint8Array(SIZE * SIZE) };
-  const set = (x, y, t) => { map.tiles[y * SIZE + x] = t; };
-  const get = (x, y) => map.tiles[y * SIZE + x];
+  const map: GameMap = { w: SIZE, h: SIZE, tiles: new Uint8Array(SIZE * SIZE) };
+  const set = (x: number, y: number, t: number): void => { map.tiles[y * SIZE + x] = t; };
+  const get = (x: number, y: number): number => map.tiles[y * SIZE + x];
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const edge = x === 0 || y === 0 || x === SIZE - 1 || y === SIZE - 1;
@@ -64,11 +69,11 @@ await assets.load();
 const renderer = new Renderer(document.createElement('canvas'), document.createElement('canvas'), assets, new Particles(16));
 const map = sampleMap();
 
-function drawMap() {
-  const out = $('map');
+function drawMap(): void {
+  const out = $<HTMLCanvasElement>('map');
   const chunkPx = CHUNK * 64;
   out.width = out.height = SIZE * 64;
-  const g = out.getContext('2d');
+  const g = out.getContext('2d')!;
   const chunk = document.createElement('canvas');
   chunk.width = chunk.height = chunkPx;
   for (let cy = 0; cy * CHUNK < SIZE; cy++) {
@@ -79,12 +84,12 @@ function drawMap() {
   }
 }
 
-function figure(canvas, caption, under) {
+function figure(canvas: CanvasImageSource, caption: string, under?: CanvasImageSource): HTMLElement {
   const f = document.createElement('figure');
   // Tiles are 16px and sprites 64px (4x); both are shown at 64px, crisp.
   const c = document.createElement('canvas');
   c.width = c.height = 64;
-  const g = c.getContext('2d');
+  const g = c.getContext('2d')!;
   g.imageSmoothingEnabled = false;
   for (const img of [under, canvas]) if (img) g.drawImage(img, 0, 0, 64, 64);
   const cap = document.createElement('figcaption');
@@ -93,7 +98,7 @@ function figure(canvas, caption, under) {
   return f;
 }
 
-function section(title, figures) {
+function section(title: string, figures: HTMLElement[]): void {
   const h = document.createElement('h2');
   h.textContent = title;
   const div = document.createElement('div');
@@ -102,7 +107,7 @@ function section(title, figures) {
   $('sheet').append(h, div);
 }
 
-function drawSheet(px) {
+function drawSheet(px: PixelSet): void {
   const grass = px.floors[0][0];
   section('Floors', px.floors.flatMap((vs, b) => vs.map((c, i) => figure(c, `${BIOMES[b]} ${i + 1}`))));
   section('Pillars', px.pillars.flatMap((vs, b) => vs.map((c, i) => figure(c, `${BIOMES[b]} ${i + 1}`))));
@@ -114,26 +119,26 @@ function drawSheet(px) {
     figure(px.teleport, 'teleport', grass),
   ]);
   const masks = ['', 'north', 'west', 'north+west', 'north-west', 'north + nw', 'west + nw', 'all'];
-  section('Shadows (on grass)', px.shadows.slice(1).map((c, i) => figure(c, masks[i + 1], grass)));
+  section('Shadows (on grass)', px.shadows.slice(1).map((c, i) => figure(c as HTMLCanvasElement, masks[i + 1], grass)));
   const dirs = ['from north', 'from east', 'from south', 'from west'];
   section('Biome borders (on desert sand)', px.edges.flatMap((ds, b) => (b === 2 ? [] : ds.map((c, d) => figure(c, `${BIOMES[b]} ${dirs[d]}`, px.floors[2][0])))));
 }
 
-function drawSprites(px) {
+function drawSprites(px: PixelSet): void {
   const grass = px.floors[0][0];
   section('Bombs and fire', [
     figure(px.bomb, 'bomb', grass),
     figure(px.bomb_pierce, 'pierce bomb', grass),
     figure(px.antenna[1], 'remote (on)', px.bomb),
     figure(px.scorch, 'scorch', grass),
-    ...['center', 'arm', 'end'].flatMap((part) => px.flames[part].map((c, i) => figure(c, `${part} ${i + 1}`, grass))),
+    ...(['center', 'arm', 'end'] as const).flatMap((part) => px.flames[part].map((c, i) => figure(c, `${part} ${i + 1}`, grass))),
   ]);
   const names = ['bomb', 'range', 'speed', 'kick', 'shield', 'pierce', 'full fire', 'secret box', 'remote', 'line', 'punch', 'ghost'];
-  section('Power-ups', ITEM_SPRITES.slice(1).map((n, i) => figure(px[n], names[i], grass)));
-  const players = [];
+  section('Power-ups', ITEM_SPRITES.slice(1).map((n, i) => figure((px as unknown as Record<string, HTMLCanvasElement>)[n!], names[i], grass)));
+  const players: HTMLElement[] = [];
   for (const [id, team] of [[1, 1], [2, 2], [3, 0], [7, 0]]) {
     const colors = playerColors(id, team, false);
-    for (const view of ['down', 'up', 'side']) {
+    for (const view of ['down', 'up', 'side'] as PlayerView[]) {
       for (let frame = 0; frame < 3; frame++) {
         if (view === 'side' && frame === 2) continue;
         players.push(figure(assets.pixelPlayer(colors, view, frame), `${view} ${frame ? 'step ' + frame : 'stand'}`, grass));
@@ -142,19 +147,20 @@ function drawSprites(px) {
   }
   section('Players (red team, blue team, two solo colours)', players);
   const hats = ['cap', 'party hat', 'horns', 'halo', 'crown', 'top hat'];
-  section('Hats', px.hats.slice(1).map((h, i) => figure(h.canvas, hats[i], grass)));
+  section('Hats', px.hats.slice(1).map((h, i) => figure(h!.canvas, hats[i], grass)));
 }
 
 // ------------------------------------------------------------- live scene
 
 // A second renderer draws straight into the scene canvas, so players,
 // bombs, fire and particles are animated by the game's own code.
-const sceneRenderer = new Renderer($('scene'), document.createElement('canvas'), assets, new Particles(512));
+const sceneRenderer = new Renderer($<HTMLCanvasElement>('scene'), document.createElement('canvas'), assets, new Particles(512));
 const SCENE = { w: 12, h: 5 };
-const sceneMap = { w: SCENE.w, h: SCENE.h, tiles: new Uint8Array(SCENE.w * SCENE.h) };
+const sceneMap: GameMap = { w: SCENE.w, h: SCENE.h, tiles: new Uint8Array(SCENE.w * SCENE.h) };
 for (const [x, y] of [[0, 0], [11, 0], [4, 1], [7, 1], [0, 4], [11, 4]]) sceneMap.tiles[y * SCENE.w + x] = T_WALL;
 for (const [x, y] of [[5, 0], [6, 4], [10, 2]]) sceneMap.tiles[y * SCENE.w + x] = T_CRATE;
 sceneMap.tiles[1 * SCENE.w + 9] = T_ARMORED;
+// The renderer only reads these fields of the game state when drawing players.
 const sceneState = {
   myId: 1,
   emotes: new Map(),
@@ -164,16 +170,28 @@ const sceneState = {
     [3, { name: 'Solo', team: 0, hat: 2, trail: 3 }],
     [7, { name: 'Ghost', team: 0, hat: 4, trail: 2 }],
   ]),
+} as unknown as GameState;
+const sceneItems: [number, number, number][] = [[1, 3, 1], [2, 3, 2], [3, 3, 3], [4, 3, 8], [5, 3, 5], [6, 3, 7]];
+const bomb = (o: Partial<FrameBomb>): FrameBomb => ({
+  x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, sticky: false,
+  gas: false, carrier: 0, dx: 0, dy: 0, ...o,
+});
+const bombs: Frame = {
+  nBombs: 3,
+  bombs: [
+    bomb({ x: 1, y: 1, fuse: 40 }),
+    bomb({ x: 2, y: 1, fuse: 40, pierce: true }),
+    bomb({ x: 3, y: 1, fuse: 0, remote: true }),
+  ],
+  players: [], nPlayers: 0, drones: [], nDrones: 0,
 };
-const sceneItems = [[1, 3, 1], [2, 3, 2], [3, 3, 3], [4, 3, 8], [5, 3, 5], [6, 3, 7]];
-const bombs = { nBombs: 3, bombs: [
-  { x: 1, y: 1, fuse: 40, pierce: false, remote: false },
-  { x: 2, y: 1, fuse: 40, pierce: true, remote: false },
-  { x: 3, y: 1, fuse: 0, pierce: false, remote: true },
-] };
+const player = (o: Partial<FramePlayer> & { id: number }): FramePlayer => ({
+  x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0,
+  stunned: false, carrying: false, dashing: false, gassed: false, clone: 0, anim: o.id, ...o,
+});
 let sceneLast = performance.now();
 
-function drawScene(now) {
+function drawScene(now: number): void {
   const r = sceneRenderer, c = r.canvas, T = 48;
   c.width = SCENE.w * T;
   c.height = SCENE.h * T;
@@ -190,13 +208,14 @@ function drawScene(now) {
   r.drawBombs(bombs, 0, 0, T, sec, dt);
   // An explosion that goes off every two seconds.
   const left = Math.max(0, 10 - ((now / 50) % 40));
-  if (left > 0) r.drawExplosions([[8, 3, [1, 2, 1, 2], left]], 0, 0, T);
+  const blast: FlameEntry = [8, 3, [1, 2, 1, 2], left, 0];
+  if (left > 0) r.drawExplosions([blast], 0, 0, T);
   const walk = (sec * 1.2) % 1;
   const players = [
-    { id: 1, x: 7.5 + walk * 2, y: 2.5, facing: 2, moving: true, shield: false, cursed: false, ghost: false, bounty: true },
-    { id: 2, x: 10.5, y: 3.5 - walk * 0.01, facing: 1, moving: true, shield: true, cursed: false, ghost: false, bounty: false },
-    { id: 3, x: 1.5, y: 2.5, facing: 3, moving: true, shield: false, cursed: true, ghost: false, bounty: false },
-    { id: 7, x: 3.5 - walk, y: 2.5, facing: 4, moving: true, shield: false, cursed: false, ghost: true, bounty: false },
+    player({ id: 1, x: 7.5 + walk * 2, y: 2.5, facing: 2, moving: true, shield: false, cursed: false, ghost: false, bounty: true }),
+    player({ id: 2, x: 10.5, y: 3.5 - walk * 0.01, facing: 1, moving: true, shield: true, cursed: false, ghost: false, bounty: false }),
+    player({ id: 3, x: 1.5, y: 2.5, facing: 3, moving: true, shield: false, cursed: true, ghost: false, bounty: false }),
+    player({ id: 7, x: 3.5 - walk, y: 2.5, facing: 4, moving: true, shield: false, cursed: false, ghost: true, bounty: false }),
   ];
   for (const p of players) r.drawPlayer(p, 0, 0, T, sec, dt, sceneState);
   r.particles.update(dt);
@@ -206,10 +225,10 @@ function drawScene(now) {
   requestAnimationFrame(drawScene);
 }
 
-function update() {
-  const seed = Math.max(1, Math.floor(Number($('seed').value)) || 1);
+function update(): void {
+  const seed = Math.max(1, Math.floor(Number($<HTMLInputElement>('seed').value)) || 1);
   assets.setPixelSeed(seed);
-  renderer.tileStyle = $('style').value;
+  renderer.tileStyle = $<HTMLSelectElement>('style').value === 'classic' ? 'classic' : 'pixel';
   drawMap();
   $('sheet').replaceChildren();
   drawSheet(assets.pixel);
@@ -219,9 +238,9 @@ function update() {
 $('seed').addEventListener('change', update);
 $('style').addEventListener('change', update);
 $('reroll').addEventListener('click', () => {
-  $('seed').value = 1 + Math.floor(Math.random() * 99999);
+  $<HTMLInputElement>('seed').value = String(1 + Math.floor(Math.random() * 99999));
   update();
 });
-$('actual').addEventListener('change', (e) => $('map').classList.toggle('actual', e.target.checked));
+$('actual').addEventListener('change', (e) => $('map').classList.toggle('actual', (e.target as HTMLInputElement).checked));
 update();
 requestAnimationFrame(drawScene);

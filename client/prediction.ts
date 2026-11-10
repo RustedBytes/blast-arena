@@ -20,7 +20,29 @@
 // A dash starts on the server (the ability key); once a snapshot shows it,
 // replay continues it the way the server does (src/game/dash.rs).
 
-const DIRS = [[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]];
+import type { AbilityInfo, Me } from './protocol.js';
+
+/** The tile grid prediction collides with. */
+export interface TileMap { w: number; h: number; tiles: ArrayLike<number> }
+
+/** What prediction reads from the game state. */
+export interface PredictWorld {
+  me: Me | null;
+  map: TileMap;
+  /** Cells (y * w + x) holding a bomb. */
+  bombCells: ReadonlySet<number>;
+  abilities?: AbilityInfo | null;
+}
+
+/** Held input: direction, previous direction, jump. */
+export interface PredictInput { d: number; s: number; j: boolean }
+export type SendInput = (d: number, s: number, j: boolean, seq: number) => void;
+/** True when the cell can't be entered. */
+export type Blocked = (cx: number, cy: number) => boolean;
+/** Anything with a position in tiles. */
+export interface Point { x: number; y: number }
+
+const DIRS: readonly (readonly [number, number])[] = [[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]];
 const OPPOSITE = [0, 3, 4, 1, 2];
 const BASE_SPEED = 3.5, SPEED_STEP = 0.6, CURSED_SPEED = 2.2, CONVEYOR_SPEED = 1.6;
 const CORNER_ASSIST_MIN = 0.12;
@@ -42,7 +64,7 @@ const SMOOTH_TAU = 0.06;   // s, decay time of visual corrections
 const SNAP_DIST = 2;       // tiles: larger errors jump instead of gliding
 
 /** Port of the server's `step_move`: grid-lane movement with corner assist. */
-export function stepMove(p, dir, dist, blocked) {
+export function stepMove(p: Point, dir: number, dist: number, blocked: Blocked): void {
   const dx = DIRS[dir][0], dy = DIRS[dir][1];
   if (!dx && !dy) return;
   const horizontal = dx !== 0;
@@ -75,12 +97,32 @@ export function stepMove(p, dir, dist, blocked) {
   write(p, horizontal, next, side);
 }
 
-const cellAt = (blocked, horizontal, m, s) => (horizontal ? blocked(m, s) : blocked(s, m));
-function write(p, horizontal, main, side) {
+const cellAt = (blocked: Blocked, horizontal: boolean, m: number, s: number): boolean => (horizontal ? blocked(m, s) : blocked(s, m));
+function write(p: Point, horizontal: boolean, main: number, side: number): void {
   if (horizontal) { p.x = main; p.y = side; } else { p.y = main; p.x = side; }
 }
 
 export class Predictor {
+  seq: number;
+  hSeq: Int32Array;
+  hDir: Uint8Array;
+  hAlt: Uint8Array;
+  hJump: Uint8Array;
+  pos: PredictState;
+  acc: number;
+  active: boolean;
+  tmp: PredictState;
+  ext: PredictState;
+  /** Called when a predicted jump takes off (for sound). */
+  onJump: (() => void) | null;
+  offX: number;
+  offY: number;
+  lastD: number;
+  lastS: number;
+  lastJ: boolean;
+  lastInput: PredictInput;
+  stats: { samples: number; sumError: number; maxError: number; corrections: number };
+
   constructor() {
     this.seq = 0;
     // Ring of recent steps: input used and position after it.
@@ -93,7 +135,6 @@ export class Predictor {
     this.active = false;
     this.tmp = newState();
     this.ext = newState();
-    /** Called when a predicted jump takes off (for sound). */
     this.onJump = null;
     // Visual offset (drawn - predicted), decaying to zero.
     this.offX = 0;
@@ -106,7 +147,7 @@ export class Predictor {
     this.stats = { samples: 0, sumError: 0, maxError: 0, corrections: 0 };
   }
 
-  reset(x, y, facing = 3) {
+  reset(x: number, y: number, facing = 3): void {
     Object.assign(this.pos, newState());
     this.pos.x = x;
     this.pos.y = y;
@@ -121,7 +162,7 @@ export class Predictor {
    * so the server can use it on its next tick. The step itself still runs
    * on the regular 20 Hz clock (see `update`), which re-sends it.
    */
-  inputChanged(input, send) {
+  inputChanged(input: PredictInput, send: SendInput): void {
     const seq = (this.seq + 1) & 0xffff;
     const k = seq % HISTORY;
     this.hSeq[k] = seq;
@@ -135,7 +176,7 @@ export class Predictor {
    * Advances local time; for every elapsed 50 ms step, sends the current
    * input (via `send(d, s, j, seq)`) and applies it locally.
    */
-  update(dt, input, world, send) {
+  update(dt: number, input: PredictInput, world: PredictWorld, send: SendInput): void {
     // Inputs keep flowing while inactive (dead): they also carry snapshot acks.
     this.acc += dt;
     let steps = 0;
@@ -161,19 +202,20 @@ export class Predictor {
    * Server snapshot: authoritative state after input `ack` (position, facing,
    * and the jump state from `world.me`).
    */
-  reconcile(sx, sy, moving, facing, ack, world, input) {
+  reconcile(sx: number, sy: number, moving: boolean, facing: number, ack: number, world: PredictWorld, input: PredictInput): void {
+    const me = world.me!;
     if (!this.active) return;
     // Where we'd draw now, before the correction.
     this.extrapolate(input, world);
     const bx = this.ext.x, by = this.ext.y;
     const p = this.tmp;
     p.x = sx; p.y = sy; p.moving = moving; p.slide = this.pos.slide; p.facing = facing;
-    p.jumpLeft = world.me.jump ?? 0;
+    p.jumpLeft = me.jump ?? 0;
     p.jumpDir = p.jumpLeft > 0 ? facing : 0;
-    p.jumpCd = world.me.jump_cd ?? 0;
-    p.stun = world.me.stun ?? 0;
-    p.dashLeft = world.me.dash ?? 0;
-    p.dashDir = world.me.dash_dir ?? 0;
+    p.jumpCd = me.jump_cd ?? 0;
+    p.stun = me.stun ?? 0;
+    p.dashLeft = me.dash ?? 0;
+    p.dashDir = me.dash_dir ?? 0;
     // Replay the inputs the server hasn't applied yet, oldest first. An ack
     // ahead of our last step (an early-sent input) needs no replay.
     const behind = (this.seq - ack) & 0xffff;
@@ -204,19 +246,19 @@ export class Predictor {
   }
 
   /** `ext` = the last step's position advanced by the part of a step elapsed since. */
-  extrapolate(input, world) {
+  extrapolate(input: PredictInput, world: PredictWorld): void {
     const e = copyState(this.ext, this.pos);
     const f = Math.min(1, this.acc / DT);
     if (f > 0) simulate(e, input.d, input.s, input.j, world, f);
   }
 
   /** Direction of the jump being drawn, 0 when on the ground. */
-  get jumpDir() {
+  get jumpDir(): number {
     return this.ext.jumpLeft > 0 ? this.ext.jumpDir : 0;
   }
 
   /** Drawn position: extrapolated prediction plus the decaying correction. */
-  render(out, input, world, dt) {
+  render(out: Point, input: PredictInput, world: PredictWorld, dt: number): void {
     if (input.d !== this.lastD || input.s !== this.lastS || input.j !== this.lastJ) {
       // The extrapolation switches direction: glide instead of jumping.
       this.lastInput.d = this.lastD;
@@ -244,11 +286,16 @@ export class Predictor {
 }
 
 /** Predicted player state (positions in tiles; jump timers in ticks). */
-function newState() {
+export interface PredictState {
+  x: number; y: number; moving: boolean; slide: number; facing: number;
+  jumpDir: number; jumpLeft: number; jumpCd: number; stun: number; dashLeft: number; dashDir: number;
+}
+
+function newState(): PredictState {
   return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0, stun: 0, dashLeft: 0, dashDir: 0 };
 }
 
-function copyState(dst, src) {
+function copyState(dst: PredictState, src: PredictState): PredictState {
   dst.x = src.x; dst.y = src.y; dst.moving = src.moving; dst.slide = src.slide; dst.facing = src.facing;
   dst.jumpDir = src.jumpDir; dst.jumpLeft = src.jumpLeft; dst.jumpCd = src.jumpCd; dst.stun = src.stun;
   dst.dashLeft = src.dashLeft; dst.dashDir = src.dashDir;
@@ -259,7 +306,7 @@ function copyState(dst, src) {
  * How high a jumping player is (0 on the ground, 1 at the top), from where
  * they are: the hop arcs over the nearest stone pillar along `dir`.
  */
-export function hopHeight(map, x, y, dir) {
+export function hopHeight(map: TileMap, x: number, y: number, dir: number): number {
   const horizontal = dir === 2 || dir === 4;
   const along = horizontal ? x : y, across = Math.floor(horizontal ? y : x);
   const c = Math.floor(along);
@@ -273,14 +320,14 @@ export function hopHeight(map, x, y, dir) {
 }
 
 /** Mirrors World::jump_landing: a stone pillar ahead and a free cell behind it. */
-function canJump(p, dir, world) {
+function canJump(p: Point, dir: number, world: PredictWorld): boolean {
   if (dir < 1 || dir > 4) return false;
   const map = world.map;
   const [dx, dy] = DIRS[dir];
   const cx = Math.floor(p.x), cy = Math.floor(p.y);
   const off = dx !== 0 ? p.y - (cy + 0.5) : p.x - (cx + 0.5);
   if (Math.abs(off) > JUMP_LANE_SLACK) return false;
-  const inside = (x, y) => x >= 0 && y >= 0 && x < map.w && y < map.h;
+  const inside = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < map.w && y < map.h;
   const wx = cx + dx, wy = cy + dy, lx = cx + 2 * dx, ly = cy + 2 * dy;
   if (!inside(wx, wy) || map.tiles[wy * map.w + wx] !== T_WALL || !inside(lx, ly)) return false;
   const t = map.tiles[ly * map.w + lx];
@@ -289,14 +336,14 @@ function canJump(p, dir, world) {
 
 // Collision context for `blocked`, set by `simulate` (module-level so the
 // per-frame extrapolation creates no closures).
-let simMap = null, simBombs = null, simGhost = false, simCx = 0, simCy = 0;
+let simMap: TileMap = { w: 0, h: 0, tiles: [] }, simBombs: ReadonlySet<number> = new Set(), simGhost = false, simCx = 0, simCy = 0;
 
-function tileAt(x, y) {
+function tileAt(x: number, y: number): number {
   const map = simMap;
   return x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x];
 }
 
-function blocked(cx, cy) {
+function blocked(cx: number, cy: number): boolean {
   const t = tileAt(cx, cy);
   if (t === T_WALL || t === T_BUILT || (!simGhost && (t === T_CRATE || t === T_ARMORED))) return true;
   return (cx !== simCx || cy !== simCy) && simBombs.has(cy * simMap.w + cx);
@@ -307,7 +354,7 @@ function blocked(cx, cy) {
  * update_players); `frac` < 1 moves only that part of a tick. `j`: the
  * jump key is held.
  */
-function simulate(p, d, s, j, world, frac) {
+function simulate(p: PredictState, d: number, s: number, j: boolean, world: PredictWorld, frac: number): void {
   const me = world.me;
   if (!me?.alive) return;
   if (me.curse === 3) { d = OPPOSITE[d]; s = OPPOSITE[s]; }
@@ -374,7 +421,7 @@ function simulate(p, d, s, j, world, frac) {
 }
 
 /** One tick (or `frac` of one) of a dash, mirroring World::dash_step without portals. */
-function dash(p, world, frac) {
+function dash(p: PredictState, world: PredictWorld, frac: number): void {
   const step = (world.abilities?.dash_step ?? 0.625) * frac;
   const parts = Math.max(1, Math.ceil(step / DASH_SUB_STEP));
   let ended = false;

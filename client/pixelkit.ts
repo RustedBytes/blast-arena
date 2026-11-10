@@ -1,9 +1,17 @@
-// Shared toolkit for the pixel-art generators (tiles in pixelart.js,
-// sprites in pixelsprites.js): a 16x16 pixel buffer, seeded randomness,
+// Shared toolkit for the pixel-art generators (tiles in pixelart.ts,
+// sprites in pixelsprites.ts): a 16x16 pixel buffer, seeded randomness,
 // seamless noise, ordered dithering, and the shared lighting conventions.
 // Light comes from the top left; ramps run dark to light and shift hue.
 
 export const N = 16;
+
+/** A seeded random source returning values in 0..1. */
+export type Rand = () => number;
+/** A colour as '#rrggbb' or '#rrggbbaa'; falsy values paint nothing. */
+export type Hex = string | null | undefined | false;
+/** A 16x16 scalar field (see `field`). */
+export type Field = Float32Array;
+export type Plot = (x: number, y: number, i?: number) => void;
 
 /** Translucent cool shadow: tints instead of blackening what it covers. */
 export const SHADOW = '#140c2e66';
@@ -12,7 +20,7 @@ export const LAVA = ['#5c140e', '#a8281a', '#e8541c', '#ff9a2e', '#ffd66b', '#ff
 
 // ------------------------------------------------------------------- basics
 
-export function rng(seed) {
+export function rng(seed: number): Rand {
   let s = seed >>> 0;
   return () => {
     s = (s + 0x6d2b79f5) >>> 0;
@@ -23,15 +31,15 @@ export function rng(seed) {
   };
 }
 
-export const wrap = (v) => ((v % N) + N) % N;
-export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const smooth = (t) => t * t * (3 - 2 * t);
-export const int = (rand, n) => Math.floor(rand() * n);
+export const wrap = (v: number): number => ((v % N) + N) % N;
+export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
+export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+export const smooth = (t: number): number => t * t * (3 - 2 * t);
+export const int = (rand: Rand, n: number): number => Math.floor(rand() * n);
 
-const rgbCache = new Map();
+const rgbCache = new Map<string, readonly number[]>();
 /** '#rrggbb' or '#rrggbbaa' as [r, g, b, a]. */
-export function rgb(hex) {
+export function rgb(hex: string): readonly number[] {
   let c = rgbCache.get(hex);
   if (!c) {
     const n = parseInt(hex.slice(1), 16);
@@ -45,22 +53,24 @@ export function rgb(hex) {
 
 /** A 16x16 RGBA pixel buffer. */
 export class Pix {
+  d: Uint8ClampedArray;
+
   constructor() {
     this.d = new Uint8ClampedArray(N * N * 4);
   }
 
-  set(x, y, hex) {
+  set(x: number, y: number, hex: Hex): void {
     if (x < 0 || y < 0 || x >= N || y >= N || !hex) return;
     const c = rgb(hex), i = (y * N + x) * 4;
     this.d[i] = c[0]; this.d[i + 1] = c[1]; this.d[i + 2] = c[2]; this.d[i + 3] = c[3];
   }
 
   /** Sets a pixel, wrapping around the edges (for seamless floors). */
-  wset(x, y, hex) {
+  wset(x: number, y: number, hex: Hex): void {
     this.set(wrap(x), wrap(y), hex);
   }
 
-  filled(x, y) {
+  filled(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < N && y < N && this.d[(y * N + x) * 4 + 3] > 0;
   }
 
@@ -69,14 +79,14 @@ export class Pix {
    * drawn straight onto the game canvas use a 4x copy so that the browser's
    * smoothing, when it scales them to the tile size, stays crisp.
    */
-  canvas(scale = 1) {
+  canvas(scale = 1): HTMLCanvasElement {
     const c = document.createElement('canvas');
     c.width = c.height = N;
-    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(this.d), N, N), 0, 0);
+    c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(this.d), N, N), 0, 0);
     if (scale === 1) return c;
     const big = document.createElement('canvas');
     big.width = big.height = N * scale;
-    const g = big.getContext('2d');
+    const g = big.getContext('2d')!;
     g.imageSmoothingEnabled = false;
     g.drawImage(c, 0, 0, N * scale, N * scale);
     return big;
@@ -85,13 +95,13 @@ export class Pix {
 
 // 4x4 ordered dither, centred on zero.
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-export const bayer = (x, y) => BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.46875;
+export const bayer = (x: number, y: number): number => BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.46875;
 
 /**
  * Picks a ramp colour for a value in 0..1, mapped onto ramp[lo..hi].
  * Ordered dithering softens the steps between shades.
  */
-export function pick(ramp, v, x, y, lo = 0, hi = ramp.length - 1, dither = 1) {
+export function pick(ramp: readonly string[], v: number, x: number, y: number, lo = 0, hi = ramp.length - 1, dither = 1): string {
   const k = lo + v * (hi - lo) + bayer(x, y) * dither;
   return ramp[clamp(Math.round(k), lo, hi)];
 }
@@ -100,7 +110,7 @@ export function pick(ramp, v, x, y, lo = 0, hi = ramp.length - 1, dither = 1) {
  * Seamless value noise on the 16x16 torus: octaves of [cells, weight],
  * normalised to 0..1. Wrapping the lattice makes every tile tile.
  */
-export function field(rand, octaves = [[2, 0.5], [4, 0.3], [8, 0.2]]) {
+export function field(rand: Rand, octaves: readonly (readonly [number, number])[] = [[2, 0.5], [4, 0.3], [8, 0.2]]): Field {
   const out = new Float32Array(N * N);
   for (const [L, w] of octaves) {
     const g = Array.from({ length: L * L }, rand);
@@ -123,12 +133,12 @@ export function field(rand, octaves = [[2, 0.5], [4, 0.3], [8, 0.2]]) {
   return out;
 }
 
-export const at = (f, x, y) => f[wrap(y) * N + wrap(x)];
+export const at = (f: ArrayLike<number>, x: number, y: number): number => f[wrap(y) * N + wrap(x)];
 /** Slope towards the light: positive where the surface faces the top left. */
-export const relief = (f, x, y) => at(f, x + 1, y + 1) - at(f, x - 1, y - 1);
+export const relief = (f: ArrayLike<number>, x: number, y: number): number => at(f, x + 1, y + 1) - at(f, x - 1, y - 1);
 
 /** Pixels on a straight line, inclusive. */
-export function line(x0, y0, x1, y1, plot) {
+export function line(x0: number, y0: number, x1: number, y1: number, plot: Plot): void {
   const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   let err = dx + dy;
@@ -142,7 +152,7 @@ export function line(x0, y0, x1, y1, plot) {
 }
 
 /** A wandering crack of `len` steps, heading mostly down and right. */
-export function crack(rand, x, y, len, plot) {
+export function crack(rand: Rand, x: number, y: number, len: number, plot: Plot): void {
   for (let i = 0; i < len; i++) {
     plot(x, y, i);
     const r = rand();
@@ -153,17 +163,17 @@ export function crack(rand, x, y, len, plot) {
 }
 
 /** Blends two '#rrggbb' colours: t = 0 gives `a`, 1 gives `b`. */
-export function mix(a, b, t) {
+export function mix(a: string, b: string, t: number): string {
   const ca = rgb(a), cb = rgb(b);
-  const h = (i) => Math.round(lerp(ca[i], cb[i], t)).toString(16).padStart(2, '0');
+  const h = (i: number): string => Math.round(lerp(ca[i], cb[i], t)).toString(16).padStart(2, '0');
   return `#${h(0)}${h(1)}${h(2)}`;
 }
 
-let probe = null;
+let probe: CanvasRenderingContext2D | null = null;
 /** Any CSS colour (hsl(), color-mix(), names) as '#rrggbb'. */
-export function cssColor(css) {
+export function cssColor(css: string): string {
   if (!probe) {
-    probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
     probe.canvas.width = probe.canvas.height = 1;
   }
   probe.clearRect(0, 0, 1, 1);
@@ -178,7 +188,7 @@ export function cssColor(css) {
  * Paints a bitmap: one string per row, one character per pixel, coloured
  * through `colors` (a space is transparent). `flip` mirrors it.
  */
-export function bitmap(p, rows, colors, ox = 0, oy = 0, flip = false) {
+export function bitmap(p: Pix, rows: readonly string[], colors: Record<string, Hex>, ox = 0, oy = 0, flip = false): void {
   const w = Math.max(...rows.map((r) => r.length));
   rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {

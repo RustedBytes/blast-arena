@@ -1,5 +1,5 @@
 // Pixel-art sprites: bombs, flames, scorch marks, power-ups, players and
-// hats, drawn in code with the same rules as the tiles (pixelart.js):
+// hats, drawn in code with the same rules as the tiles (pixelart.ts):
 // light from the top left, hue-shifted ramps, and a dark outline on
 // everything you interact with so it pops off the quieter floor.
 //
@@ -9,6 +9,9 @@
 import { N, Pix, SHADOW, STEEL, at, bitmap, clamp, cssColor, field, mix, rng } from './pixelkit.js';
 
 const X4 = 4;
+
+/** Which way a player sprite faces. */
+export type PlayerView = 'down' | 'up' | 'side';
 
 // Bomb iron: navy shadows, lilac highlights.
 const IRON = ['#0b0a16', '#16162a', '#22233d', '#30344f', '#454c6b', '#6a7394', '#a9b3d1'];
@@ -20,7 +23,7 @@ const FUSE = ['#6b4a2a', '#c9a26b', '#e0bd84'];
 // ------------------------------------------------------------------- bombs
 
 /** A shaded sphere bomb with a cap, a fuse and a shadow on the ground. */
-function bomb(ramp, spiked) {
+function bomb(ramp: readonly string[], spiked: boolean): Pix {
   const p = new Pix();
   // Ground shadow first, so the body paints over it.
   for (let y = 12; y < N; y++) {
@@ -69,7 +72,7 @@ function nukeBomb() {
 }
 
 /** Antenna and LED drawn over a remote bomb, in two blink states. */
-function antenna(on) {
+function antenna(on: boolean): Pix {
   const p = new Pix();
   if (on) for (const [x, y] of [[3, 0], [2, 1], [4, 1], [3, 2]]) p.set(x, y, '#4aa3e0b0');
   p.set(4, 2, STEEL[5]);
@@ -84,7 +87,7 @@ function antenna(on) {
  * Fire banded by a distance metric `q`: hot white at the core, through
  * yellow and orange, to a dark red rim. Noise per frame makes it flicker.
  */
-function fire(q) {
+function fire(q: (x: number, y: number) => number): Pix {
   const p = new Pix();
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -98,22 +101,22 @@ function fire(q) {
 
 /** Three flicker frames each of the flame centre, arm and end. */
 function flames() {
-  const frames = { center: [], arm: [], end: [] };
+  const frames: { center: Pix[]; arm: Pix[]; end: Pix[] } = { center: [], arm: [], end: [] };
   for (let f = 0; f < 3; f++) {
     const rand = rng(101 + f);
     const n = field(rand, [[4, 0.6], [8, 0.4]]);
-    const wob = (x, y) => (at(n, x, y) - 0.5) * 1.8;
+    const wob = (x: number, y: number) => (at(n, x, y) - 0.5) * 1.8;
     // Seamless along the arm: whole sine waves per tile.
-    const tongue = (x) => Math.sin((2 * Math.PI * 2 * x) / N + f * 2.1) * 0.9;
-    const across = (y) => Math.abs(y - 7.5) * 1.75;
-    frames.arm.push(fire((x, y) => across(y) + tongue(x) + wob(x, y)));
+    const tongue = (x: number): number => Math.sin((2 * Math.PI * 2 * x) / N + f * 2.1) * 0.9;
+    const across = (y: number): number => Math.abs(y - 7.5) * 1.75;
+    frames.arm.push(fire((x: number, y: number) => across(y) + tongue(x) + wob(x, y)));
     // A round fireball that also opens into the four arms.
-    frames.center.push(fire((x, y) => {
+    frames.center.push(fire((x: number, y: number) => {
       const d = Math.hypot(x - 7.5, y - 7.5);
       return Math.min(d, 1.75 * Math.min(Math.abs(x - 7.5), Math.abs(y - 7.5)) + 0.6) + wob(x, y);
     }));
     // The end tapers to a rounded tip on the right (the renderer rotates it).
-    frames.end.push(fire((x, y) => Math.hypot(Math.max(0, x - 6) * 1.4, across(y)) + tongue(x) * 0.6 + wob(x, y)));
+    frames.end.push(fire((x: number, y: number) => Math.hypot(Math.max(0, x - 6) * 1.4, across(y)) + tongue(x) * 0.6 + wob(x, y)));
   }
   return frames;
 }
@@ -143,7 +146,8 @@ function scorch() {
 // ---------------------------------------------------------------- power-ups
 
 // Token frame colours by rarity (dark, mid, light), matching the item halos.
-const FRAMES = {
+type Rarity = 'common' | 'blue' | 'purple' | 'gold' | 'pink' | 'orange' | 'red' | 'lavender';
+const FRAMES: Record<Rarity, readonly string[]> = {
   common: ['#5a6475', '#aeb9c9', '#f2f5fa'],
   blue: ['#1f5f9a', '#4aa3e0', '#a8dcff'],
   purple: ['#4b2a8c', '#8a5cf0', '#cdb8ff'],
@@ -159,7 +163,7 @@ const FRAMES = {
  * rarity-coloured frame and a bright glyph on a dark panel, so pickups are
  * recognisable at a glance and the glyph says which one.
  */
-function token(frame, glyph, colors) {
+function token(frame: Rarity, glyph: readonly string[], colors: Record<string, string>): Pix {
   const p = new Pix();
   const [dark, mid, light] = FRAMES[frame];
   for (let y = 1; y < N - 1; y++) {
@@ -508,7 +512,7 @@ const LEGS_SIDE = [
 ];
 
 /** Player colours as a palette for the bitmaps. */
-function playerPalette([body, shade]) {
+function playerPalette([body, shade]: readonly [string, string]): Record<string, string> {
   const mid = cssColor(body), dark = cssColor(shade);
   const light = mix(mid, '#fff3c4', 0.38);
   return {
@@ -522,7 +526,7 @@ function playerPalette([body, shade]) {
 }
 
 /** One player frame: `view` is down, up or side; `frame` 0 stands, 1 and 2 step. */
-function player(colors, view, frame) {
+function player(colors: readonly [string, string], view: PlayerView, frame: number): Pix {
   const p = new Pix(), pal = playerPalette(colors);
   const head = view === 'down' ? HEAD_DOWN : view === 'up' ? HEAD_UP : HEAD_SIDE;
   const body = view === 'down' ? BODY_DOWN : view === 'up' ? BODY_UP : BODY_SIDE;
@@ -534,7 +538,7 @@ function player(colors, view, frame) {
 // --------------------------------------------------------------------- hats
 
 /** Hat bitmaps, indexed like the cosmetic hat ids (1..6), each with its colours. */
-const HATS = [
+const HATS: (readonly [rows: string[], colors: Record<string, string>] | null)[] = [
   null,
   [['   oooo     ', '  o+##-o    ', ' o+####-o   ', ' o######oooo', ' oooooooo--o'],
     { o: '#4a0f0c', '#': '#d23a2f', '+': '#ff8a7a', '-': '#8c1f1a' }],
@@ -551,8 +555,8 @@ const HATS = [
 ];
 
 /** A hat as a 4x canvas (16 wide, bitmap at the top, centred), plus its art-pixel height. */
-function hat(id) {
-  const [rows, colors] = HATS[id];
+function hat(id: number): { canvas: HTMLCanvasElement; rows: number } {
+  const [rows, colors] = HATS[id]!;
   const p = new Pix();
   bitmap(p, rows, colors, Math.floor((N - rows[0].length) / 2), 0);
   return { canvas: p.canvas(X4), rows: rows.length };
@@ -622,7 +626,7 @@ function wormTail() {
  * The head, facing right: a bigger ball with a jaw of teeth and two eyes,
  * yellow while it roams and red while it hunts; lunging, the jaws gape.
  */
-function wormHead(angry, lunge = false) {
+function wormHead(angry: boolean, lunge = false): Pix {
   const p = new Pix();
   for (let y = 11; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -686,7 +690,7 @@ const GOLD = ['#4a2e06', '#94600e', '#d69a26', '#ffd25a', '#fff1b0'];
  * crown, a glowing rune on its chest and huge fists. Enraged, the rune and
  * eyes burn red and cracks glow through the stone.
  */
-function warden(rage) {
+function warden(rage: boolean): Pix {
   const p = new Pix();
   for (let y = 13; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -695,7 +699,7 @@ function warden(rage) {
   }
   const glow = rage ? ['#7a1206', '#ff3a1a', '#ffb08a'] : ['#6a4a06', '#ffd25a', '#fff6c8'];
   // Stone with light from the top left: k from the distance to the light.
-  const stone = (x, y, cx, cy, r) => {
+  const stone = (x: number, y: number, cx: number, cy: number, r: number): string => {
     const lit = -((x - cx) * 0.6 + (y - cy) * 0.8) / r;
     return STONE[clamp(Math.round(3 + lit * 2.2), 1, 5)];
   };
@@ -756,7 +760,7 @@ function warden(rage) {
  * built per colour on demand with `pixelPlayer`.
  */
 export function buildPixelSprites() {
-  const big = (p) => p.canvas(X4);
+  const big = (p: Pix): HTMLCanvasElement => p.canvas(X4);
   const f = flames();
   const items = powerUps();
   const names = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
@@ -783,12 +787,15 @@ export function buildPixelSprites() {
     warden: big(warden(false)),
     warden_rage: big(warden(true)),
   };
-  for (let k = 1; k < names.length; k++) out[names[k]] = big(items[k]);
-  return out;
+  const tokens: Record<string, HTMLCanvasElement> = {};
+  for (let k = 1; k < names.length; k++) tokens[names[k]!] = big(items[k]!);
+  // Power-up tokens are looked up by name (see Assets.tile).
+  return Object.assign(out, tokens) as typeof out;
 }
 
 /** A player sprite for given colours as a 4x canvas. */
-export function pixelPlayer(colors, view, frame) {
+export function pixelPlayer(colors: readonly [string, string], view: PlayerView, frame: number): HTMLCanvasElement {
   return player(colors, view, frame).canvas(X4);
 }
 
+export type PixelSprites = ReturnType<typeof buildPixelSprites>;

@@ -7,11 +7,12 @@
 A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
 
 - **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
-- **Client:** plain HTML5 canvas with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, German, French, Spanish, Italian, Polish and Ukrainian. The language follows your browser and can be changed in the lobby or settings.
+- **Client:** TypeScript on a plain HTML5 canvas (no framework, no bundler) with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, German, French, Spanish, Italian, Polish and Ukrainian. The language follows your browser and can be changed in the lobby or settings.
 
 ## Run
 
 ```bash
+npm ci && npm run build   # compile the TypeScript client (client/) into static/js
 cargo run --release
 ```
 
@@ -38,7 +39,7 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom, right trigger ability, left trigger (hold) shake off a sticky bomb |
 | Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q), ability (R) and action buttons, ✋ (hold, while a sticky bomb is on you), pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `static/js/pixelart.js` and sprites in `static/js/pixelsprites.js`, sharing `static/js/pixelkit.js`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart.ts` and sprites in `client/pixelsprites.ts`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 
 The pixel art follows a few rules:
 - **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).
@@ -74,7 +75,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
 | `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
-| `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload. |
+| `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `npm run watch` running to recompile the TypeScript). |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
@@ -319,8 +320,11 @@ src/bin/simbench.rs   tick-time and allocation benchmark
 src/bin/mapview.rs    prints generated maps as text, with their quality scores
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
-static/js/            main, render, prediction, particles, input, audio, i18n,
-                      tutorial, settings, net, protocol, msgpack, dashboard
+client/               the browser client in TypeScript: main, render, prediction,
+                      particles, input, audio, i18n, tutorial, settings, net,
+                      protocol, msgpack, dashboard, tilelab, state (shared types);
+                      `npm run build` compiles it into static/js (generated, not
+                      committed), `npm run watch` recompiles on save
 static/assets/        SVG art
 config/abilities.json default ability tuning (embedded in the binary)
 docs/ABILITIES.md     design of the ability system and how to add one

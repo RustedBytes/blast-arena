@@ -5,7 +5,9 @@
 // over a stone pillar in front of you. The detach key (C, held) shakes off a
 // sticky bomb and is held state too (`h`). Only changes are sent.
 
-const KEY_DIRS = {
+import { byId } from './dom.js';
+
+const KEY_DIRS: Record<string, number> = {
   ArrowUp: 1, KeyW: 1,
   ArrowRight: 2, KeyD: 2,
   ArrowDown: 3, KeyS: 3,
@@ -15,13 +17,54 @@ const DEADZONE = 0.4;      // gamepad stick
 const JOY_DEADZONE = 14;   // touch joystick, CSS px
 const JOY_RADIUS = 60;
 
+/** Named one-shot or held UI actions. */
+export type InputAction = 'zoomReset' | 'mute' | 'fps' | 'minimap' | 'menu' | 'board' | 'emoteWheel';
+
+export interface InputHandlers {
+  onDir(d: number, s: number, j: boolean): void;
+  onBomb(): void;
+  onAct(): void;
+  onGadget(): void;
+  onAbility(): void;
+  onCancel(): void;
+  onEmote(e: number): void;
+  onZoom(factor: number): void;
+  onAction(name: InputAction, down: boolean): void;
+}
+
+/** The held input, read every prediction step. */
+export interface HeldInput { d: number; s: number; j: boolean; h: boolean }
+
 export class Input {
+  h: InputHandlers;
+  enabled: boolean;
+  /** Keyboard directions, most recent last. */
+  held: number[];
+  padDir: number;
+  padAlt: number;
+  padBomb: boolean;
+  padJump: boolean;
+  keyJump: boolean;
+  joyJump: boolean;
+  keyDetach: boolean;
+  padDetach: boolean;
+  joyDetach: boolean;
+  padAbility: boolean;
+  padZoom: number;
+  joyDir: number;
+  joyAlt: number;
+  /** Last (d << 3 | s) reported. */
+  sent: number;
+  current: HeldInput;
+  padAct: boolean;
+  padGadget: boolean;
+
   /**
    * handlers: onDir(d, s, j), onBomb(), onAct(), onGadget(), onAbility(), onCancel(), onEmote(e), onZoom(factor),
    * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
    * 'menu', 'board', 'emoteWheel'.
    */
-  constructor(handlers) {
+  constructor(handlers: InputHandlers) {
     this.h = handlers;
     this.enabled = false;
     this.held = [];        // keyboard directions, most recent last
@@ -47,15 +90,15 @@ export class Input {
     addEventListener('keyup', (e) => this.keyup(e));
     addEventListener('blur', () => this.clear());
     addEventListener('wheel', (e) => {
-      if (!this.enabled || e.target.closest?.('#settings')) return;
+      if (!this.enabled || (e.target as Element | null)?.closest?.('#settings')) return;
       e.preventDefault();
       this.h.onZoom(Math.exp(-e.deltaY * 0.0015));
     }, { passive: false });
     this.setupTouch();
   }
 
-  keydown(e) {
-    if (!this.enabled || e.target.tagName === 'INPUT') return;
+  keydown(e: KeyboardEvent): void {
+    if (!this.enabled || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
     const d = KEY_DIRS[e.code];
     if (d) {
       e.preventDefault();
@@ -102,7 +145,7 @@ export class Input {
     }
   }
 
-  keyup(e) {
+  keyup(e: KeyboardEvent): void {
     const d = KEY_DIRS[e.code];
     if (d) {
       this.held = this.held.filter((x) => x !== d);
@@ -118,7 +161,7 @@ export class Input {
     }
   }
 
-  clear() {
+  clear(): void {
     this.held.length = 0;
     this.joyDir = this.joyAlt = 0;
     this.padDir = this.padAlt = 0;
@@ -128,8 +171,8 @@ export class Input {
   }
 
   /** Picks the active source (touch > gamepad > keyboard) and sends changes. */
-  update() {
-    let d, s;
+  update(): void {
+    let d: number, s: number;
     if (this.joyDir) { d = this.joyDir; s = this.joyAlt; }
     else if (this.padDir) { d = this.padDir; s = this.padAlt; }
     else {
@@ -151,12 +194,12 @@ export class Input {
   }
 
   /** Call once per frame: reads connected gamepads. */
-  pollGamepad() {
+  pollGamepad(): void {
     if (!this.enabled || !navigator.getGamepads) return;
     let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0, ability = false, detach = false;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
-      const b = (i) => gp.buttons[i]?.pressed;
+      const b = (i: number): boolean => gp.buttons[i]?.pressed ?? false;
       const ax = gp.axes[0] ?? 0, ay = gp.axes[1] ?? 0;
       if (b(12)) dir = 1; else if (b(15)) dir = 2; else if (b(13)) dir = 3; else if (b(14)) dir = 4;
       else if (Math.abs(ax) > DEADZONE || Math.abs(ay) > DEADZONE) {
@@ -191,16 +234,16 @@ export class Input {
     }
   }
 
-  setupTouch() {
+  setupTouch(): void {
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (!isTouch) return;
     document.body.classList.add('touch');
-    document.getElementById('touch').classList.remove('hidden');
-    const zone = document.getElementById('joy-zone');
-    const base = document.getElementById('joy-base');
-    const knob = document.getElementById('joy-knob');
-    let joyId = null, ox = 0, oy = 0;
-    const pinch = new Map();
+    byId('touch').classList.remove('hidden');
+    const zone = byId('joy-zone');
+    const base = byId('joy-base');
+    const knob = byId('joy-knob');
+    let joyId: number | null = null, ox = 0, oy = 0;
+    const pinch = new Map<number, PointerEvent>();
     let pinchDist = 0;
 
     zone.addEventListener('pointerdown', (e) => {
@@ -250,7 +293,7 @@ export class Input {
         this.update();
       }
     });
-    const end = (e) => {
+    const end = (e: PointerEvent): void => {
       pinch.delete(e.pointerId);
       if (pinch.size < 2) pinchDist = 0;
       if (e.pointerId !== joyId) return;
@@ -262,7 +305,7 @@ export class Input {
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
 
-    const bomb = document.getElementById('bomb-btn');
+    const bomb = byId('bomb-btn');
     bomb.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       bomb.classList.add('active');
@@ -273,13 +316,13 @@ export class Input {
     bomb.addEventListener('pointerup', up);
     bomb.addEventListener('pointercancel', up);
 
-    const act = document.getElementById('act-btn');
+    const act = byId('act-btn');
     act.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       navigator.vibrate?.(10);
       this.h.onAct();
     });
-    const jumpBtn = document.getElementById('jump-btn');
+    const jumpBtn = byId('jump-btn');
     jumpBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       navigator.vibrate?.(10);
@@ -295,18 +338,18 @@ export class Input {
     jumpBtn.addEventListener('pointerup', jumpUp);
     jumpBtn.addEventListener('pointercancel', jumpUp);
     jumpBtn.addEventListener('pointerleave', jumpUp);
-    document.getElementById('gadget-btn').addEventListener('pointerdown', (e) => {
+    byId('gadget-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       navigator.vibrate?.(10);
       this.h.onGadget();
     });
-    document.getElementById('ability-btn').addEventListener('pointerdown', (e) => {
+    byId('ability-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       navigator.vibrate?.(10);
       this.h.onAbility();
     });
     // Shaking off a sticky bomb: hold the button.
-    const detachBtn = document.getElementById('detach-btn');
+    const detachBtn = byId('detach-btn');
     detachBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       navigator.vibrate?.(10);
@@ -322,7 +365,7 @@ export class Input {
     detachBtn.addEventListener('pointerup', detachUp);
     detachBtn.addEventListener('pointercancel', detachUp);
     detachBtn.addEventListener('pointerleave', detachUp);
-    document.getElementById('emote-btn').addEventListener('pointerdown', (e) => {
+    byId('emote-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);
     });

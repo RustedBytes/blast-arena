@@ -1,10 +1,18 @@
 // Loads the SVG artwork once and rasterises it at a fixed resolution.
 // Sprites are scaled at draw time, so zooming never re-rasterises anything.
 // Everything also comes in a pixel-art style, generated in code (see
-// pixelart.js for tiles and pixelsprites.js for sprites).
+// pixelart.ts for tiles and pixelsprites.ts for sprites).
 
 import { buildPixelTiles } from './pixelart.js';
+import type { PixelTiles } from './pixelart.js';
 import { buildPixelSprites, pixelPlayer } from './pixelsprites.js';
+import type { PixelSprites, PlayerView } from './pixelsprites.js';
+
+/** A player's [body, shade] CSS colours. */
+export type PlayerColors = readonly [body: string, shade: string];
+export type TileStyle = 'pixel' | 'classic';
+/** Every pixel-art tile and sprite (see `setPixelSeed`). */
+export type PixelSet = PixelTiles & PixelSprites;
 
 const STATIC = [
   'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash',
@@ -15,18 +23,19 @@ const STATIC = [
   'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm',
   'pu_builder', 'pu_gas', 'pu_clone', 'pu_sticky', 'pu_portal', 'pu_dash',
 ];
-const PLAYER_VIEWS = ['player_down', 'player_up', 'player_side'];
+const PLAYER_VIEWS = ['player_down', 'player_up', 'player_side'] as const;
+export type ClassicPlayerView = (typeof PLAYER_VIEWS)[number];
 const HUE_BUCKETS = 24;
 /** Pixels per tile for every rasterised sprite. */
 export const SPRITE_PX = 96;
 
 /** Item kind (protocol code) → sprite name. */
-export const ITEM_SPRITES = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
+export const ITEM_SPRITES: readonly (string | null)[] = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
   'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke',
   'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm',
   'pu_builder', 'pu_gas', 'pu_clone', 'pu_sticky', 'pu_portal', 'pu_dash'];
 
-function svgImage(text) {
+function svgImage(text: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -35,15 +44,15 @@ function svgImage(text) {
   });
 }
 
-function rasterize(img, size) {
+function rasterize(img: CanvasImageSource, size: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = c.height = size;
-  c.getContext('2d').drawImage(img, 0, 0, size, size);
+  c.getContext('2d')!.drawImage(img, 0, 0, size, size);
   return c;
 }
 
 /** Deterministic colour for a player id, spread around the hue wheel. */
-export function playerHue(id) {
+export function playerHue(id: number): number {
   return Math.round(((id * 137.508) % 360) / (360 / HUE_BUCKETS)) % HUE_BUCKETS * (360 / HUE_BUCKETS);
 }
 
@@ -54,7 +63,7 @@ const SAFE_COLORS = ['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D5
  * Body colour of a player: team colours in team mode, otherwise a colour
  * from their id. Returns [body, shade] as CSS colours.
  */
-export function playerColors(id, team, colorblind) {
+export function playerColors(id: number, team: number, colorblind: boolean): PlayerColors {
   if (team === 1) return colorblind ? ['#E69F00', '#8a5f00'] : ['hsl(2,80%,52%)', 'hsl(2,75%,32%)'];
   if (team === 2) return colorblind ? ['#0072B2', '#00446b'] : ['hsl(215,85%,55%)', 'hsl(215,80%,33%)'];
   if (colorblind) {
@@ -66,16 +75,20 @@ export function playerColors(id, team, colorblind) {
 }
 
 export class Assets {
-  constructor() {
-    this.sprites = {};      // name -> canvas
-    this.templates = {};    // player view -> SVG text with colour placeholders
-    this.players = new Map(); // `${body}:${view}` -> canvas | 'loading'
-    this.pixelPlayers = new Map(); // `${body}:${shade}:${view}:${frame}` -> canvas
-    this.glow = null;
-  }
+  /** Name -> rasterised classic sprite. */
+  sprites: Record<string, HTMLCanvasElement> = {};
+  /** Player view -> SVG text with colour placeholders. */
+  templates: Partial<Record<ClassicPlayerView, string>> = {};
+  /** `${body}:${view}` -> canvas, or 'loading' while it rasterises. */
+  players = new Map<string, HTMLCanvasElement | 'loading'>();
+  /** `${body}:${shade}:${view}:${frame}` -> canvas. */
+  pixelPlayers = new Map<string, HTMLCanvasElement>();
+  glow!: HTMLCanvasElement;
+  pixelSprites?: PixelSprites;
+  pixel!: PixelSet;
 
-  async load() {
-    const fetchText = (n) => fetch(`assets/${n}.svg`).then((r) => r.text());
+  async load(): Promise<void> {
+    const fetchText = (n: string): Promise<string> => fetch(`assets/${n}.svg`).then((r) => r.text());
     await Promise.all([
       ...STATIC.map(async (n) => { this.sprites[n] = rasterize(await svgImage(await fetchText(n)), SPRITE_PX); }),
       ...PLAYER_VIEWS.map(async (n) => { this.templates[n] = await fetchText(n); }),
@@ -85,13 +98,13 @@ export class Assets {
   }
 
   /** (Re)generates the pixel-art tiles from a seed; sprites never change. */
-  setPixelSeed(seed) {
+  setPixelSeed(seed: number): void {
     this.pixelSprites ??= buildPixelSprites();
     this.pixel = { ...buildPixelTiles(seed), ...this.pixelSprites };
   }
 
   /** Pixel-art player sprite, built once per colour, view and walk frame. */
-  pixelPlayer(colors, view, frame) {
+  pixelPlayer(colors: PlayerColors, view: PlayerView, frame: number): HTMLCanvasElement {
     const key = `${colors[0]}:${colors[1]}:${view}:${frame}`;
     let c = this.pixelPlayers.get(key);
     if (!c) this.pixelPlayers.set(key, (c = pixelPlayer(colors, view, frame)));
@@ -99,19 +112,20 @@ export class Assets {
   }
 
   /** A map tile in the chosen style: 'pixel' art or the 'classic' vector look. */
-  tile(name, style) {
-    return (style === 'pixel' && this.pixel[name]) || this.sprites[name];
+  tile(name: string, style: TileStyle): HTMLCanvasElement {
+    const pixel = (this.pixel as unknown as Record<string, unknown>)[name];
+    return (style === 'pixel' && pixel instanceof HTMLCanvasElement && pixel) || this.sprites[name];
   }
 
-  sprite(name) {
+  sprite(name: string): HTMLCanvasElement {
     return this.sprites[name];
   }
 
   /** Soft radial light used for additive glows. */
-  makeGlow() {
+  makeGlow(): HTMLCanvasElement {
     const c = document.createElement('canvas');
     c.width = c.height = 128;
-    const g = c.getContext('2d');
+    const g = c.getContext('2d')!;
     const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
     grad.addColorStop(0, 'rgba(255,220,140,0.9)');
     grad.addColorStop(0.35, 'rgba(255,140,40,0.45)');
@@ -122,13 +136,13 @@ export class Assets {
   }
 
   /** Tinted player sprite; returns null while the variant is being built. */
-  player([body, shade], view) {
+  player([body, shade]: PlayerColors, view: ClassicPlayerView): HTMLCanvasElement | null {
     const key = `${body}:${view}`;
     const c = this.players.get(key);
     if (c && c !== 'loading') return c;
     if (!c) {
       this.players.set(key, 'loading');
-      const svg = this.templates[view]
+      const svg = this.templates[view]!
         .replaceAll('#BODYDARK', shade)
         .replaceAll('#BODY', body);
       svgImage(svg).then((img) => this.players.set(key, rasterize(img, SPRITE_PX)));

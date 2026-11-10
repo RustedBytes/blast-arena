@@ -4,3 +4,5 @@ target
 *.db-shm
 .git
 .claude
+node_modules
+static/js

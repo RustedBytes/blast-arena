@@ -760,37 +760,54 @@ const STRINGS = {
   },
 };
 
-export const LANGUAGES = {
+/** Every UI string, as in English (the fallback for missing translations). */
+type En = (typeof STRINGS)['en'];
+/** Every UI string; tables keyed by item or ability code are open-ended. */
+export type Strings = {
+  [K in keyof En]: En[K] extends string ? string : En[K] extends readonly unknown[] ? En[K] : Record<number, string | undefined>;
+};
+export type StringKey = keyof Strings;
+export type Lang = keyof typeof STRINGS;
+type Params = Record<string, string | number | null | undefined>;
+const TABLES = STRINGS as unknown as Record<string, Partial<Strings>>;
+
+export const LANGUAGES: Record<Lang, string> = {
   en: 'English', de: 'Deutsch', fr: 'Français', es: 'Español', it: 'Italiano', pl: 'Polski', uk: 'Українська',
 };
-let lang = 'en';
+let lang: Lang = 'en';
 
 /** A saved choice wins; otherwise the browser's language, if we have it. */
-export function detectLanguage(saved) {
-  if (saved && STRINGS[saved]) return saved;
+export function detectLanguage(saved: string | null | undefined): Lang {
+  if (saved && isLang(saved)) return saved;
   const browser = (navigator.language || 'en').toLowerCase().slice(0, 2);
-  return STRINGS[browser] ? browser : 'en';
+  return isLang(browser) ? browser : 'en';
 }
 
-export function setLanguage(l) {
-  lang = STRINGS[l] ? l : 'en';
+function isLang(l: string): l is Lang {
+  return Object.hasOwn(STRINGS, l);
+}
+
+export function setLanguage(l: string): void {
+  lang = isLang(l) ? l : 'en';
   document.documentElement.lang = lang;
   applyI18n();
 }
 
-export function getLanguage() {
+export function getLanguage(): Lang {
   return lang;
 }
 
 /** A string (or nested value such as an array) in the current language. */
-export function t(key, params) {
-  let v = STRINGS[lang][key] ?? STRINGS.en[key] ?? key;
-  if (params && typeof v === 'string') v = v.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '');
+export function t<K extends StringKey>(key: K, params?: Params): Strings[K];
+export function t(key: string, params?: Params): string;
+export function t(key: string, params?: Params): unknown {
+  let v: unknown = TABLES[lang][key as StringKey] ?? TABLES.en[key as StringKey] ?? key;
+  if (params && typeof v === 'string') v = v.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ''));
   return v;
 }
 
-export function applyI18n(root = document) {
-  for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
-  for (const el of root.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder);
-  for (const el of root.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
+export function applyI18n(root: ParentNode = document): void {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
+  for (const el of root.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder!);
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle!);
 }

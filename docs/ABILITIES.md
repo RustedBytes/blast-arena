@@ -343,14 +343,14 @@ snapshot is the `EXTRA` section. The three runs after the change gave
    in `step` (see 1.2), and clean-up in `abilities_on_death` and
    `reset_abilities_for_round`.
 5. **Protocol.** A new sub-kind in `abilities::ab` (and `AB` in
-   `static/js/protocol.js`); if its objects must be shown, an `EXTRA`
+   `client/protocol.ts`); if its objects must be shown, an `EXTRA`
    sub-list in `protocol::snap`, `World::write_extra`, the test decoder in
-   `protocol::testing` and the decoder in `protocol.js`; new `me` fields go at
+   `protocol::testing` and the decoder in `protocol.ts`; new `me` fields go at
    the end of `ME_FIELDS` in both places.
 6. **Client.** An icon `static/assets/pu_<name>.svg` (+ `STATIC` and
-   `ITEM_SPRITES` in `assets.js`, a halo colour in `HALO` in `render.js`),
-   texts in `i18n.js` (en, uk, ru), drawing in `render.js`, sounds and notices
-   in `abilityEvent` (`main.js`).
+   `ITEM_SPRITES` in `assets.ts`, a halo colour in `HALO` in `render.ts`),
+   texts in `i18n.ts` (en, uk, ru), drawing in `render.ts`, sounds and notices
+   in `abilityEvent` (`main.ts`).
 7. **Tests** in `ability_tests.rs`: at least a successful activation, a
    refusal that costs nothing, expiry, the owner's death, the end of a round,
    and serialization into the snapshot.

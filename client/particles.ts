@@ -31,6 +31,24 @@ const BUCKETS = 2 * COLORS.length * LEVELS;
 const NONE = 0xffff;
 
 export class Particles {
+  cap: number;
+  x: Float32Array;
+  y: Float32Array;
+  vx: Float32Array;
+  vy: Float32Array;
+  life: Float32Array;
+  maxLife: Float32Array;
+  size: Float32Array;
+  kind: Uint8Array;
+  color: Uint8Array;
+  count: number;
+  bucketOf: Uint16Array;
+  order: Uint16Array;
+  start: Int32Array;
+  fill: Int32Array;
+  /** Draw as pixel art (set by the renderer from the art style). */
+  pixel: boolean;
+
   constructor(capacity = 2048) {
     this.cap = capacity;
     this.x = new Float32Array(capacity);
@@ -48,12 +66,11 @@ export class Particles {
     this.order = new Uint16Array(capacity);
     this.start = new Int32Array(BUCKETS + 1);
     this.fill = new Int32Array(BUCKETS);
-    /** Draw as pixel art (set by the renderer from the art style). */
     this.pixel = false;
   }
 
   /** Positions and sizes are in tiles; velocities in tiles per second. */
-  emit(kind, x, y, vx, vy, life, size, color) {
+  emit(kind: number, x: number, y: number, vx: number, vy: number, life: number, size: number, color: number): void {
     if (this.count === this.cap) return; // pool full: drop the effect
     const i = this.count++;
     this.x[i] = x; this.y[i] = y; this.vx[i] = vx; this.vy[i] = vy;
@@ -62,7 +79,7 @@ export class Particles {
   }
 
   /** A burst of `n` particles in random directions. */
-  burst(kind, x, y, n, speed, life, size, color, colorSpread = 1) {
+  burst(kind: number, x: number, y: number, n: number, speed: number, life: number, size: number, color: number, colorSpread = 1): void {
     for (let k = 0; k < n; k++) {
       const a = Math.random() * Math.PI * 2;
       const s = speed * (0.4 + Math.random() * 0.6);
@@ -72,13 +89,13 @@ export class Particles {
   }
 
   /** Moves particle `j` into slot `i`. */
-  move(j, i) {
+  move(j: number, i: number): void {
     this.x[i] = this.x[j]; this.y[i] = this.y[j]; this.vx[i] = this.vx[j]; this.vy[i] = this.vy[j];
     this.life[i] = this.life[j]; this.maxLife[i] = this.maxLife[j]; this.size[i] = this.size[j];
     this.kind[i] = this.kind[j]; this.color[i] = this.color[j];
   }
 
-  update(dt) {
+  update(dt: number): void {
     const { x, y, vx, vy, life, kind } = this;
     let i = 0;
     while (i < this.count) {
@@ -101,7 +118,7 @@ export class Particles {
   }
 
   /** Opacity of particle `i` (0..1), as the shapes below draw it. */
-  alpha(i) {
+  alpha(i: number): number {
     const k = this.kind[i], t = this.life[i] / this.maxLife[i];
     if (k === P_STAR) return t * (0.6 + 0.4 * Math.sin(this.life[i] * 30));
     if (k === P_SMOKE) return t * (this.pixel ? 0.5 : 0.55);
@@ -110,7 +127,7 @@ export class Particles {
   }
 
   /** Adds particle `i`'s shape to the current path. */
-  shape(ctx, i, camX, camY, T) {
+  shape(ctx: CanvasRenderingContext2D, i: number, camX: number, camY: number, T: number): void {
     const k = this.kind[i], life = this.life[i], t = life / this.maxLife[i], size = this.size[i];
     const px = this.x[i] * T - camX, py = this.y[i] * T - camY;
     if (this.pixel) {
@@ -125,7 +142,7 @@ export class Particles {
         ctx.rect(cx - (n + 0.5) * u, cy - u / 2, (2 * n + 1) * u, u);
         return;
       }
-      let n;
+      let n: number;
       if (k === P_SMOKE) n = size * 16 * (1.6 - t) * 1.4;
       else if (k === P_DEBRIS) n = size * 16;
       else n = size * 16 * (k === P_SPARK ? t : 1) * 1.6;
@@ -156,7 +173,7 @@ export class Particles {
    * (colour, opacity level) group is filled as a single path; particles off
    * screen are skipped.
    */
-  draw(ctx, camX, camY, T) {
+  draw(ctx: CanvasRenderingContext2D, camX: number, camY: number, T: number): void {
     const n = this.count;
     if (n === 0) return;
     const { bucketOf, order, start, fill, kind, color, x, y } = this;

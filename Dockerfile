@@ -1,3 +1,12 @@
+# Client stage: compile the TypeScript browser client into static/js.
+FROM node:22-bookworm-slim AS client
+WORKDIR /src
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci
+COPY client ./client
+COPY static ./static
+RUN npm run build
+
 # Build stage: compile the server (SQLite is bundled, so a C compiler is needed).
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
@@ -6,8 +15,9 @@ COPY build.rs ./
 COPY src ./src
 # Default ability tuning, compiled in with `include_str!`.
 COPY config ./config
-# The browser client is compiled into the binary.
-COPY static ./static
+# The browser client (with the compiled static/js) is compiled into the binary.
+COPY --from=client /src/static ./static
+COPY client ./client
 RUN cargo build --release --bin blast-arena
 
 # Runtime stage: just the binary (it carries the browser client).

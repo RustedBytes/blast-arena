@@ -8,8 +8,8 @@ const STEPS = 64; // 4 bars of 16ths
 const LOOKAHEAD = 0.12; // seconds scheduled ahead
 const TICK_MS = 25;
 
-const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
-const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+const midiHz = (m: number): number => 440 * Math.pow(2, (m - 69) / 12);
+const clamp01 = (v: unknown): number => Math.max(0, Math.min(1, Number(v) || 0));
 
 // A minor: Am - F - C - G. Each bar: bass root (MIDI) and chord tones.
 const BARS = [
@@ -20,14 +20,31 @@ const BARS = [
 ];
 
 // Bass offsets per eighth note (null = rest), relative to bar root.
-const BASS = [0, 0, 12, 0, 7, 0, 12, 10];
+const BASS: (number | null)[] = [0, 0, 12, 0, 7, 0, 12, 10];
 // Lead: index into [t0, t1, t2, t0+12, t1+12], null = rest.
-const LEAD_A = [0, 2, 4, 2, 3, null, 1, 2, 0, 2, 4, 3, 4, null, 2, 1];
-const LEAD_B = [3, null, 2, 1, 2, 4, 3, null, 1, 2, 3, 4, 3, 2, 1, null];
+const LEAD_A: (number | null)[] = [0, 2, 4, 2, 3, null, 1, 2, 0, 2, 4, 3, 4, null, 2, 1];
+const LEAD_B: (number | null)[] = [3, null, 2, 1, 2, 4, 3, null, 1, 2, 3, 4, 3, 2, 1, null];
 // Drums per sixteenth: k = kick, s = snare.
 const DRUMS = ['k', '', '', '', 's', '', '', 'k', 'k', '', '', '', 's', '', 'k', ''];
 
+declare global {
+  interface Window { webkitAudioContext?: typeof AudioContext }
+}
+
 export class GameAudio {
+  ctx: AudioContext | null;
+  master!: GainNode;
+  musicGain!: GainNode;
+  sfxGain!: GainNode;
+  _muted: boolean;
+  _musicVol: number;
+  _sfxVol: number;
+  _intensity: number;
+  _timer: ReturnType<typeof setInterval> | null;
+  _step: number;
+  _nextTime: number;
+  _noise: AudioBuffer | null;
+
   constructor() {
     this.ctx = null;
     this._muted = false;
@@ -40,11 +57,11 @@ export class GameAudio {
     this._noise = null;
   }
 
-  get muted() {
+  get muted(): boolean {
     return this._muted;
   }
 
-  start() {
+  start(): void {
     try {
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
@@ -85,28 +102,28 @@ export class GameAudio {
     }
   }
 
-  setMusicVolume(v) {
+  setMusicVolume(v: number): void {
     this._musicVol = clamp01(v);
     if (this.ctx) this.musicGain.gain.setTargetAtTime(this._musicVol * 0.5, this.ctx.currentTime, 0.05);
   }
 
-  setSfxVolume(v) {
+  setSfxVolume(v: number): void {
     this._sfxVol = clamp01(v);
     if (this.ctx) this.sfxGain.gain.setTargetAtTime(this._sfxVol, this.ctx.currentTime, 0.05);
   }
 
-  setMuted(m) {
+  setMuted(m: boolean): void {
     this._muted = !!m;
     if (this.ctx) this.master.gain.setTargetAtTime(this._muted ? 0 : 1, this.ctx.currentTime, 0.03);
   }
 
-  setIntensity(level) {
+  setIntensity(level: number): void {
     this._intensity = clamp01(level);
   }
 
   // ---- music ----
 
-  _schedule() {
+  _schedule(): void {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
     // Background tabs throttle timers; skip ahead rather than burst-play.
@@ -118,7 +135,7 @@ export class GameAudio {
     }
   }
 
-  _playStep(step, t) {
+  _playStep(step: number, t: number): void {
     const barIdx = Math.floor(step / 16);
     const s = step % 16;
     const bar = BARS[barIdx];
@@ -150,8 +167,8 @@ export class GameAudio {
 
   // ---- synthesis primitives ----
 
-  _voice(type, freq, t, dur, gain, dest, lowpass, freqEnd) {
-    const ctx = this.ctx;
+  _voice(type: OscillatorType, freq: number, t: number, dur: number, gain: number, dest: AudioNode, lowpass?: number | null, freqEnd?: number): OscillatorNode {
+    const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
@@ -160,7 +177,7 @@ export class GameAudio {
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    let node = osc;
+    let node: AudioNode = osc;
     if (lowpass) {
       const f = ctx.createBiquadFilter();
       f.type = 'lowpass';
@@ -175,8 +192,8 @@ export class GameAudio {
     return osc;
   }
 
-  _noiseHit(t, dur, filterType, freq, q, gain, dest, freqEnd) {
-    const ctx = this.ctx;
+  _noiseHit(t: number, dur: number, filterType: BiquadFilterType, freq: number, q: number, gain: number, dest: AudioNode, freqEnd?: number): void {
+    const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this._noise;
     const f = ctx.createBiquadFilter();
@@ -195,19 +212,19 @@ export class GameAudio {
     src.stop(t + dur + 0.02);
   }
 
-  _kick(t, gain, dest) {
+  _kick(t: number, gain: number, dest: AudioNode): void {
     this._voice('sine', 150, t, 0.16, gain, dest, null, 45);
     this._noiseHit(t, 0.02, 'lowpass', 1200, 0.7, gain * 0.3, dest);
   }
 
-  _now() {
+  _now(): number | null {
     if (!this.ctx || this.ctx.state === 'closed') return null;
     return this.ctx.currentTime + 0.005;
   }
 
   // ---- SFX ----
 
-  bombPlaced() {
+  bombPlaced(): void {
     const t = this._now();
     if (t === null) return;
     this._voice('square', 220, t, 0.09, 0.18, this.sfxGain, 1500, 110);
@@ -219,9 +236,9 @@ export class GameAudio {
    * -1 (left) .. 1 (right). Returns the plain SFX bus when panning isn't
    * available.
    */
-  _panned(pan, t, dur) {
-    const ctx = this.ctx;
-    if (!ctx.createStereoPanner || !pan) return this.sfxGain;
+  _panned(pan: number, t: number, dur: number): AudioNode {
+    const ctx = this.ctx!;
+    if (!('createStereoPanner' in ctx) || !pan) return this.sfxGain;
     const p = ctx.createStereoPanner();
     p.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
     p.connect(this.sfxGain);
@@ -230,7 +247,7 @@ export class GameAudio {
   }
 
   /** `pan` places the blast left/right of the listener (-1 .. 1). */
-  explosion(distanceTiles = 0, pan = 0) {
+  explosion(distanceTiles = 0, pan = 0): void {
     const t = this._now();
     if (t === null) return;
     const d = Math.max(0, Number(distanceTiles) || 0);
@@ -245,7 +262,7 @@ export class GameAudio {
   }
 
   /** An atomic blast: a sharp crack, then a long, deep, rolling rumble. */
-  nuke(distanceTiles = 0, pan = 0) {
+  nuke(distanceTiles = 0, pan = 0): void {
     const t = this._now();
     if (t === null) return;
     const d = Math.max(0, Number(distanceTiles) || 0);
@@ -258,21 +275,21 @@ export class GameAudio {
   }
 
   /** A springy hop. */
-  jump() {
+  jump(): void {
     const t = this._now();
     if (t === null) return;
     this._voice('square', 260, t, 0.16, 0.1, this.sfxGain, 2200, 720);
     this._noiseHit(t, 0.08, 'highpass', 3000, 0.7, 0.05, this.sfxGain);
   }
 
-  pickup() {
+  pickup(): void {
     const t = this._now();
     if (t === null) return;
     [72, 76, 79, 84].forEach((m, i) =>
       this._voice('square', midiHz(m), t + i * 0.045, 0.08, 0.12, this.sfxGain, 4000));
   }
 
-  mystery() {
+  mystery(): void {
     const t = this._now();
     if (t === null) return;
     for (let i = 0; i < 8; i++) {
@@ -282,10 +299,10 @@ export class GameAudio {
     this._voice('sine', midiHz(96), t + 0.32, 0.25, 0.08, this.sfxGain);
   }
 
-  curse() {
+  curse(): void {
     const t = this._now();
     if (t === null) return;
-    const ctx = this.ctx;
+    const ctx = this.ctx!;
     const osc = this._voice('sawtooth', 520, t, 0.6, 0.14, this.sfxGain, 1400, 110);
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 11;
@@ -297,7 +314,7 @@ export class GameAudio {
     lfo.stop(t + 0.65);
   }
 
-  death() {
+  death(): void {
     const t = this._now();
     if (t === null) return;
     [67, 63, 60, 55].forEach((m, i) =>
@@ -305,14 +322,14 @@ export class GameAudio {
     this._voice('triangle', midiHz(43), t + 0.48, 0.5, 0.2, this.sfxGain, null, midiHz(31));
   }
 
-  kick() {
+  kick(): void {
     const t = this._now();
     if (t === null) return;
     this._voice('sine', 300, t, 0.08, 0.3, this.sfxGain, null, 90);
     this._noiseHit(t, 0.04, 'bandpass', 2000, 1.5, 0.15, this.sfxGain);
   }
 
-  uiClick() {
+  uiClick(): void {
     const t = this._now();
     if (t === null) return;
     this._voice('square', 1200, t, 0.03, 0.08, this.sfxGain, 5000, 900);
