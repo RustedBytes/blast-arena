@@ -126,6 +126,10 @@ pub mod ev {
     /// or whose fire did it) id + 1, 0 for nobody. A meal arrives just
     /// before the victim's kill message.
     pub const WORM: u8 = 12;
+    /// The vault's Warden: what (1 crushed a player, 2 brought down, 3 back
+    /// on guard, 4 a slam landed, 5 a bomb lobbed), x, y, then the player
+    /// (the one crushed, or who brought it down) + 1, or 0.
+    pub const GUARD: u8 = 13;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -151,6 +155,13 @@ pub mod ev {
 ///                a worm out of view (flag FAR) sends only its head. Flags:
 ///                1 chasing, 2 emerging (the step is then the whole
 ///                emergence), 4 far, 8 lunging, 16 lying in wait.
+///   [GUARD]      the vault: walls x0, y0, x1, y1, ticks until the Warden
+///                is back (0: it's here), then n (0 or 1) × (id, x, y,
+///                from x, from y, u8 flags, ticks per step, ticks since the
+///                last step, u8 hp, u8 max hp, ticks until the wound-up
+///                skill goes off, u8 skill direction). Flags: 1 hunting,
+///                2 slam wind-up, 4 charge wind-up, 8 charging, 16 stone
+///                skin, 32 enraged, 64 just hit.
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -179,6 +190,7 @@ pub mod snap {
     pub const DECOYS: u8 = 8;
     pub const STUCK: u8 = 16;
     pub const WORMS: u8 = 32;
+    pub const GUARD: u8 = 64;
 
     pub const DX: u64 = 1;
     pub const DY: u64 = 2;
@@ -890,6 +902,17 @@ pub mod testing {
                 if parts & snap::STUCK != 0 {
                     let n = r.uvar().unwrap() as usize;
                     extra["stuck"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap()])));
+                }
+                if parts & snap::GUARD != 0 {
+                    let vault = [r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap()];
+                    let back = r.uvar().unwrap();
+                    let n = r.uvar().unwrap() as usize;
+                    let wardens = list(&mut r, n, &|r| {
+                        let (id, x, y, fx, fy) = (r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap());
+                        let (flags, step, since, hp, max) = (r.u8().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
+                        json!([id, x, y, fx, fy, flags, step, since, hp, max, r.uvar().unwrap(), r.u8().unwrap()])
+                    });
+                    extra["guard"] = json!({ "vault": vault, "back": back, "wardens": wardens });
                 }
                 if parts & snap::WORMS != 0 {
                     let n = r.uvar().unwrap() as usize;

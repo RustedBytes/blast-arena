@@ -56,6 +56,7 @@ impl World {
         self.update_gas();
         self.apply_flame_damage();
         self.update_worms();
+        self.update_guard();
         self.update_clones();
         self.update_walls();
         self.update_portals();

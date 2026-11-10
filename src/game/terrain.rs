@@ -45,7 +45,7 @@ impl World {
             }
             let x = self.rng.between(1, self.map.w - 2);
             let y = self.rng.between(1, self.map.h - 2);
-            if self.map.get(x, y) != Tile::Floor || self.in_hill(x, y) {
+            if self.map.get(x, y) != Tile::Floor || self.in_hill(x, y) || self.in_vault(x, y, 1) {
                 continue;
             }
             let i = self.map.idx(x, y);

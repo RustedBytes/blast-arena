@@ -285,6 +285,13 @@ impl World {
                 }
             }
         }
+        // So is the Warden: bringing it down scores big.
+        if let Some(w) = &self.guard.warden {
+            let i = self.map.idx(w.cell.0, w.cell.1);
+            for t in &mut sc.targets {
+                t[i] = t[i].saturating_add(1);
+            }
+        }
         // Worms are fair game for everyone: blowing one up scores.
         for w in &self.worms.list {
             for &(x, y) in &w.body {
@@ -394,6 +401,50 @@ impl World {
         }
         if worms {
             self.worm_danger(danger);
+            self.warden_danger(danger);
+        }
+    }
+
+    /// The Warden crushes: its cell is deadly now, the cells next to it from
+    /// its next step, a wound-up slam's square and a charge's lane from
+    /// when they go off.
+    fn warden_danger(&self, danger: &mut [u16]) {
+        use super::guard::Skill;
+        let Some(warden) = &self.guard.warden else { return };
+        let tuning = &self.guard.tuning;
+        let mut mark = |x: i32, y: i32, at: u64| {
+            if self.map.in_bounds(x, y) && !self.map.is_solid(x, y) {
+                let i = self.map.idx(x, y);
+                danger[i] = danger[i].min(at.min(u64::from(SAFE) - 1) as u16);
+            }
+        };
+        let (x, y) = warden.cell;
+        mark(x, y, 0);
+        let next = warden.next_step.saturating_sub(self.tick);
+        for &(dx, dy) in &DIRS[1..] {
+            mark(x + dx, y + dy, next);
+        }
+        let at = warden.skill_at.saturating_sub(self.tick);
+        match warden.skill {
+            Skill::Slam => {
+                let r = tuning.slam_radius;
+                for cy in y - r..=y + r {
+                    for cx in x - r..=x + r {
+                        mark(cx, cy, at);
+                    }
+                }
+            }
+            Skill::Charge(d) | Skill::Charging(d, _) => {
+                let (dx, dy) = DIRS[d as usize];
+                for k in 1..=tuning.charge_cells {
+                    let (cx, cy) = (x + dx * k, y + dy * k);
+                    if self.map.is_solid(cx, cy) {
+                        break;
+                    }
+                    mark(cx, cy, at + k as u64 - 1);
+                }
+            }
+            Skill::None => {}
         }
     }
 

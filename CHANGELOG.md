@@ -6,6 +6,39 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Watch other parts of the map: drag the view box on the minimap (or
+  click anywhere on it) and the camera glides there, with the players,
+  bombs and fire around that spot. A "Watching the map" pill shows the
+  way back; moving, jumping, bombing or using an item, or clicking the
+  pill, brings the camera home. New client message `look` (op 11): the
+  cell to centre the view on, or none for your own player; snapshots
+  always include your own player.
+- **The vault and its Warden** (`src/game/guard.rs`, tuning in
+  `GuardTuning`): every arena has a walled vault near the middle, with a
+  gate in each side and its gilded floor laid with up to 16 strong
+  power-ups (bombs, range, speed, full fire, remote, pierce, shields,
+  rockets, drones, abilities, the odd nuke or secret box), one more
+  restocked every 8 s. It's guarded by the **Warden**, a stone golem with
+  8 hit points that fights anyone near the vault (never straying more
+  than 6 cells beyond its walls) and crushes whoever it touches:
+  - **Slam**: next to you, it winds up (a red square fills in) and
+    crushes everyone on the ground within 2 cells; jump to dodge it.
+  - **Charge**: lined up with it in a clear lane, it winds up (chevrons
+    mark the lane) and charges a cell a tick.
+  - **Lob**: farther off, it drops bombs on you.
+  - **Stone skin**: at half health, immune for 4 s, once.
+  - **Enraged**: on its last 3 hit points it's faster, its skills come
+    back sooner and it lobs bombs in threes.
+  Only players' blasts hurt it, one hit per blast. Bringing it down is
+  worth 5 points and 40 XP; it's back a minute later with the vault
+  restocked. Bots fear its reach and bomb it when they can. Nobody
+  spawns in or by the vault, and hills, crate regrowth and worms keep out.
+  New: snapshot part `GUARD` (the vault, and the Warden with its skill
+  telegraphs), event kind 13 (crushed, brought down, back, slam, lob),
+  and translations of its notices in every language.
+
 ### Changed
 
 - Players walk more naturally: the stride follows the ground actually

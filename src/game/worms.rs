@@ -309,6 +309,7 @@ impl World {
                 || self.danger_near(x, y, 2)
                 || self.in_nuke_zone(x, y)
                 || self.worm_near(x, y, 2)
+                || self.in_vault(x, y, 2)
                 || self.players_in_rect(x - clear, y - clear, x + clear, y + clear).any(|p| p.alive)
                 || self.map.open_cells_near(x, y) < 5
             {
@@ -476,6 +477,7 @@ impl World {
             && self.bomb_at(x, y).is_none()
             && !self.flame_active(x, y)
             && self.worms.occupied[self.map.idx(x, y)] == 0
+            && !self.in_vault(x, y, 0)
     }
 
     /// Players a hungry worm goes for: alive, on the ground and unshielded.

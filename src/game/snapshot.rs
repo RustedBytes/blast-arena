@@ -261,6 +261,33 @@ fn bomb_flags(b: &super::bomb::Bomb) -> u8 {
 }
 
 impl World {
+    /// The vault and its Warden (sent everywhere: it's a landmark).
+    fn write_guard(&self, w: &mut Wire<'_>) {
+        use super::guard::{Skill, flag};
+        let (tick, g) = (self.tick, &self.guard);
+        let v = g.vault.as_ref().unwrap();
+        w.coord(v.x0).coord(v.y0).coord(v.x1).coord(v.y1);
+        w.uvar(if g.warden.is_some() { 0 } else { g.respawn_at.saturating_sub(tick) });
+        w.len(usize::from(g.warden.is_some()));
+        if let Some(d) = &g.warden {
+            let t = &g.tuning;
+            let (skill_flag, dir) = match d.skill {
+                Skill::None => (0, 0),
+                Skill::Slam => (flag::SLAM, 0),
+                Skill::Charge(dir) => (flag::CHARGE_WINDUP, dir),
+                Skill::Charging(dir, _) => (flag::CHARGING, dir),
+            };
+            let flags = (u8::from(d.hunting) * flag::HUNTING)
+                | skill_flag
+                | (u8::from(d.skin_until > tick) * flag::SKIN)
+                | (u8::from(d.enraged(t)) * flag::ENRAGED)
+                | (u8::from(d.hurt_until > tick) * flag::HURT);
+            w.id(d.id).coord(d.cell.0).coord(d.cell.1).coord(d.from.0).coord(d.from.1);
+            w.u8(flags).uvar(d.step_ticks).uvar(tick.saturating_sub(d.last_step));
+            w.u8(d.hp).u8(t.max_hp).uvar(d.skill_at.saturating_sub(tick)).u8(if dir != 0 { dir } else { d.dir });
+        }
+    }
+
     /// The `EXTRA` section: ability objects in view (gas clouds, portals,
     /// clones, decoy bombs, who carries which sticky bomb) and the worms.
     /// Returns whether
@@ -282,6 +309,7 @@ impl World {
             (decoys().count(), snap::DECOYS),
             (stuck().count(), snap::STUCK),
             (self.worms.list.len(), snap::WORMS),
+            (usize::from(self.guard.vault.is_some()), snap::GUARD),
         ] {
             if n > 0 {
                 parts |= bit;
@@ -322,6 +350,9 @@ impl World {
             for b in stuck() {
                 w.id(b.id).id(b.attached);
             }
+        }
+        if parts & snap::GUARD != 0 {
+            self.write_guard(w);
         }
         if parts & snap::WORMS != 0 {
             // Every worm, so the minimap can show them all; the ones out of

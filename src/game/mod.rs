@@ -11,6 +11,7 @@ pub mod builder;
 pub mod clone;
 pub mod dash;
 pub mod gas;
+pub mod guard;
 pub mod portal;
 pub mod sticky;
 pub mod worms;
@@ -42,6 +43,8 @@ mod ability_tests;
 mod tests;
 #[cfg(test)]
 mod worm_tests;
+#[cfg(test)]
+mod guard_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -276,6 +279,8 @@ pub struct World {
     pub royale: royale::Royale,
     /// Worms hunting players in the worms arena (see `worms`).
     pub worms: worms::Worms,
+    /// The loot vault and its Warden (see `guard`).
+    pub guard: guard::Guard,
     /// Tile and item changes made during the current tick, sent to everyone.
     pub tile_changes: Vec<TileChange>,
     pub item_changes: Vec<(i32, i32, u8)>,
@@ -329,6 +334,8 @@ pub struct WorldStats {
     pub dashes: u64,
     pub worms_killed: u64,
     pub worm_bites: u64,
+    pub wardens_killed: u64,
+    pub warden_crushes: u64,
 }
 
 impl World {
@@ -362,6 +369,7 @@ impl World {
         world.round_ticks = u64::from(cfg.round_secs) * u64::from(TICK_RATE);
         // Royale matches end when one player is left, not on a timer.
         world.round_end = if cfg.mode == Mode::Royale { u64::MAX } else { world.round_ticks };
+        world.carve_vault();
         world.place_hills();
         world.init_events();
         if cfg.mode == Mode::Worms {
@@ -410,6 +418,7 @@ impl World {
             blizzard_until: 0,
             royale: royale::Royale::default(),
             worms: worms::Worms::new(n),
+            guard: guard::Guard::default(),
             tile_changes: Vec::new(),
             item_changes: Vec::new(),
             crate_target: (crate_count as f32 * CRATE_REGROW_TARGET) as usize,

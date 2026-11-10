@@ -34,7 +34,7 @@ impl World {
                 continue;
             }
             let far = self.hills.iter().all(|&(hx, hy)| (hx - x).abs() + (hy - y).abs() > self.map.w / 4);
-            if !far {
+            if !far || self.in_vault(x, y, 3) {
                 continue;
             }
             for cy in y - 1..=y + 1 {

@@ -6,7 +6,7 @@ import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
-import { AB, EV, WORM_NEWS, meObject } from './protocol.js';
+import { AB, EV, GUARD_NEWS, WORM_NEWS, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { MINIMAP_MAX, MINIMAP_MIN, Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
@@ -142,6 +142,8 @@ const net = new Net({
       bombCells: new Set(),
       wormMeals: new Set(), // players a worm just ate (their kill message follows)
       eatenByWorm: false,
+      wardenMeals: new Set(), // players the Warden just crushed (likewise)
+      crushedByWarden: false,
       lastLb: '',
       roundSecs: m.round,
       movedAt: null,
@@ -301,10 +303,15 @@ const net = new Net({
     // A worm's meal is announced (EV.WORM) just before the kill.
     const eaten = state.wormMeals.delete(m.v);
     if (m.v === state.myId) state.eatenByWorm = eaten;
+    // So is the Warden's (EV.GUARD).
+    const crushed = state.wardenMeals.delete(m.v);
+    if (m.v === state.myId) state.crushedByWarden = crushed;
     const el = document.createElement('div');
     el.className = 'kill';
     if (m.k === state.myId || m.v === state.myId) el.classList.add('mine');
-    el.innerHTML = eaten
+    el.innerHTML = crushed
+      ? `🗿 ${t('wasCrushed', { v: `<b class="v">${name(m.v)}</b>` })}`
+      : eaten
       ? `🪱 ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
       : m.k === null || m.k === undefined
       ? t('wasBlasted', { v: `<b class="v">${name(m.v)}</b>` })
@@ -435,6 +442,9 @@ const net = new Net({
       case EV.WORM:
         wormEvent(v);
         break;
+      case EV.GUARD:
+        guardEvent(v);
+        break;
       case EV.SWAP:
         for (const id of v) {
           const f = renderer.frame;
@@ -514,6 +524,37 @@ const input = new Input({
     else if (name === 'emoteWheel') $('emote-wheel').classList.toggle('hidden');
   },
 });
+
+/** The vault's Warden (EV.GUARD): effects, sounds and notices. */
+function guardEvent([what, x, y, who]) {
+  const id = who - 1;
+  const now = performance.now();
+  const dist = Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y);
+  const pan = Math.max(-1, Math.min(1, (x + 0.5 - state.focus.x) / 10));
+  const name = (pid) => state.rosterInfo.get(pid)?.name ?? '?';
+  switch (what) {
+    case GUARD_NEWS.CRUSHED:
+      state.wardenMeals.add(id);
+      renderer.wormGulp(x, y);
+      break;
+    case GUARD_NEWS.SLAM:
+      renderer.wardenSlam(x, y, now, dist < 12);
+      if (dist < 16) audio.explosion(dist, pan);
+      break;
+    case GUARD_NEWS.LOB:
+      if (dist < 12) audio.bombPlaced();
+      break;
+    case GUARD_NEWS.KILLED:
+      renderer.wardenDown(x, y, now);
+      if (dist < 20) audio.nuke(dist, pan);
+      if (id === state.myId) alerts.announce({ text: t('wardenSlainByYou'), icon: '🗿', tone: 'epic', priority: 2 });
+      else alerts.toast(id >= 0 ? t('wardenSlain', { name: name(id) }) : t('wardenFell'), { icon: '🗿', tone: 'warn', key: 'warden' });
+      break;
+    case GUARD_NEWS.BACK:
+      alerts.toast(t('wardenBack'), { icon: '🗿', tone: 'info', key: 'warden' });
+      break;
+  }
+}
 
 /** Worms arena news (EV.WORM): effects, sounds and notices. */
 function wormEvent([what, x, y, who]) {
@@ -705,7 +746,12 @@ function minimapPoint(e) {
 }
 
 function lookAt(x, y) {
-  state.look = { x: Math.max(0, Math.min(state.map.w, x)), y: Math.max(0, Math.min(state.map.h, y)) };
+  // Only as far as the camera can go, so the box on the minimap is where
+  // the view really is (and grabbing it never makes it jump).
+  const T = renderer.T || 1;
+  const hw = renderer.canvas.width / T / 2, hh = renderer.canvas.height / T / 2;
+  const fit = (v, half, size) => (2 * half >= size ? size / 2 : Math.max(half, Math.min(size - half, v)));
+  state.look = { x: fit(x, hw, state.map.w), y: fit(y, hh, state.map.h) };
   $('look-pill').classList.remove('hidden');
   renderer.lastMinimap = 0; // the box moves at once, not at the next refresh
   sendLook();
@@ -745,8 +791,10 @@ $('minimap').addEventListener('pointerdown', (e) => {
   const cx = renderer.camX / T + vw / 2, cy = renderer.camY / T + vh / 2;
   const grabbed = Math.abs(x - cx) <= vw / 2 && Math.abs(y - cy) <= vh / 2;
   lookDrag = grabbed ? { dx: cx - x, dy: cy - y } : { dx: 0, dy: 0 };
-  $('minimap').setPointerCapture(e.pointerId);
   $('minimap').classList.add('dragging');
+  try {
+    $('minimap').setPointerCapture(e.pointerId); // keep dragging outside the minimap
+  } catch { /* a pointer that's already gone: just this click */ }
   lookAt(x + lookDrag.dx, y + lookDrag.dy);
 });
 $('minimap').addEventListener('pointermove', (e) => {
@@ -851,7 +899,8 @@ function updateHud(me) {
     $('dead-msg').textContent = killer === state.myId
       ? t('youBlewUp')
       : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle')
-        : state.eatenByWorm ? t('youWereEaten') : t('youWereBlasted');
+        : state.crushedByWarden ? t('youWereCrushed')
+          : state.eatenByWorm ? t('youWereEaten') : t('youWereBlasted');
     $('dead-timer').textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');
   }
@@ -1103,10 +1152,15 @@ function frame(now) {
   if (state.look && !state.replay) {
     if (input.current.d || input.current.j) stopLooking();
     else {
+      // The view has a camera of its own (`lookFrom`): the focus is put
+      // back on the player every frame, so it can't glide by itself. A
+      // fresh look starts the camera where the view is now.
+      if (state.lookBlend < 1) state.lookFrom = { x: state.focus.x, y: state.focus.y };
       const k = lookDrag ? 1 : 1 - Math.exp(-dt * 10);
-      state.focus.x += (state.look.x - state.focus.x) * k;
-      state.focus.y += (state.look.y - state.focus.y) * k;
-      state.lookFrom = { x: state.focus.x, y: state.focus.y };
+      state.lookFrom.x += (state.look.x - state.lookFrom.x) * k;
+      state.lookFrom.y += (state.look.y - state.lookFrom.y) * k;
+      state.focus.x = state.lookFrom.x;
+      state.focus.y = state.lookFrom.y;
       state.lookBlend = 1;
     }
   }
