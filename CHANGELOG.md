@@ -6,6 +6,8 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-10
+
 ### Added
 
 - Watch other parts of the map: drag the view box on the minimap (or
@@ -324,6 +326,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.7.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.7.0
 [0.6.1]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.6.1
 [0.6.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.6.0
 [0.5.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.5.0
