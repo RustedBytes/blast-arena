@@ -765,6 +765,7 @@ function updateHud(me) {
     const killer = me.killer;
     const name = (id) => state.rosterInfo.get(id)?.name ?? '?';
     const out = me.respawn * tickS > 3600; // royale: out until the next match
+    $('dead').classList.toggle('out', out);
     $('dead-msg').textContent = killer === state.myId
       ? t('youBlewUp')
       : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle')

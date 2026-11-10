@@ -649,6 +649,20 @@ fn p05_blocked_exit_refuses_the_trip() {
 }
 
 #[test]
+fn p05b_exit_in_a_nukes_red_zone_refuses_the_trip() {
+    let (mut w, id, _rx) = portal_world();
+    place_pair(&mut w, id);
+    let nuke = BombKind { pierce: true, nuke: true, ..BombKind::plain(super::bomb::NUKE_RADIUS, 1000) };
+    w.place_bomb_at(0, (1, 10), nuke); // 6 cells below the exit at (1, 4)
+    assert!(w.in_nuke_zone(1, 4) && !w.in_nuke_zone(4, 1));
+    w.hold(id, 2, 0);
+    steps(&mut w, 15);
+    assert_eq!(w.players[&id].cell(), (4, 1), "stays at the entrance");
+    assert_eq!(w.players[&id].portal_ready_at, 0, "no cooldown");
+    assert_eq!(w.stats.teleports, 0);
+}
+
+#[test]
 fn p06_bombs_go_through_keeping_fuse_and_owner() {
     let (mut w, id, _rx) = portal_world();
     place_pair(&mut w, id);

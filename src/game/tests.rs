@@ -406,6 +406,24 @@ fn teleporters_move_you_to_the_twin_pad() {
 }
 
 #[test]
+fn teleporters_never_drop_you_in_a_nukes_red_zone() {
+    let mut map = Map::empty(21, 21);
+    map.set(3, 1, Tile::Teleport);
+    map.set(15, 15, Tile::Teleport);
+    map.teleports.push(((3, 1), (15, 15)));
+    let mut w = test_world(map);
+    let nuke = bomb::BombKind { pierce: true, nuke: true, ..bomb::BombKind::plain(bomb::NUKE_RADIUS, 1000) };
+    w.place_bomb_at(0, (15, 19), nuke);
+    let id = w.spawn_test_player(2.5, 1.5);
+    w.hold(id, 2, 0);
+    for _ in 0..8 {
+        w.step();
+    }
+    let p = &w.players[&id];
+    assert_eq!(p.cell().1, 1, "not teleported, still at {:?}", p.cell());
+}
+
+#[test]
 fn ice_keeps_you_sliding_until_you_hit_something() {
     let mut map = Map::empty(15, 15);
     for x in 1..8 {
@@ -990,6 +1008,44 @@ fn the_storm_kills_whoever_stays_out() {
     }
     assert!(w.players[&inside].alive, "safe in the zone");
     assert!(!w.players[&outside].alive, "the storm got them");
+}
+
+#[test]
+fn a_zone_closed_to_nothing_still_leaves_a_winner() {
+    let mut w = royale_world(41);
+    let near = w.spawn_test_player(20.5, 20.5);
+    let far = w.spawn_test_player(24.5, 20.5);
+    w.update_royale();
+    for id in [near, far] {
+        let p = w.players.get_mut(&id).unwrap();
+        (p.invulnerable_until, p.x, p.y) = (0, if id == near { 20.5 } else { 24.5 }, 20.5);
+    }
+    // The final circle: a point, so both are in the storm from the same tick.
+    w.royale.from = royale::Circle { x: 20.0, y: 20.0, r: 0.0 };
+    w.royale.state = royale::ZoneState::Done;
+    for _ in 0..=royale::STORM_TICKS[0] {
+        w.tick += 1;
+        w.update_royale();
+    }
+    assert!(!w.royale.match_on, "decided");
+    assert!(w.players[&near].alive, "the one closest to the centre is spared");
+    assert!(!w.players[&far].alive);
+    assert_eq!(w.royale.last_winner, Some(near), "and wins the match");
+}
+
+#[test]
+fn a_shared_blast_on_the_last_two_still_leaves_a_winner() {
+    let mut w = royale_world(41);
+    let a = w.spawn_test_player(20.5, 20.5);
+    let b = w.spawn_test_player(24.5, 20.5);
+    w.update_royale();
+    w.update_royale();
+    w.players.get_mut(&b).unwrap().score = 3;
+    w.kill(a, None);
+    w.kill(b, None);
+    w.update_royale();
+    assert!(!w.royale.match_on, "decided");
+    assert_eq!(w.royale.last_winner, Some(b), "the better of the last two wins");
 }
 
 #[test]

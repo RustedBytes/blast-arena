@@ -129,6 +129,16 @@ body.no-minimap #perf { left: 12px; }
 }
 #dead-msg { font-size: 30px; font-weight: 800; color: var(--danger); }
 #dead-timer { font-size: 18px; margin-top: 6px; }
+/* Battle royale: out until the next match. A small notice in the
+   bottom-right corner, above the HUD buttons, so the spectator view stays clear. */
+#dead.out {
+  left: auto; top: auto; right: 12px; bottom: 68px; transform: none;
+  text-align: right; padding: 8px 14px; border-radius: 10px;
+  background: var(--panel); text-shadow: none; max-width: min(320px, calc(100vw - 24px));
+}
+#dead.out #dead-msg { font-size: 17px; }
+#dead.out #dead-timer { font-size: 13px; margin-top: 2px; opacity: 0.85; }
+body.touch #dead.out { bottom: 140px; }
 
 /* ---------- Overlays ---------- */
 .overlay {

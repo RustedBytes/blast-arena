@@ -6,6 +6,25 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- German, French, Spanish, Italian and Polish translations of the client.
+
+### Changed
+
+- Portals and teleporter pads never drop a player inside an atomic bomb's
+  red zone (a ticking nuke's disc, or one still burning): the trip is
+  refused, like a blocked exit.
+- Battle royale always has a winner: when the zone closes to nothing the
+  storm spares whoever is closest to its centre, and if the last players
+  go down together the one with the best score wins.
+- The battle royale "Out of this match" notice is a small panel in the
+  bottom-right corner instead of a large message in the middle of the screen.
+
+### Removed
+
+- The Russian translation.
+
 ## [0.5.0] - 2026-11-10
 
 ### Added

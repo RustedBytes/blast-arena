@@ -188,8 +188,8 @@ impl World {
             return false;
         }
         let Some((tx, ty)) = self.portal_exit(cell.0, cell.1) else { return false };
-        if !self.exit_free(tx, ty, id) {
-            return false; // blocked: stay, no cooldown, no other exit
+        if !self.exit_free(tx, ty, id) || self.in_nuke_zone(tx, ty) {
+            return false; // blocked (or in a nuke's red zone): stay, no cooldown, no other exit
         }
         let cd = self.tuning.teleport_cooldown;
         let p = self.players.get_mut(&id).unwrap();

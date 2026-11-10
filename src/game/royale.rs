@@ -65,6 +65,11 @@ pub struct Royale {
     pub from: Circle,
     pub to: Circle,
     last_alive: usize,
+    /// Who was still standing at the end of the previous tick: if they all
+    /// go down together, the match still has a winner among them.
+    survivors: Vec<u32>,
+    /// The last match's winner (`None` for a solo match nobody survived).
+    pub last_winner: Option<u32>,
 }
 
 impl World {
@@ -110,10 +115,21 @@ impl World {
             self.royale.last_alive = alive.len();
             self.announce_royale();
         }
-        // Decided: one left of a real match, or nobody at all.
+        // Decided: one left of a real match, or nobody at all. A real match
+        // always has a winner: if the last few went down together (a shared
+        // blast), the best of them takes it.
         if alive.is_empty() || (self.royale.started_with >= 2 && alive.len() <= 1) {
-            self.end_match(alive.first().copied());
+            let winner = alive.first().copied().or_else(|| {
+                if self.royale.started_with < 2 {
+                    return None;
+                }
+                let survivors = std::mem::take(&mut self.royale.survivors);
+                survivors.into_iter().filter_map(|id| self.players.get(&id)).max_by_key(|p| (p.score, std::cmp::Reverse(p.id))).map(|p| p.id)
+            });
+            self.end_match(winner);
+            return;
         }
+        self.royale.survivors = alive;
     }
 
     /// Everyone back on the map, spread out, power-ups reset, full zone.
@@ -145,6 +161,7 @@ impl World {
         let r = &mut self.royale;
         (r.match_on, r.started_with, r.phase, r.from) = (true, ids.len(), 0, full);
         r.last_alive = ids.len();
+        r.survivors.clone_from(&ids);
         self.begin_wait();
         self.announce_royale();
         tracing::debug!(players = ids.len(), "royale match started");
@@ -198,11 +215,16 @@ impl World {
     }
 
     /// The storm: time outside the zone adds up (and wears off inside).
+    /// The storm never takes the last players all at once (the zone ends at
+    /// a point, so in the end everyone is in it): whoever is closest to the
+    /// zone's centre is spared and wins.
     fn storm_damage(&mut self) {
         let zone = self.zone();
         let limit = self.storm_limit();
         let mut dead = Vec::new();
+        let mut alive = 0;
         for p in self.players.values_mut().filter(|p| p.alive) {
+            alive += 1;
             if zone.contains(p.x, p.y) {
                 p.storm = p.storm.saturating_sub(2);
             } else {
@@ -212,12 +234,24 @@ impl World {
                 }
             }
         }
+        if !dead.is_empty() && dead.len() == alive && self.royale.started_with >= 2 {
+            let players = &self.players;
+            let dist = |id: &u32| {
+                let p = &players[id];
+                (p.x - zone.x).powi(2) + (p.y - zone.y).powi(2)
+            };
+            let spared = dead.iter().enumerate().min_by(|a, b| dist(a.1).total_cmp(&dist(b.1)).then(a.1.cmp(b.1))).map(|(k, _)| k);
+            if let Some(k) = spared {
+                dead.swap_remove(k);
+            }
+        }
         for id in dead {
             self.kill(id, None);
         }
     }
 
     fn end_match(&mut self, winner: Option<u32>) {
+        self.royale.last_winner = winner;
         if let Some(p) = winner.and_then(|w| self.players.get_mut(&w)) {
             p.score += WIN_POINTS;
             if let Some(prof) = &mut p.profile {

@@ -562,6 +562,30 @@ impl World {
         }
     }
 
+    /// Whether (x, y) is inside an atomic bomb's red zone: the disc of a
+    /// ticking nuke, or of one whose shockwave or fire hasn't died down yet.
+    /// Portals and teleporter pads never drop anyone there.
+    #[must_use]
+    pub fn in_nuke_zone(&self, x: i32, y: i32) -> bool {
+        let r = i32::from(NUKE_RADIUS);
+        let in_disc = |cx: i32, cy: i32| {
+            let (dx, dy) = (x - cx, y - cy);
+            dx * dx + dy * dy <= r * r + r
+        };
+        if self.bombs.values().any(|b| b.nuke && in_disc(b.x, b.y)) {
+            return true;
+        }
+        self.explosions.iter().any(|e| {
+            if e.nuke == 0 || !in_disc(e.x, e.y) {
+                return false;
+            }
+            let (dx, dy) = (x - e.x, y - e.y);
+            let delay = ((dx * dx + dy * dy) as f32).sqrt() / NUKE_WAVE_SPEED;
+            let detonated = e.until.saturating_sub(NUKE_SHOW_TICKS);
+            self.tick < detonated + delay as u64 + NUKE_FLAME_TICKS
+        })
+    }
+
     /// Every cell a bomb's fire reaches, excluding its own cell, with the
     /// ticks after detonation it catches fire: the cross of `trace_blast`
     /// (all at once), or an atomic disc (as the shockwave arrives).
@@ -835,6 +859,29 @@ mod tests {
         w.players.get_mut(&id).unwrap().x = 9.5;
         assert!(w.place_bomb(id));
         assert!(!w.bombs[&w.bomb_at(9, 7).unwrap()].nuke, "the next bomb is normal again");
+    }
+
+    #[test]
+    fn red_zone_covers_a_ticking_nuke_and_its_fire_until_it_dies_down() {
+        let (mut w, id) = nuke_world();
+        assert!(!w.in_nuke_zone(7, 7));
+        assert!(w.place_bomb(id));
+        assert!(w.in_nuke_zone(7, 7) && w.in_nuke_zone(13, 7), "the disc of a ticking nuke");
+        assert!(!w.in_nuke_zone(15, 7), "8 cells away: outside");
+        let b = w.bomb_at(7, 7).unwrap();
+        w.bombs.get_mut(&b).unwrap().explode_at = w.tick + 1;
+        w.players.get_mut(&id).unwrap().x = 19.5;
+        let mut ticks = 0;
+        while w.bombs.contains_key(&b) {
+            w.step();
+            ticks += 1;
+            assert!(ticks < 10, "the nuke went off");
+        }
+        assert!(w.in_nuke_zone(13, 7), "still burning");
+        for _ in 0..(u64::from(NUKE_RADIUS) + NUKE_FLAME_TICKS + 2) {
+            w.step();
+        }
+        assert!(!w.in_nuke_zone(13, 7) && !w.in_nuke_zone(7, 7), "the fire is out");
     }
 
     #[test]
