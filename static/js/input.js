@@ -96,6 +96,7 @@ export class Input {
       case 'Digit0': case 'Numpad0': this.h.onAction('zoomReset', true); break;
       case 'KeyM': this.h.onAction('mute', true); break;
       case 'KeyP': this.h.onAction('fps', true); break;
+      case 'KeyN': this.h.onAction('minimap', true); break;
       case 'Escape': this.h.onAction('menu', true); break;
       case 'Tab': e.preventDefault(); this.h.onAction('board', true); break;
     }

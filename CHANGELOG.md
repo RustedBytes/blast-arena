@@ -4,6 +4,13 @@ All notable changes to Blast Arena are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Settings can hide the minimap (also the **N** key) and set its size
+  (110–280 px); the FPS panel moves along with it.
+
 ## [0.3.0] - 2026-11-10
 
 ### Added

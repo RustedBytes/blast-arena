@@ -8,7 +8,7 @@ import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
 import { AB, EV, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
-import { Settings } from './settings.js';
+import { MINIMAP_MAX, MINIMAP_MIN, Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
 
 const $ = (id) => document.getElementById(id);
@@ -490,6 +490,7 @@ const input = new Input({
     if (name === 'board') $('leaderboard').classList.toggle('expanded', down);
     else if (name === 'mute') settings.set('muted', !settings.get('muted'));
     else if (name === 'fps') settings.set('showFps', !settings.get('showFps'));
+    else if (name === 'minimap') settings.set('showMinimap', !settings.get('showMinimap'));
     else if (name === 'zoomReset') setZoom(1);
     else if (name === 'menu') toggleSettings();
     else if (name === 'emoteWheel') $('emote-wheel').classList.toggle('hidden');
@@ -820,6 +821,13 @@ function applySettings() {
   audio.setSfxVolume(settings.get('sfx'));
   audio.setMuted(settings.get('muted'));
   $('perf').classList.toggle('hidden', !settings.get('showFps'));
+  const mapSize = Math.min(MINIMAP_MAX, Math.max(MINIMAP_MIN, settings.get('minimapSize')));
+  document.documentElement.style.setProperty('--minimap', `${mapSize}px`);
+  document.body.classList.toggle('no-minimap', !settings.get('showMinimap'));
+  $('set-minimap').checked = settings.get('showMinimap');
+  $('set-minimap-size').value = mapSize;
+  $('set-minimap-size').disabled = !settings.get('showMinimap');
+  renderer.lastMinimap = 0; // redraw at the new size right away
   $('set-music').value = settings.get('music');
   $('set-sfx').value = settings.get('sfx');
   $('set-muted').checked = settings.get('muted');
@@ -850,6 +858,8 @@ $('set-sfx').addEventListener('input', (e) => settings.set('sfx', Number(e.targe
 $('set-zoom').addEventListener('input', (e) => setZoom(Number(e.target.value)));
 $('set-muted').addEventListener('change', (e) => settings.set('muted', e.target.checked));
 $('set-fps').addEventListener('change', (e) => settings.set('showFps', e.target.checked));
+$('set-minimap').addEventListener('change', (e) => settings.set('showMinimap', e.target.checked));
+$('set-minimap-size').addEventListener('input', (e) => settings.set('minimapSize', Number(e.target.value)));
 $('set-colorblind').addEventListener('change', (e) => settings.set('colorblind', e.target.checked));
 $('set-contrast').addEventListener('change', (e) => settings.set('highContrast', e.target.checked));
 $('set-style').addEventListener('change', (e) => settings.set('tileStyle', e.target.value));

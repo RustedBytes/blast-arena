@@ -27,7 +27,6 @@ const REPAINTS_PER_FRAME = 2; // changed chunks repainted per frame
 const DECALS = 512;         // scorch marks ring buffer
 const DECAL_LIFE = 4000;    // ms
 const POOL = 512;           // pooled entities per frame
-const MINIMAP_CSS = 170;    // minimap size in CSS px (see style.css)
 const MINIMAP_MS = 250;     // minimap overlay refresh period
 // Item halo colour by rarity.
 const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08bff', '#ffd34a', '#ff7af0',
@@ -1940,8 +1939,10 @@ export class Renderer {
   drawMinimap(state) {
     const { map } = state;
     const m = this.minimap, c = this.mctx;
-    if (!m.offsetWidth) return; // display: none (touch layout, small screens)
-    const size = Math.round(MINIMAP_CSS * this.dpr);
+    // Hidden (the setting, touch layout, small screens): nothing to draw.
+    if (!m.offsetWidth) return;
+    // Its CSS size comes from the settings; the backing store follows it.
+    const size = Math.round(m.offsetWidth * this.dpr);
     if (m.width !== size || m.height !== size) {
       m.width = m.height = size;
     }

@@ -34,7 +34,7 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | 1–8 | Emotes (also the 😀 button) |
 | Mouse wheel, `+` / `-` / `0` | Zoom in / out / reset |
 | Tab (hold) | Leaderboard with kills and deaths |
-| M / P / Esc | Mute / FPS / settings |
+| M / P / N / Esc | Mute / FPS / minimap / settings |
 | Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom, right trigger ability, left trigger (hold) shake off a sticky bomb |
 | Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q), ability (R) and action buttons, ✋ (hold, while a sticky bomb is on you), pinch to zoom |
 

@@ -5,7 +5,13 @@ const DEFAULTS = {
   music: 0.35, sfx: 0.6, muted: false, showFps: true, zoom: 1,
   colorblind: false, highContrast: false, lang: '', hat: 0, trail: 0, arena: 0, tutorialDone: false,
   tileStyle: 'pixel', // or 'classic'
+  showMinimap: true,
+  minimapSize: 170, // CSS px, MINIMAP_MIN..MINIMAP_MAX
 };
+
+/** Range of the minimap size setting, in CSS px. */
+export const MINIMAP_MIN = 110;
+export const MINIMAP_MAX = 280;
 
 export class Settings {
   constructor() {
