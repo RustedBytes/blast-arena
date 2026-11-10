@@ -4,6 +4,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
 COPY src ./src
+# Default ability tuning, compiled in with `include_str!`.
+COPY config ./config
 # The browser client is compiled into the binary.
 COPY static ./static
 RUN cargo build --release --bin blast-arena
