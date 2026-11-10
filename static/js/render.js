@@ -14,7 +14,9 @@ export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_
 // Ability objects (src/game/abilities.rs): portal pair colours by owner,
 // particle colours for gas and dashes.
 const PORTAL_COLORS = ['#4ad0ff', '#ff9a3a', '#b07aff', '#4affc8', '#ff5ad0', '#ffe14a'];
-const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16, C_WORM = 17;
+/** Tiles walked per step of the walk cycle. */
+const STRIDE = 0.55;
+const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16, C_WORM = 17, C_DUST = 19;
 const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
 // Rotation for flame arms / conveyors, indexed by direction code - 1.
 const ARM_ANGLES = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
@@ -128,6 +130,8 @@ export class Renderer {
     this.snow = null; // blizzard flakes (x, y in 0..1, speed)
     this.dronePrev = new Map();
     this.clonePrev = new Map();
+    this.gaits = new Map(); // animation key -> walk state (see gait())
+    this.gaitFrame = 0;
     this.stuckBy = new Map(); // bomb id -> carrier id (this frame)
     this.replaying = false;
     this.specials = []; // [x, y, tile] of animated tiles (conveyors, pads)
@@ -137,7 +141,7 @@ export class Renderer {
     this.tileStyle = 'pixel';
     // Pooled frame data, reused every frame.
     this.frame = {
-      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0, stunned: false, carrying: false, dashing: false, gassed: false, clone: 0 })),
+      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0, stunned: false, carrying: false, dashing: false, gassed: false, clone: 0, anim: 0 })),
       nPlayers: 0,
       bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, sticky: false, gas: false, carrier: 0, dx: 0, dy: 0 })),
       nBombs: 0,
@@ -733,6 +737,10 @@ export class Renderer {
       ps[j + 1] = p;
     }
     for (let i = 0; i < f.nPlayers; i++) this.drawPlayer(ps[i], camX, camY, T, sec, dt, state);
+    // Forget the walk state of players not drawn for a while.
+    if (++this.gaitFrame % 600 === 0) {
+      for (const [key, g] of this.gaits) if (this.gaitFrame - g.seen > 120) this.gaits.delete(key);
+    }
     this.drawStuckBombs(f, camX, camY, T, sec);
 
     this.particles.pixel = this.tileStyle === 'pixel';
@@ -1728,7 +1736,7 @@ export class Renderer {
    * `frame`: 0 standing, 1 and 2 the walk steps (pixel art only). `cache`
    * (a player's `look().sprites`) memoizes the sprite lookup.
    */
-  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0, cache = null) {
+  drawSprite(colors, facing, px, py, T, sxs, sys, frame = 0, cache = null, rot = 0) {
     const vi = facing === 1 ? 0 : facing === 3 ? 1 : 2;
     let sprite = null;
     if (this.pixelArt()) {
@@ -1750,7 +1758,9 @@ export class Renderer {
       ctx.translate(px, py);
       ctx.scale(facing === 4 ? -sxs : sxs, sys);
     } else {
-      ctx.setTransform(facing === 4 ? -sxs : sxs, 0, 0, sys, px, py);
+      // Leaning (`rot`) pivots on the feet, where (px, py) is.
+      const fx = facing === 4 ? -sxs : sxs, c = Math.cos(rot), s = Math.sin(rot);
+      ctx.setTransform(c * fx, s * fx, -s * sys, c * sys, px, py);
     }
     if (sprite) ctx.drawImage(sprite, -T / 2, -T * 0.92, T, T);
     else {
@@ -1763,18 +1773,71 @@ export class Renderer {
     else ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
+  /**
+   * Walk state of one drawn player, from how far they really moved since
+   * the last frame: the stride follows the ground covered (no feet sliding
+   * at high speed, no stepping on the spot), the gait eases in and out
+   * instead of switching, the body leans into horizontal motion, and a
+   * stop settles with a little squash. Kicks up dust on footfalls.
+   */
+  gait(p, dt, self) {
+    let g = this.gaits.get(p.anim);
+    if (!g) {
+      g = { x: p.x, y: p.y, dist: 0, vx: 0, vy: 0, amp: 0, lean: 0, settle: 0, step: 0, walking: false, seen: 0 };
+      this.gaits.set(p.anim, g);
+    }
+    g.seen = this.gaitFrame;
+    let dx = p.x - g.x, dy = p.y - g.y;
+    g.x = p.x;
+    g.y = p.y;
+    // A teleport, respawn or hop isn't walking.
+    if (Math.abs(dx) + Math.abs(dy) > 1.2 || p.jumpDir || dt <= 0) dx = dy = 0;
+    g.dist += Math.hypot(dx, dy);
+    const dtc = Math.max(dt, 1e-3);
+    const k = 1 - Math.exp(-dt * 16);
+    g.vx += (dx / dtc - g.vx) * k;
+    g.vy += (dy / dtc - g.vy) * k;
+    // Our own `moving` flag comes from an older snapshot; the predicted
+    // motion alone says it sooner. (Others' flag rules out conveyor rides.)
+    const walking = (p.moving || self) && Math.hypot(g.vx, g.vy) > 0.8;
+    if (g.walking && !walking) g.settle = 1;
+    g.walking = walking;
+    // Quick to get going, a touch slower to wind down.
+    g.amp += ((walking ? 1 : 0) - g.amp) * (1 - Math.exp(-dt * (walking ? 18 : 10)));
+    g.settle *= Math.exp(-dt * 7);
+    const lean = p.jumpDir ? 0 : Math.max(-1, Math.min(1, g.vx / 7)) * 0.13 * g.amp;
+    g.lean += (lean - g.lean) * (1 - Math.exp(-dt * 12));
+    return g;
+  }
+
   drawPlayer(p, camX, camY, T, sec, dt, state) {
     const { ctx } = this;
     const info = state.rosterInfo.get(p.id);
     const look = this.look(p.id, state);
     const colors = look.colors;
-    // Two-step walk cycle: a hop with squash and stretch. Pixel art steps
-    // its legs instead and hops by whole art pixels, so the grid never warps.
+    const g = this.gait(p, dt, p.anim === state.myId && !this.replaying);
+    // Two-step walk cycle driven by distance walked: a bounce that
+    // squashes on each footfall and stretches between them. Pixel art
+    // steps its legs instead, bobs by whole art pixels and doesn't lean,
+    // so the grid never warps.
     const pixel = this.pixelArt() !== null;
-    const phase = p.moving ? Math.abs(Math.sin(sec * 12 + p.id)) : 0;
-    const bob = pixel ? -Math.round(phase) * T / 16 : -phase * T * 0.07;
-    const sxs = pixel ? 1 : 1 + phase * 0.05, sys = pixel ? 1 : 1 - phase * 0.06;
-    const step = p.moving ? (Math.floor((sec * 12 + p.id) / Math.PI) % 2 ? 1 : 2) : 0;
+    const phase = g.dist * Math.PI / STRIDE;
+    const lift = Math.abs(Math.sin(phase)) * g.amp;
+    const bob = pixel ? -Math.round(lift) * T / 16 : -lift * T * 0.07;
+    const stretch = pixel ? 0 : (lift - 0.5 * g.amp) * 0.09 - g.settle * 0.07;
+    const sxs = 1 - stretch * 0.7, sys = 1 + stretch;
+    const lean = pixel ? 0 : g.lean;
+    const stepNo = Math.floor(phase / Math.PI);
+    const step = g.amp > 0.35 ? (stepNo % 2 ? 1 : 2) : 0;
+    if (stepNo !== g.step) {
+      g.step = stepNo;
+      // A puff of dust where the foot lands, kicked back a little.
+      if (g.amp > 0.6 && !p.ghost && !p.jumpDir && Math.random() < 0.7) {
+        const sp = Math.hypot(g.vx, g.vy) || 1;
+        this.particles.emit(P_SMOKE, p.x - g.vx / sp * 0.15 + (Math.random() - 0.5) * 0.2, p.y + 0.38,
+          -g.vx / sp * 0.3, -0.25, 0.45, 0.07, C_DUST);
+      }
+    }
     const px = p.x * T - camX;
     let py = p.y * T - camY;
     // A hop over a pillar: a shadow stays on the ground, the player arcs up.
@@ -1834,10 +1897,10 @@ export class Renderer {
     }
     py -= p.lift;
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
-    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites);
+    this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites, lean);
     ctx.globalAlpha = 1;
     if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);
-    else this.drawHat(info?.hat ?? 0, px, py - T * 0.16 + bob, T, p.facing);
+    else this.drawHat(info?.hat ?? 0, px + Math.sin(lean) * T * 0.58, py + T * (0.42 - 0.58 * sys) + bob, T, p.facing);
     if (p.shield) {
       // Rotating hexagonal shield bubble.
       const r = T * (0.56 + 0.03 * Math.sin(sec * 6));
@@ -2293,6 +2356,7 @@ export class Renderer {
       const o = f.players[n++];
       setPlayer(o, [c[1], 0, 0, c[4], c[5]], (p[2] + (c[2] - p[2]) * alpha) / 100, (p[3] + (c[3] - p[3]) * alpha) / 100);
       o.clone = c[1];
+      o.anim = -c[0]; // walks apart from its owner
     }
     if (state.me?.alive && state.mine) {
       const o = f.players[n++];
@@ -2364,6 +2428,7 @@ export class Renderer {
 
 function setPlayer(o, q, x, y) {
   o.id = q[0];
+  o.anim = q[0];
   o.x = x;
   o.y = y;
   o.facing = q[3];

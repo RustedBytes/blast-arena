@@ -21,6 +21,7 @@ export const COLORS = [
   '#8fd14f', '#5aa02a',                       // 14-15 gas
   '#4affc8',                                  // 16 dash
   '#c94a66', '#ff9a8a',                       // 17-18 worm
+  '#c9b48a',                                  // 19 footstep dust
 ];
 
 
