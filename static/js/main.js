@@ -6,7 +6,7 @@ import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
-import { AB, EV, meObject } from './protocol.js';
+import { AB, EV, WORM_NEWS, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { MINIMAP_MAX, MINIMAP_MIN, Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
@@ -137,6 +137,8 @@ const net = new Net({
       hills: m.hills,
       emotes: new Map(),
       bombCells: new Set(),
+      wormMeals: new Set(), // players a worm just ate (their kill message follows)
+      eatenByWorm: false,
       lastLb: '',
       roundSecs: m.round,
       movedAt: null,
@@ -289,10 +291,15 @@ const net = new Net({
     renderer.death(m.x, m.y, now, colors, 3);
     if (m.v === state.myId) audio.death();
     const name = (id) => escapeHtml(state.rosterInfo.get(id)?.name ?? '???');
+    // A worm's meal is announced (EV.WORM) just before the kill.
+    const eaten = state.wormMeals.delete(m.v);
+    if (m.v === state.myId) state.eatenByWorm = eaten;
     const el = document.createElement('div');
     el.className = 'kill';
     if (m.k === state.myId || m.v === state.myId) el.classList.add('mine');
-    el.innerHTML = m.k === null || m.k === undefined
+    el.innerHTML = eaten
+      ? `🪱 ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
+      : m.k === null || m.k === undefined
       ? t('wasBlasted', { v: `<b class="v">${name(m.v)}</b>` })
       : m.k === m.v
         ? t('blewUp', { v: `<b class="v">${name(m.v)}</b>` })
@@ -418,6 +425,9 @@ const net = new Net({
       case EV.ABILITY:
         abilityEvent(v, now);
         break;
+      case EV.WORM:
+        wormEvent(v);
+        break;
       case EV.SWAP:
         for (const id of v) {
           const f = renderer.frame;
@@ -496,6 +506,28 @@ const input = new Input({
     else if (name === 'emoteWheel') $('emote-wheel').classList.toggle('hidden');
   },
 });
+
+/** Worms arena news (EV.WORM): effects, sounds and notices. */
+function wormEvent([what, x, y, who]) {
+  const id = who - 1;
+  const near = Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y) < 14;
+  switch (what) {
+    case WORM_NEWS.ATE:
+      state.wormMeals.add(id);
+      renderer.wormGulp(x, y);
+      break;
+    case WORM_NEWS.KILLED:
+      renderer.wormSplat(x, y, true);
+      if (near) audio.kick();
+      if (id === state.myId) alerts.toast(t('wormKilled'), { icon: '🪱', tone: 'good', key: 'worm-news' });
+      break;
+    case WORM_NEWS.CUT:
+      renderer.wormSplat(x, y, false);
+      if (near) audio.kick();
+      if (id === state.myId) alerts.toast(t('wormCut'), { icon: '✂️', tone: 'info', key: 'worm-news' });
+      break;
+  }
+}
 
 /** Ability events (EV.ABILITY): effects, sounds and notices. */
 function abilityEvent(v, now) {
@@ -735,7 +767,8 @@ function updateHud(me) {
     const out = me.respawn * tickS > 3600; // royale: out until the next match
     $('dead-msg').textContent = killer === state.myId
       ? t('youBlewUp')
-      : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle') : t('youWereBlasted');
+      : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle')
+        : state.eatenByWorm ? t('youWereEaten') : t('youWereBlasted');
     $('dead-timer').textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');
   }
@@ -901,7 +934,7 @@ function renderArenas() {
   if (!arenas.some((a) => a.id === selectedArena)) selectedArena = arenas[0]?.id ?? 0;
   $('arena-list').innerHTML = arenas.map((a) =>
     `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}">` +
-    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
+    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : a.mode === 'worms' ? t('modeWorms') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
     `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
 }
 $('arena-list').addEventListener('click', (e) => {

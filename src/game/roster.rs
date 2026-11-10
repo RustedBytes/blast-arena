@@ -216,7 +216,7 @@ impl World {
         if self.map.is_solid(x, y) || self.bomb_at(x, y).is_some() || self.map.get(x, y) == Tile::Teleport || self.sudden_death_unsafe(x, y) {
             return false;
         }
-        if self.danger_near(x, y, 4) {
+        if self.danger_near(x, y, 4) || self.worm_near(x, y, 3) {
             return false;
         }
         if avoid_players && self.players_in_rect(x - 3, y - 3, x + 3, y + 3).any(|p| p.alive) {

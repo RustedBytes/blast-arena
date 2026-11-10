@@ -11,7 +11,11 @@ const OP = {
   FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14, EVENT: 15,
 };
 /** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
-export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11 };
+export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11, WORM: 12 };
+/** What a worm event reports (values: [what, x, y, player id + 1]); mirrors `game::worms::news`. */
+export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 };
+/** Worm flags in snapshots; mirrors `game::worms::flag`. */
+export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4 };
 /** Sub-kinds of ability events (values: [kind, tick, ...]); mirrors `game::abilities::ab`. */
 export const AB = {
   ACTIVATED: 1, REJECTED: 2, COOLDOWN: 3, WALL_CREATED: 4, WALL_REMOVED: 5, GAS_CREATED: 6, GAS_EXPIRED: 7,
@@ -21,7 +25,7 @@ export const AB = {
 const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8, ability: 9, cancel: 10 };
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
 const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 };
-const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16 };
+const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32 };
 const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
 
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
@@ -213,7 +217,7 @@ function decodeSnapshot(r, baseFor) {
     : [];
 
   // Ability objects in view, sent whole every snapshot (see protocol::snap).
-  const x = { gas: [], portals: [], clones: [], decoys: [], stuck: [] };
+  const x = { gas: [], portals: [], clones: [], decoys: [], stuck: [], worms: [] };
   if (sections & SECTION.EXTRA) {
     const parts = r.u8();
     // [id, x, y, arms, ticks left]
@@ -232,6 +236,14 @@ function decodeSnapshot(r, baseFor) {
     if (parts & EXTRA.DECOYS) x.decoys = r.list(r.uvar(), () => [r.uvar(), r.uvar(), r.uvar(), r.ivar()]);
     // [bomb id, carrier id]
     if (parts & EXTRA.STUCK) x.stuck = r.list(r.uvar(), () => [r.uvar(), r.uvar()]);
+    // [id, flags, ticks per step, ticks since the last step, [x0, y0, x1, y1, ...]]:
+    // cells head first, then the cell the tail just left (only the head
+    // for a worm out of view).
+    if (parts & EXTRA.WORMS) x.worms = r.list(r.uvar(), () => {
+      const id = r.uvar(), flags = r.u8(), step = r.uvar(), since = r.uvar();
+      const cells = r.list(r.uvar(), () => [r.uvar(), r.uvar()]).flat();
+      return [id, flags, step, since, cells];
+    });
   }
 
   const rawMe = (base?.rawMe ?? ME_EMPTY).slice();

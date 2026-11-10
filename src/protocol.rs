@@ -118,6 +118,11 @@ pub mod ev {
     /// An ability event: sub-kind (see `game::abilities::ab`), server
     /// tick, then that kind's values.
     pub const ABILITY: u8 = 11;
+    /// Worms arena news: what (1 a worm ate a player, 2 a worm was killed,
+    /// 3 a blast cut a worm in two), x, y, then the player (the one eaten,
+    /// or whose fire did it) id + 1, 0 for nobody. A meal arrives just
+    /// before the victim's kill message.
+    pub const WORM: u8 = 12;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -137,6 +142,10 @@ pub mod ev {
 ///   [CLONES]     n, n × (id, owner id, ivar x, ivar y in hundredths, look)
 ///   [DECOYS]     n, n × (id, x, y, ivar fuse ticks shown)
 ///   [STUCK]      n, n × (bomb id, carrier id)
+///   [WORMS]      n, n × (id, u8 flags, ticks per step, ticks since the
+///                last step, n cells, n × (x, y)): every worm in the arena.
+///                Cells are head first, then the cell the tail just left;
+///                a worm out of view (flag FAR) sends only its head.
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -164,6 +173,7 @@ pub mod snap {
     pub const CLONES: u8 = 4;
     pub const DECOYS: u8 = 8;
     pub const STUCK: u8 = 16;
+    pub const WORMS: u8 = 32;
 
     pub const DX: u64 = 1;
     pub const DY: u64 = 2;
@@ -865,6 +875,14 @@ pub mod testing {
                 if parts & snap::STUCK != 0 {
                     let n = r.uvar().unwrap() as usize;
                     extra["stuck"] = json!(list(&mut r, n, &|r| json!([r.uvar().unwrap(), r.uvar().unwrap()])));
+                }
+                if parts & snap::WORMS != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["worms"] = json!(list(&mut r, n, &|r| {
+                        let (id, flags, step, since) = (r.uvar().unwrap(), r.u8().unwrap(), r.uvar().unwrap(), r.uvar().unwrap());
+                        let cells = (0..r.uvar().unwrap()).map(|_| json!([r.uvar().unwrap(), r.uvar().unwrap()])).collect::<Vec<_>>();
+                        json!([id, flags, step, since, cells])
+                    }));
                 }
             }
             if has(snap::ME) {

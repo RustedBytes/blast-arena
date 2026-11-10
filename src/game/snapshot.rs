@@ -8,7 +8,7 @@ use super::bomb::NUKE_RADIUS;
 use super::clone::{F_DASHING, F_JUMPING, F_MOVING};
 use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
-use super::{BUCKET, LEADERBOARD_EVERY, World};
+use super::{BUCKET, LEADERBOARD_EVERY, World, worms};
 
 impl World {
     pub(super) fn rebuild_buckets(&mut self) {
@@ -258,7 +258,8 @@ fn bomb_flags(b: &super::bomb::Bomb) -> u8 {
 
 impl World {
     /// The `EXTRA` section: ability objects in view (gas clouds, portals,
-    /// clones, decoy bombs, who carries which sticky bomb). Returns whether
+    /// clones, decoy bombs, who carries which sticky bomb) and the worms.
+    /// Returns whether
     /// it wrote anything.
     fn write_extra(&self, w: &mut Wire<'_>, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> bool {
         let tick = self.tick;
@@ -276,6 +277,7 @@ impl World {
             (clones().count(), snap::CLONES),
             (decoys().count(), snap::DECOYS),
             (stuck().count(), snap::STUCK),
+            (self.worms.list.len(), snap::WORMS),
         ] {
             if n > 0 {
                 parts |= bit;
@@ -315,6 +317,27 @@ impl World {
             w.len(stuck().count());
             for b in stuck() {
                 w.id(b.id).id(b.attached);
+            }
+        }
+        if parts & snap::WORMS != 0 {
+            // Every worm, so the minimap can show them all; the ones out of
+            // view only by their head.
+            w.len(self.worms.list.len());
+            for worm in &self.worms.list {
+                let seen = worm.body.iter().any(|&(x, y)| inside(x, y, 1));
+                let flags = (u8::from(worm.chasing) * worms::flag::CHASING)
+                    | (u8::from(worm.emerging(tick)) * worms::flag::EMERGING)
+                    | (u8::from(!seen) * worms::flag::FAR);
+                w.id(worm.id).u8(flags).uvar(worm.step_ticks).uvar(tick.saturating_sub(worm.last_step));
+                if seen {
+                    w.len(worm.body.len() + 1);
+                    for &(x, y) in worm.body.iter().chain(std::iter::once(&worm.trail)) {
+                        w.coord(x).coord(y);
+                    }
+                } else {
+                    let (x, y) = worm.head();
+                    w.len(1).coord(x).coord(y);
+                }
             }
         }
         true

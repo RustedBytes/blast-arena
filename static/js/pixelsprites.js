@@ -558,6 +558,92 @@ function hat(id) {
   return { canvas: p.canvas(X4), rows: rows.length };
 }
 
+// ------------------------------------------------------------------- worms
+
+// Worm flesh: plum shadows up to a pale coral highlight.
+const WORM = ['#1d0818', '#3d1030', '#651a45', '#922a55', '#c2465f', '#ea7476', '#ffbfa3'];
+const DIRT = ['#2a1a10', '#4a2f1a', '#6e4826', '#94673a', '#b98b55'];
+
+/** A shaded ball of flesh with a darker ring across it, for the body. */
+function wormSegment() {
+  const p = new Pix();
+  for (let y = 11; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      if (((x - 7.5) / 5.5) ** 2 + ((y - 13.5) / 1.6) ** 2 <= 1) p.set(x, y, SHADOW);
+    }
+  }
+  const cx = 7.5, cy = 8, r = 5.8;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy);
+      if (d > r) continue;
+      if (d > r - 1) { p.set(x, y, WORM[0]); continue; }
+      const lit = -(0.6 * dx + 0.8 * dy) / r;
+      let k = clamp(Math.round(3 + lit * 2.4), 1, 5);
+      // A ring of muscle round the middle.
+      if (Math.abs(dx) < 1) k = Math.max(1, k - 2);
+      p.set(x, y, WORM[k]);
+    }
+  }
+  p.set(5, 5, WORM[6]);
+  p.set(4, 6, WORM[6]);
+  return p;
+}
+
+/**
+ * The head, facing right: a bigger ball with a jaw of teeth and two eyes,
+ * yellow while it roams and red while it hunts.
+ */
+function wormHead(angry) {
+  const p = new Pix();
+  for (let y = 11; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      if (((x - 7.5) / 6.5) ** 2 + ((y - 14) / 1.7) ** 2 <= 1) p.set(x, y, SHADOW);
+    }
+  }
+  const cx = 7, cy = 8, r = 6.6;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy);
+      if (d > r) continue;
+      if (d > r - 1) { p.set(x, y, WORM[0]); continue; }
+      const lit = -(0.6 * dx + 0.8 * dy) / r;
+      p.set(x, y, WORM[clamp(Math.round(3.2 + lit * 2.4), 1, 6)]);
+    }
+  }
+  // An open mouth with a row of teeth at the front.
+  bitmap(p, [' oo', 'omt', 'om ', 'omt', ' oo'], { o: WORM[0], m: '#2a0410', t: '#f4ead2' }, 11, 6);
+  // Eyes up top, over the mouth.
+  const eye = angry ? ['#ff3a2a', '#ffd0a0'] : ['#ffd34a', '#fff6c8'];
+  bitmap(p, ['oo', 'ab'], { o: WORM[0], a: eye[0], b: eye[1] }, 8, 3);
+  bitmap(p, ['oo', 'ab'], { o: WORM[0], a: eye[0], b: eye[1] }, 11, 4);
+  if (angry) {
+    // Furrowed brows.
+    p.set(8, 2, WORM[0]);
+    p.set(12, 3, WORM[0]);
+  }
+  return p;
+}
+
+/** A heap of fresh dirt where a worm is burrowing out. */
+function wormMound() {
+  const p = new Pix();
+  const rand = rng(77);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const e = ((x - 7.5) / 7) ** 2 + ((y - 10) / 4.6) ** 2;
+      if (e > 1) continue;
+      const lit = -((x - 7.5) * 0.5 + (y - 8) * 0.9) / 6;
+      const k = e > 0.8 ? 0 : clamp(Math.round(2 + lit * 1.6 + (rand() - 0.5)), 1, 4);
+      p.set(x, y, DIRT[k]);
+    }
+  }
+  // The hole in the middle.
+  for (let x = 5; x <= 10; x++) p.set(x, 9, DIRT[0]);
+  for (let x = 6; x <= 9; x++) p.set(x, 10, '#120a06');
+  return p;
+}
+
 // ------------------------------------------------------------------- export
 
 /**
@@ -583,6 +669,10 @@ export function buildPixelSprites() {
     flame_end: big(f.end[0]),
     scorch: big(scorch()),
     hats: HATS.map((h, i) => h && hat(i)),
+    worm_segment: big(wormSegment()),
+    worm_head: big(wormHead(false)),
+    worm_head_angry: big(wormHead(true)),
+    worm_mound: big(wormMound()),
   };
   for (let k = 1; k < names.length; k++) out[names[k]] = big(items[k]);
   return out;

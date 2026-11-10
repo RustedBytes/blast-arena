@@ -66,7 +66,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | Argument | Env var | Default | Meaning |
 |---|---|---|---|
 | `--port` | `PORT` | `3000` | HTTP/WebSocket port |
-| `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa` or `teams`. Repeat the flag, or comma-separate in the env var. |
+| `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa`, `teams`, `royale` or `worms`. Repeat the flag, or comma-separate in the env var. |
 | `--map-size` | `MAP_SIZE` | `81` | Size of the default main arena |
 | `--bots` | `BOTS` | `10` | Bots in the default main arena |
 | `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included |
@@ -78,11 +78,12 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
-Without `--arena` the server runs five arenas:
+Without `--arena` the server runs six arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
 - `Royale:royale:81:15`
+- `Worms:worms:61:6` (free-for-all with hunting worms)
 - `Humans:ffa:51:0` (no bots: real players only)
 
 Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, open plazas, a winding maze with loops, or concentric rings with gates), optional mirror or rotational symmetry (walls, crates and spawn pockets alike, so no side is favoured), patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The generator builds three candidate layouts and keeps the best by a quality score: spawn points spread over the whole arena, crates balanced between the quarters, few dead ends. The log shows the seed and a summary of each map with its score (`map generated`). To preview layouts without starting a server, run `cargo run --release --bin mapview -- --size 41 --count 5` (add `--open` for battle royale maps). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
@@ -171,9 +172,11 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 - **Map events** every minute or two: a **meteor shower** (marked impact zones, then blasts), a **blizzard** in snowy maps (everyone slows down, the minimap fogs over), a **lava surge** in volcanic regions (the ground glows, then burns), an **earthquake** in volcanic regions (the screen rumbles; fissures of fire open along volcano lanes after a short warning; tremors jolt resting bombs a cell in a random direction; when it stops a third of the volcano's crates break and may drop power-ups, some armor cracks and a few pillars crumble into rubble until the next round) and **reversed conveyors** in the desert.
 - **Capture the flag** in the Teams arena: each team has a flag at its base. Walk over the enemy flag to take it and bring it to your base while your own flag is home: +5 points. Carriers can't jump or drop bombs. A carrier who dies drops the flag; touching your own dropped flag sends it home, and it goes home by itself after 15 s. You respawn near your base.
 - **Battle royale** (the Royale arena): last player standing. Everyone starts spread over an open map and the whole map is safe; then the safe zone shrinks in five phases. Each phase first shows the next, smaller circle (white dashed line, also on the minimap) for a while, then the zone closes in on it. Outside the zone is the blue storm: the HUD shows how long you can stay in it (5 s early on, down to 1 s at the end), and time inside lets you recover. No respawns during a match: you watch the nearest survivor, and a new match starts 6 s after a winner is decided (+5 points), with everyone back and power-ups reset. Joining is open until the zone first moves. Royale maps are built to be run across: fewer crates, a crate-free road every 8 cells, and no pocket that can't be walked out of.
+- **Worms** (the Worms arena): a free-for-all where giant worms crawl the lanes and hunt everyone, bots included. A worm is a head and a body that follows the head's path; it smells players up to 12 steps away along the lanes and crawls after the nearest one (yellow eyes while roaming, red while hunting, slower than you on foot). Touching any part of a worm on the ground eats you, unless you are shielded or jumping over it, and makes the worm a segment longer. Fire destroys the segments it touches: the end with the head crawls on, a cut-off piece of two or more segments becomes a worm of its own, and a worm that loses its head or is left too short dies. Ending a worm scores +1 for whoever's fire did it. New worms burrow out of the ground (a trembling mound, harmless for a second) away from players, about one per 550 cells of map. The minimap shows every worm. Worms maps are open, like Royale's, so worms and players have room to move. All the numbers are in `WormTuning` in `src/game/worms.rs`.
 - **Death replay**: after you die, the last moments play again in slow motion from the killer's side until you respawn.
 - **Scoring:**
   - +1 per kill.
+  - +1 per worm you finish off (Worms arena).
   - +1 every 3 s you stand on a glowing **hill**; hills move each round.
   - The leader (5+ points) carries a **bounty** worth +2 extra.
   - Streaks of 3, 5, 8 and 12 kills are announced to everyone.
@@ -309,6 +312,8 @@ src/game/abilities.rs ability power-ups: inventory, ability key, events, cleanup
                       tuning in ability_config (config/abilities.json); tests in
                       ability_tests
 src/game/ai.rs        server-side AI bots
+src/game/worms.rs     the worms of the Worms arena (tuning, crawling, hunting,
+                      blasts, respawns); tests in worm_tests
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
 src/bin/mapview.rs    prints generated maps as text, with their quality scores

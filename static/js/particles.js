@@ -20,6 +20,7 @@ export const COLORS = [
   '#b06bff', '#7a3fd6',                       // 12-13 curse
   '#8fd14f', '#5aa02a',                       // 14-15 gas
   '#4affc8',                                  // 16 dash
+  '#c94a66', '#ff9a8a',                       // 17-18 worm
 ];
 
 

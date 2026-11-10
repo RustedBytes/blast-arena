@@ -6,6 +6,26 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
+### Added
+
+- **Worms arena** (new mode `worms`, in the default arenas as
+  `Worms:worms:61:6`): giant worms crawl the lanes and hunt the nearest
+  player. Touching one eats you and grows the worm; blasts destroy the
+  segments they touch, cutting a worm into pieces that crawl on alone or
+  killing it (+1 point to whoever's fire ends it). Worms burrow back over
+  time, away from players. Tuning lives in `WormTuning`
+  (`src/game/worms.rs`). Worms maps use the open, connected layout.
+- Worms in snapshots (a `WORMS` part in the `EXTRA` section: every worm,
+  in view with all its cells, out of view by its head) and worm news
+  events (`ev` kind 12: eaten, killed, cut).
+- Worms in the client in both art styles, sliding smoothly between cells
+  and turning red-eyed while they hunt, plus mounds where they burrow out,
+  on the minimap, and in the kill feed ("eaten by a worm"), in English,
+  Ukrainian and Russian.
+- Bots keep away from worms and bomb them for points.
+
 ## [0.4.0] - 2026-11-10
 
 ### Added
@@ -180,6 +200,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.5.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.5.0
 [0.4.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.4.0
 [0.3.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.3.0
 [0.2.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.2.0

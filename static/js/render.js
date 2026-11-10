@@ -8,12 +8,13 @@ import { P_CURSE, P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from './particles.js';
 import { t } from './i18n.js';
 import { FRINGE_RANK } from './pixelart.js';
 import { hopHeight } from './prediction.js';
+import { WORM_FLAG } from './protocol.js';
 
 export const T_FLOOR = 0, T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_TELEPORT = 8, T_ARMORED = 9, T_BUILT = 10;
 // Ability objects (src/game/abilities.rs): portal pair colours by owner,
 // particle colours for gas and dashes.
 const PORTAL_COLORS = ['#4ad0ff', '#ff9a3a', '#b07aff', '#4affc8', '#ff5ad0', '#ffe14a'];
-const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16;
+const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16, C_WORM = 17;
 const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
 // Rotation for flame arms / conveyors, indexed by direction code - 1.
 const ARM_ANGLES = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
@@ -620,6 +621,17 @@ export class Renderer {
     this.particles.burst(P_STAR, x, y, 8, 3, 0.6, 0.25, 9, 1);
   }
 
+  /** A worm's segment bursting (blown up, or cut in two at a cell). */
+  wormSplat(x, y, big) {
+    this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, big ? 18 : 9, big ? 4 : 2.5, 0.8, 0.16, C_WORM, 2);
+    this.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 3, 0.8, 0.8, 0.3, 5, 1);
+  }
+
+  /** A worm's gulp: a ring of dust where someone was eaten. */
+  wormGulp(x, y) {
+    this.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 10, 2, 0.6, 0.14, 6, 2);
+  }
+
   spawnBeam(x, y, now) {
     this.effects.push({ kind: 'beam', x, y, start: now, duration: 700 });
     this.particles.burst(P_STAR, x, y, 12, 2.5, 0.7, 0.2, 8, 2);
@@ -710,6 +722,7 @@ export class Renderer {
     this.drawExplosions(state.explosions, camX, camY, T);
     this.drawNukeGround(now, camX, camY, T);
     this.drawGas(state, camX, camY, T, sec, dt);
+    this.drawWorms(state, camX, camY, T, sec, W, H);
 
     // Players back to front (insertion sort on the pooled slice: no garbage).
     const ps = f.players;
@@ -926,6 +939,159 @@ export class Renderer {
         for (let r = 1; r <= arms[d]; r++) cell(x + ARM_DIRS[d][0] * r, y + ARM_DIRS[d][1] * r, d * 8 + r);
       }
     }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Worms: each segment slides from the cell behind it to its own over a
+   * step (cells come head first, then the cell the tail left), tail to head
+   * so the head is on top. Segments taper towards the tail, with an extra
+   * smaller ball between neighbours so the body reads as one. A worm still
+   * burrowing out is a dirt mound with the head peeking out.
+   */
+  drawWorms(state, camX, camY, T, sec, W, H) {
+    const s = this.wormSnap;
+    const worms = s?.x?.worms;
+    if (!worms?.length) return;
+    const { ctx } = this;
+    const pix = this.pixelArt();
+    const pts = this.wormPts ?? (this.wormPts = []);
+    for (const [id, flags, step, since, cells] of worms) {
+      if (flags & WORM_FLAG.FAR) continue;
+      const n = cells.length / 2 - 1; // segments; the last cell is the trail
+      if (n < 1) continue;
+      const hx = cells[0], hy = cells[1];
+      if ((hx + 0.5) * T - camX < -T * 12 || (hy + 0.5) * T - camY < -T * 12 || hx * T - camX > W + T * 12 || hy * T - camY > H + T * 12) continue;
+      const chasing = (flags & WORM_FLAG.CHASING) !== 0;
+      if (flags & WORM_FLAG.EMERGING) {
+        this.drawWormMound(hx, hy, camX, camY, T, sec, id, pix);
+        continue;
+      }
+      // How far through its current step the worm is at render time.
+      const prog = Math.min(1, Math.max(0, (since + this.wormTime - s.k) / Math.max(1, step)));
+      const ease = prog * prog * (3 - 2 * prog);
+      pts.length = 0;
+      for (let i = 0; i < n; i++) {
+        const x0 = cells[2 * i + 2], y0 = cells[2 * i + 3], x1 = cells[2 * i], y1 = cells[2 * i + 1];
+        let x = x0 + (x1 - x0) * ease + 0.5, y = y0 + (y1 - y0) * ease + 0.5;
+        // A slither across the direction of travel.
+        const wig = Math.sin(sec * (chasing ? 11 : 7) - i * 1.2 + id) * 0.07;
+        if (x1 !== x0) y += wig; else if (y1 !== y0) x += wig;
+        pts.push(x, y);
+      }
+      // Facing: from the second cell to the head (or the last step's way).
+      let dx = hx - cells[2], dy = hy - cells[3];
+      if (dx === 0 && dy === 0 && n > 1) { dx = hx - cells[4]; dy = hy - cells[5]; }
+      if (dx === 0 && dy === 0) dx = 1;
+      const size = (i) => T * (0.92 - 0.32 * (n > 1 ? i / (n - 1) : 0));
+      if (!pix) {
+        // Classic: a soft red glow under a hunting worm's head.
+        if (chasing) {
+          ctx.fillStyle = `rgba(255,60,60,${0.18 + 0.1 * Math.sin(sec * 10)})`;
+          ctx.beginPath();
+          ctx.arc(pts[0] * T - camX, pts[1] * T - camY, T * 0.75, 0, 6.2832);
+          ctx.fill();
+        }
+      }
+      for (let i = n - 1; i >= 0; i--) {
+        const px = pts[2 * i] * T - camX, py = pts[2 * i + 1] * T - camY;
+        if (i < n - 1) {
+          // A smaller ball halfway to the segment behind.
+          const mx = (pts[2 * i] + pts[2 * i + 2]) / 2 * T - camX, my = (pts[2 * i + 1] + pts[2 * i + 3]) / 2 * T - camY;
+          this.drawWormBall(mx, my, (size(i) + size(i + 1)) * 0.42, pix, i + 0.5);
+        }
+        if (i === 0) this.drawWormHead(px, py, size(0) * 1.12, dx, dy, chasing, pix, sec);
+        else this.drawWormBall(px, py, size(i), pix, i);
+      }
+    }
+  }
+
+  drawWormBall(px, py, size, pix, i) {
+    const { ctx } = this;
+    if (pix) {
+      ctx.drawImage(pix.worm_segment, px - size / 2, py - size / 2, size, size);
+      return;
+    }
+    const r = size / 2;
+    const g = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
+    g.addColorStop(0, '#ffb3a0');
+    g.addColorStop(0.55, Math.floor(i) % 2 ? '#c94a66' : '#d9586f');
+    g.addColorStop(1, '#5e1838');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, 6.2832);
+    ctx.fill();
+  }
+
+  drawWormHead(px, py, size, dx, dy, angry, pix, sec) {
+    const { ctx } = this;
+    // Turned to face the way it crawls; a left-facing head is mirrored, so
+    // it never crawls upside down.
+    const a = dx < 0 ? 0 : Math.atan2(dy, dx);
+    const c = Math.cos(a), s = Math.sin(a), flip = dx < 0 ? -1 : 1;
+    ctx.setTransform(c * flip, s * flip, -s, c, px, py);
+    if (pix) {
+      ctx.drawImage(angry ? pix.worm_head_angry : pix.worm_head, -size / 2, -size / 2, size, size);
+    } else {
+      const r = size / 2;
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.4, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#ffc2ab');
+      g.addColorStop(0.6, '#d0506a');
+      g.addColorStop(1, '#5a1434');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, 6.2832);
+      ctx.fill();
+      // A chomping mouth at the front.
+      const open = 0.35 + 0.25 * Math.abs(Math.sin(sec * (angry ? 12 : 5)));
+      ctx.fillStyle = '#2a0410';
+      ctx.beginPath();
+      ctx.moveTo(r * 0.1, 0);
+      ctx.arc(0, 0, r * 0.95, -open, open);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#f4ead2';
+      for (const k of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(r * 0.75, k * r * 0.12);
+        ctx.lineTo(r * 0.95, k * r * 0.3);
+        ctx.lineTo(r * 0.55, k * r * 0.3);
+        ctx.fill();
+      }
+      for (const [ex, ey] of [[0.15, -0.55], [0.5, -0.4]]) {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(ex * r, ey * r, r * 0.17, 0, 6.2832);
+        ctx.fill();
+        ctx.fillStyle = angry ? '#ff2a1a' : '#1a0a14';
+        ctx.beginPath();
+        ctx.arc(ex * r + r * 0.05, ey * r, r * 0.09, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  /** A worm burrowing out: a trembling heap of dirt, the head peeking up. */
+  drawWormMound(x, y, camX, camY, T, sec, id, pix) {
+    const { ctx } = this;
+    const px = (x + 0.5) * T - camX, py = (y + 0.5) * T - camY;
+    const shake = Math.sin(sec * 40 + id) * T * 0.025;
+    if (pix) {
+      ctx.drawImage(pix.worm_mound, px - T * 0.55 + shake, py - T * 0.5, T * 1.1, T * 1.1);
+    } else {
+      ctx.fillStyle = '#6e4826';
+      ctx.beginPath();
+      ctx.ellipse(px + shake, py + T * 0.12, T * 0.48, T * 0.3, 0, 0, 6.2832);
+      ctx.fill();
+      ctx.fillStyle = '#1a0e08';
+      ctx.beginPath();
+      ctx.ellipse(px + shake, py + T * 0.08, T * 0.22, T * 0.1, 0, 0, 6.2832);
+      ctx.fill();
+    }
+    const peek = 0.5 + 0.5 * Math.sin(sec * 6 + id);
+    ctx.globalAlpha = 0.85;
+    this.drawWormHead(px + shake, py - T * 0.12 * peek, T * 0.55, 0, -1, false, pix, sec);
     ctx.globalAlpha = 1;
   }
 
@@ -2041,6 +2207,23 @@ export class Renderer {
     c.strokeRect(this.camX / T * scale, this.camY / T * scale, this.canvas.width / T * scale, this.canvas.height / T * scale);
     const f = this.frame;
     const dot = this.dpr * 1.5;
+    // Worms, wherever they are: the body when in view, else the head.
+    const worms = state.snaps.latest()?.x?.worms;
+    if (worms?.length) {
+      for (const [, flags, , , cells] of worms) {
+        const n = flags & WORM_FLAG.FAR ? 1 : cells.length / 2 - 1;
+        for (let i = n - 1; i >= 0; i--) {
+          const s = i === 0 ? Math.max(dot * 3.4, scale * 1.6) : Math.max(dot * 2, scale);
+          const x = (cells[2 * i] + 0.5) * scale - s / 2, y = (cells[2 * i + 1] + 0.5) * scale - s / 2;
+          if (i === 0) {
+            c.fillStyle = '#1d0818';
+            c.fillRect(x - this.dpr, y - this.dpr, s + 2 * this.dpr, s + 2 * this.dpr);
+          }
+          c.fillStyle = flags & WORM_FLAG.CHASING ? '#ff5a8a' : '#e070ff';
+          c.fillRect(x, y, s, s);
+        }
+      }
+    }
     for (let i = 0; i < f.nPlayers; i++) {
       const p = f.players[i];
       const me = p.id === state.myId;
@@ -2081,6 +2264,9 @@ export class Renderer {
       }
     }
     const alpha = b.k > a.k ? Math.min(1, Math.max(0, (rt - a.k) / (b.k - a.k))) : 0;
+    // Worms slide between cells from their own step timing (see drawWorms).
+    this.wormSnap = b;
+    this.wormTime = rt;
     const f = this.frame;
     const prev = this.prev;
 

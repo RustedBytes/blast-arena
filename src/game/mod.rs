@@ -13,6 +13,7 @@ pub mod dash;
 pub mod gas;
 pub mod portal;
 pub mod sticky;
+pub mod worms;
 pub mod items;
 pub mod link;
 pub mod map;
@@ -39,6 +40,8 @@ mod tick;
 mod ability_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod worm_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -109,6 +112,8 @@ pub enum Mode {
     Teams,
     /// Battle royale: last player standing inside a shrinking zone.
     Royale,
+    /// Free-for-all with worms: AI creatures that hunt everyone (see `worms`).
+    Worms,
 }
 
 impl Mode {
@@ -118,6 +123,7 @@ impl Mode {
             Mode::Ffa => "ffa",
             Mode::Teams => "teams",
             Mode::Royale => "royale",
+            Mode::Worms => "worms",
         }
     }
 
@@ -127,6 +133,7 @@ impl Mode {
             "ffa" => Some(Mode::Ffa),
             "teams" => Some(Mode::Teams),
             "royale" => Some(Mode::Royale),
+            "worms" => Some(Mode::Worms),
             _ => None,
         }
     }
@@ -263,6 +270,8 @@ pub struct World {
     pub blizzard_until: u64,
     /// Battle royale match and zone (see `royale`).
     pub royale: royale::Royale,
+    /// Worms hunting players in the worms arena (see `worms`).
+    pub worms: worms::Worms,
     /// Tile and item changes made during the current tick, sent to everyone.
     pub tile_changes: Vec<TileChange>,
     pub item_changes: Vec<(i32, i32, u8)>,
@@ -314,12 +323,15 @@ pub struct WorldStats {
     pub portal_pairs: u64,
     pub teleports: u64,
     pub dashes: u64,
+    pub worms_killed: u64,
+    pub worm_bites: u64,
 }
 
 impl World {
     pub fn new(cfg: &Config, live: Arc<ArenaStats>, db: Option<Db>) -> Self {
-        // Battle royale needs room to run for the zone: an open, connected map.
-        let map = if cfg.mode == Mode::Royale {
+        // Battle royale needs room to run for the zone, and worms need room
+        // to crawl and hunt: an open, connected map.
+        let map = if matches!(cfg.mode, Mode::Royale | Mode::Worms) {
             Map::generate_open(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
         } else {
             Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed))
@@ -348,6 +360,9 @@ impl World {
         world.round_end = if cfg.mode == Mode::Royale { u64::MAX } else { world.round_ticks };
         world.place_hills();
         world.init_events();
+        if cfg.mode == Mode::Worms {
+            world.enable_worms();
+        }
         world.set_target_bots(cfg.bots);
         world
     }
@@ -389,6 +404,7 @@ impl World {
             events: events::Events::default(),
             blizzard_until: 0,
             royale: royale::Royale::default(),
+            worms: worms::Worms::new(n),
             tile_changes: Vec::new(),
             item_changes: Vec::new(),
             crate_target: (crate_count as f32 * CRATE_REGROW_TARGET) as usize,

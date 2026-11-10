@@ -276,6 +276,15 @@ impl World {
                 }
             }
         }
+        // Worms are fair game for everyone: blowing one up scores.
+        for w in &self.worms.list {
+            for &(x, y) in &w.body {
+                let i = self.map.idx(x, y);
+                for t in &mut sc.targets {
+                    t[i] = t[i].saturating_add(1);
+                }
+            }
+        }
         self.fill_danger(&mut sc.danger, &mut sc.bombs, &mut sc.bomb_index);
     }
 
@@ -366,6 +375,33 @@ impl World {
                 let i = self.map.idx(cx, cy);
                 danger[i] = danger[i].min(t.saturating_add(delay));
             });
+        }
+        self.worm_danger(danger);
+    }
+
+    /// Worms bite: their bodies are deadly now, and the cells around a
+    /// head from when it could crawl there.
+    fn worm_danger(&self, danger: &mut [u16]) {
+        const REACH: i32 = 2;
+        for w in &self.worms.list {
+            for &(x, y) in &w.body {
+                danger[self.map.idx(x, y)] = 0;
+            }
+            let (hx, hy) = w.head();
+            let next = w.next_step.saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
+            let step = w.step_ticks.min(u64::from(SAFE)) as u16;
+            for dy in -REACH..=REACH {
+                for dx in -REACH..=REACH {
+                    let steps = dx.abs() + dy.abs();
+                    let (x, y) = (hx + dx, hy + dy);
+                    if steps == 0 || steps > REACH || !self.map.in_bounds(x, y) || self.map.is_solid(x, y) {
+                        continue;
+                    }
+                    let t = next.saturating_add(step.saturating_mul(steps as u16 - 1));
+                    let i = self.map.idx(x, y);
+                    danger[i] = danger[i].min(t);
+                }
+            }
         }
     }
 
