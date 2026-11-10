@@ -6,6 +6,32 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Players walk more naturally: the stride follows the ground actually
+  covered (no feet sliding at high speed), the gait eases in and out,
+  bodies lean into sideways runs and settle when they stop, and footsteps
+  kick up dust. Pixel art keeps its grid: no lean or squash.
+- The interface fits more screens:
+  - Phones held upright: the round timer gets the top line, and the stats
+    and leaderboard sit under it instead of on top of each other.
+  - Phones in landscape: a compact HUD, a three-player leaderboard, a
+    lower and tighter cluster of touch buttons that no longer hides under
+    the leaderboard, and the FPS panel at the bottom.
+  - Tablets and narrow windows: the stats wrap before reaching the timer,
+    and alerts fit between the side panels.
+  - Large displays: the HUD and menus scale up (1.2× from about 1700×950,
+    1.4× from 2200×1250, 1.8× from 3000×1700).
+  - Notches and rounded corners are kept clear (safe areas), and phone
+    browser bars no longer cut off the lobby or joystick area.
+  - On touch screens the lobby hides the keyboard key list, and fields no
+    longer zoom the page when focused.
+
+### Fixed
+
+- On phones, the top of the lobby (logo, name and language) was pushed out
+  of reach of scrolling.
+
 ## [0.6.1] - 2026-11-10
 
 ### Fixed

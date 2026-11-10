@@ -6,6 +6,12 @@
       "runtimeExecutable": "cargo",
       "runtimeArgs": ["run", "--release", "--bin", "blast-arena"],
       "port": 3000
+    },
+    {
+      "name": "blast-arena-live-static",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "--release", "--bin", "blast-arena", "--", "--static-dir", "static"],
+      "port": 3000
     }
   ]
 }
