@@ -17,6 +17,8 @@
 //
 // Jumps over stone pillars are part of the input (the held jump key) and
 // are simulated exactly like the server does, so they replay correctly.
+// A dash starts on the server (the ability key); once a snapshot shows it,
+// replay continues it the way the server does (src/game/dash.rs).
 
 const DIRS = [[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]];
 const OPPOSITE = [0, 3, 4, 1, 2];
@@ -24,7 +26,9 @@ const BASE_SPEED = 3.5, SPEED_STEP = 0.6, CURSED_SPEED = 2.2, CONVEYOR_SPEED = 1
 const CORNER_ASSIST_MIN = 0.12;
 const DT = 0.05;
 const HISTORY = 64;
-const T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_ARMORED = 9;
+const T_WALL = 1, T_CRATE = 2, T_ICE = 3, T_ARMORED = 9, T_BUILT = 10;
+// Dash sub-steps stay under half a cell, like the server's.
+const DASH_SUB_STEP = 0.45;
 const CONVEYOR = [0, 0, 0, 0, 1, 2, 3, 4]; // tile code -> direction
 // Jumping, mirroring src/game/player.rs: ticks a hop takes, cells per tick,
 // cooldown after landing, and how far off the lane centre you may be.
@@ -168,6 +172,8 @@ export class Predictor {
     p.jumpDir = p.jumpLeft > 0 ? facing : 0;
     p.jumpCd = world.me.jump_cd ?? 0;
     p.stun = world.me.stun ?? 0;
+    p.dashLeft = world.me.dash ?? 0;
+    p.dashDir = world.me.dash_dir ?? 0;
     // Replay the inputs the server hasn't applied yet, oldest first. An ack
     // ahead of our last step (an early-sent input) needs no replay.
     const behind = (this.seq - ack) & 0xffff;
@@ -239,12 +245,13 @@ export class Predictor {
 
 /** Predicted player state (positions in tiles; jump timers in ticks). */
 function newState() {
-  return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0, stun: 0 };
+  return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0, stun: 0, dashLeft: 0, dashDir: 0 };
 }
 
 function copyState(dst, src) {
   dst.x = src.x; dst.y = src.y; dst.moving = src.moving; dst.slide = src.slide; dst.facing = src.facing;
   dst.jumpDir = src.jumpDir; dst.jumpLeft = src.jumpLeft; dst.jumpCd = src.jumpCd; dst.stun = src.stun;
+  dst.dashLeft = src.dashLeft; dst.dashDir = src.dashDir;
   return dst;
 }
 
@@ -277,7 +284,7 @@ function canJump(p, dir, world) {
   const wx = cx + dx, wy = cy + dy, lx = cx + 2 * dx, ly = cy + 2 * dy;
   if (!inside(wx, wy) || map.tiles[wy * map.w + wx] !== T_WALL || !inside(lx, ly)) return false;
   const t = map.tiles[ly * map.w + lx];
-  return t !== T_WALL && t !== T_CRATE && t !== T_ARMORED && !world.bombCells.has(ly * map.w + lx);
+  return t !== T_WALL && t !== T_CRATE && t !== T_ARMORED && t !== T_BUILT && !world.bombCells.has(ly * map.w + lx);
 }
 
 // Collision context for `blocked`, set by `simulate` (module-level so the
@@ -291,7 +298,7 @@ function tileAt(x, y) {
 
 function blocked(cx, cy) {
   const t = tileAt(cx, cy);
-  if (t === T_WALL || (!simGhost && (t === T_CRATE || t === T_ARMORED))) return true;
+  if (t === T_WALL || t === T_BUILT || (!simGhost && (t === T_CRATE || t === T_ARMORED))) return true;
   return (cx !== simCx || cy !== simCy) && simBombs.has(cy * simMap.w + cx);
 }
 
@@ -340,12 +347,20 @@ function simulate(p, d, s, j, world, frac) {
   simMap = world.map;
   simBombs = world.bombCells;
   simGhost = me.ghost > 0;
+  if (p.dashLeft > 0) {
+    dash(p, world, frac);
+    return;
+  }
   const sx = p.x, sy = p.y;
   simCx = Math.floor(sx);
   simCy = Math.floor(sy);
   const on = tileAt(simCx, simCy);
   const weather = me.blizzard > 0 ? BLIZZARD_SLOW : 1;
-  const dist = (me.curse === 1 ? CURSED_SPEED : BASE_SPEED + SPEED_STEP * me.speed) * weather * DT * frac;
+  // Gas doesn't stack with other slowdowns: the strongest one applies.
+  const normal = BASE_SPEED + SPEED_STEP * me.speed;
+  let speed = (me.curse === 1 ? CURSED_SPEED : normal) * weather;
+  if (me.gassed > 0) speed = Math.min(speed, normal * (world.abilities?.gas_mult ?? 0.7));
+  const dist = speed * DT * frac;
   let dir = d;
   // On ice you keep sliding until you steer or hit something.
   if (dir === 0 && on === T_ICE && p.moving && p.slide) dir = p.slide;
@@ -356,4 +371,21 @@ function simulate(p, d, s, j, world, frac) {
   if (belt) stepMove(p, belt, CONVEYOR_SPEED * DT * frac, blocked);
   p.moving = p.x !== sx || p.y !== sy;
   if (p.moving && used) { p.slide = used; p.facing = used; } else if (dir) p.facing = dir;
+}
+
+/** One tick (or `frac` of one) of a dash, mirroring World::dash_step without portals. */
+function dash(p, world, frac) {
+  const step = (world.abilities?.dash_step ?? 0.625) * frac;
+  const parts = Math.max(1, Math.ceil(step / DASH_SUB_STEP));
+  let ended = false;
+  for (let i = 0; i < parts; i++) {
+    const sx = p.x, sy = p.y;
+    simCx = Math.floor(sx);
+    simCy = Math.floor(sy);
+    stepMove(p, p.dashDir, step / parts, blocked);
+    if (p.x === sx && p.y === sy) { ended = true; break; }
+  }
+  p.moving = true;
+  p.facing = p.dashDir;
+  if (frac === 1) p.dashLeft = ended ? 0 : p.dashLeft - 1;
 }

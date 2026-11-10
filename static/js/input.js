@@ -2,7 +2,8 @@
 // direction plus the previously held one (`s`), which the server uses for
 // turn buffering: hold Right, tap Up early, and the turn happens at the next
 // gap. The jump key (Space) is held state too (`j`): while it's down you hop
-// over a stone pillar in front of you. Only changes are sent.
+// over a stone pillar in front of you. The detach key (C, held) shakes off a
+// sticky bomb and is held state too (`h`). Only changes are sent.
 
 const KEY_DIRS = {
   ArrowUp: 1, KeyW: 1,
@@ -16,7 +17,7 @@ const JOY_RADIUS = 60;
 
 export class Input {
   /**
-   * handlers: onDir(d, s, j), onBomb(), onAct(), onGadget(), onEmote(e), onZoom(factor),
+   * handlers: onDir(d, s, j), onBomb(), onAct(), onGadget(), onAbility(), onCancel(), onEmote(e), onZoom(factor),
    * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
    * 'menu', 'board', 'emoteWheel'.
    */
@@ -30,11 +31,15 @@ export class Input {
     this.padJump = false;
     this.keyJump = false;
     this.joyJump = false;
+    this.keyDetach = false;
+    this.padDetach = false;
+    this.joyDetach = false;
+    this.padAbility = false;
     this.padZoom = 0;
     this.joyDir = 0;
     this.joyAlt = 0;
     this.sent = -1;        // last (d << 3 | s) reported
-    this.current = { d: 0, s: 0, j: false }; // read every prediction step
+    this.current = { d: 0, s: 0, j: false, h: false }; // read every prediction step
     this.padAct = false;
     this.padGadget = false;
 
@@ -73,6 +78,15 @@ export class Input {
       case 'KeyQ':
         if (!e.repeat) this.h.onGadget();
         break;
+      case 'KeyR':
+        if (!e.repeat) this.h.onAbility();
+        break;
+      case 'KeyX':
+        if (!e.repeat) this.h.onCancel();
+        break;
+      case 'KeyC':
+        if (!this.keyDetach) { this.keyDetach = true; this.update(); }
+        break;
       case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
       case 'Digit5': case 'Digit6': case 'Digit7': case 'Digit8':
         if (!e.repeat) this.h.onEmote(Number(e.code.slice(5)) - 1);
@@ -82,6 +96,7 @@ export class Input {
       case 'Digit0': case 'Numpad0': this.h.onAction('zoomReset', true); break;
       case 'KeyM': this.h.onAction('mute', true); break;
       case 'KeyP': this.h.onAction('fps', true); break;
+      case 'KeyN': this.h.onAction('minimap', true); break;
       case 'Escape': this.h.onAction('menu', true); break;
       case 'Tab': e.preventDefault(); this.h.onAction('board', true); break;
     }
@@ -95,6 +110,9 @@ export class Input {
     } else if (e.code === 'Space') {
       this.keyJump = false;
       this.update();
+    } else if (e.code === 'KeyC') {
+      this.keyDetach = false;
+      this.update();
     } else if (e.code === 'Tab') {
       this.h.onAction('board', false);
     }
@@ -105,6 +123,7 @@ export class Input {
     this.joyDir = this.joyAlt = 0;
     this.padDir = this.padAlt = 0;
     this.keyJump = this.padJump = this.joyJump = false;
+    this.keyDetach = this.padDetach = this.joyDetach = false;
     this.update();
   }
 
@@ -119,10 +138,12 @@ export class Input {
       s = n > 1 ? this.held[n - 2] : 0;
     }
     const j = this.keyJump || this.padJump || this.joyJump;
+    const h = this.keyDetach || this.padDetach || this.joyDetach;
     this.current.d = d;
     this.current.s = s;
     this.current.j = j;
-    const key = (d << 3 | s) | (j ? 64 : 0);
+    this.current.h = h;
+    const key = (d << 3 | s) | (j ? 64 : 0) | (h ? 128 : 0);
     if (key !== this.sent) {
       this.sent = key;
       this.h.onDir(d, s, j);
@@ -132,7 +153,7 @@ export class Input {
   /** Call once per frame: reads connected gamepads. */
   pollGamepad() {
     if (!this.enabled || !navigator.getGamepads) return;
-    let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0;
+    let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0, ability = false, detach = false;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
       const b = (i) => gp.buttons[i]?.pressed;
@@ -147,6 +168,8 @@ export class Input {
       gadget ||= b(1);
       act ||= b(2);
       jump ||= b(3);
+      detach ||= b(6);
+      ability ||= b(7);
       if (b(5)) zoom = 1; else if (b(4)) zoom = -1;
       break; // first connected pad only
     }
@@ -156,6 +179,9 @@ export class Input {
     this.padAct = act;
     if (gadget && !this.padGadget) this.h.onGadget();
     this.padGadget = gadget;
+    if (ability && !this.padAbility) this.h.onAbility();
+    this.padAbility = ability;
+    if (detach !== this.padDetach) { this.padDetach = detach; this.update(); }
     if (zoom) this.h.onZoom(zoom > 0 ? 1.02 : 1 / 1.02);
     if (dir !== this.padDir || alt !== this.padAlt || jump !== this.padJump) {
       this.padDir = dir;
@@ -274,6 +300,28 @@ export class Input {
       navigator.vibrate?.(10);
       this.h.onGadget();
     });
+    document.getElementById('ability-btn').addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      navigator.vibrate?.(10);
+      this.h.onAbility();
+    });
+    // Shaking off a sticky bomb: hold the button.
+    const detachBtn = document.getElementById('detach-btn');
+    detachBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      navigator.vibrate?.(10);
+      detachBtn.classList.add('active');
+      this.joyDetach = true;
+      this.update();
+    });
+    const detachUp = () => {
+      detachBtn.classList.remove('active');
+      this.joyDetach = false;
+      this.update();
+    };
+    detachBtn.addEventListener('pointerup', detachUp);
+    detachBtn.addEventListener('pointercancel', detachUp);
+    detachBtn.addEventListener('pointerleave', detachUp);
     document.getElementById('emote-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);

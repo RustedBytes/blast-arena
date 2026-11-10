@@ -266,13 +266,15 @@ async fn read_loop(
             return "rate limited";
         }
         match ClientMsg::decode(&data) {
-            Some(ClientMsg::In { d, s, j, q, k }) => {
-                input.set_dirs(d, s, j, q);
+            Some(ClientMsg::In { d, s, j, h, q, k }) => {
+                input.set_input(d, s, j, h, q);
                 input.set_ack(k);
             }
             Some(ClientMsg::Bomb) => input.press_bomb(),
             Some(ClientMsg::Act) => input.press_act(),
             Some(ClientMsg::Gadget) => input.press_gadget(),
+            Some(ClientMsg::Ability) => input.press_ability(),
+            Some(ClientMsg::Cancel) => input.press_cancel(),
             Some(ClientMsg::Emote { e }) => input.emote(e),
             Some(ClientMsg::View { w, h }) => {
                 tracing::trace!(w, h, "view requested");

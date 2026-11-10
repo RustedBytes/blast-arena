@@ -54,6 +54,11 @@ struct Args {
     /// Round length in seconds.
     #[arg(long, env = "ROUND_SECS", default_value_t = 300)]
     round_secs: u32,
+    /// JSON file tuning the ability power-ups (builder, gas bomb, clone,
+    /// sticky bomb, portal pair, dash). Fields left out keep their default;
+    /// see config/abilities.json for every field.
+    #[arg(long, env = "ABILITIES_CONFIG")]
+    abilities: Option<String>,
     /// SQLite database for player profiles ("" disables persistence).
     #[arg(long, env = "DB_PATH", default_value = "blast.db")]
     db: String,
@@ -83,13 +88,30 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
     Ok(game::Config { name: name.to_string(), mode, map_w: size, map_h: size, bots, ..base.clone() })
 }
 
+/// The ability tuning from `--abilities`, or the shipped defaults. Exits on
+/// an invalid file rather than running with surprising balance.
+fn load_tuning(path: Option<&str>) -> std::sync::Arc<game::ability_config::Tuning> {
+    let Some(path) = path else { return game::default_tuning() };
+    match game::ability_config::Tuning::load(path) {
+        Ok(t) => {
+            tracing::info!(path = %path, "ability config loaded");
+            std::sync::Arc::new(t)
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "invalid ability config");
+            std::process::exit(2);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
     logging::init(&args.log_level, args.log_format);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log_level = %args.log_level, log_format = %args.log_format, "starting Blast Arena");
 
-    let base = game::Config { max_players: args.max_players, round_secs: args.round_secs.max(30), ..Default::default() };
+    let tuning = load_tuning(args.abilities.as_deref());
+    let base = game::Config { max_players: args.max_players, round_secs: args.round_secs.max(30), tuning, ..Default::default() };
     let specs = if args.arenas.is_empty() {
         let main = format!("Main:ffa:{}:{}", args.map_size, args.bots);
         vec![main, "Teams:teams:61:8".into(), "Mini:ffa:31:4".into(), "Royale:royale:81:15".into(), "Humans:ffa:51:0".into()]

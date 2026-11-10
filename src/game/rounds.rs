@@ -140,6 +140,7 @@ impl World {
         // Royale matches end when one player is left, not on a timer.
         self.round_end = if self.is_royale() { u64::MAX } else { self.tick + self.round_ticks };
         self.reset_events_for_round();
+        self.reset_abilities_for_round();
         self.place_hills();
         let hills = protocol::encode_hills(self.event_arenas.current(), &self.hills);
         self.broadcasts.push(hills);

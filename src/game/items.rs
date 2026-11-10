@@ -39,9 +39,21 @@ pub enum Item {
     Drone = 19,
     /// Gadget: a swarm of drones, one bomb each.
     Swarm = 20,
+    /// Ability: builds a temporary wall in front of you.
+    Builder = 21,
+    /// Bomb modifier: the next bombs release a slowing gas cloud.
+    GasBomb = 22,
+    /// Ability: a decoy double replays your moves a moment later.
+    Clone = 23,
+    /// Bomb modifier: the next bombs are thrown and stick to enemies.
+    StickyBomb = 24,
+    /// Ability: two linked portals.
+    PortalPair = 25,
+    /// Ability: a quick burst of movement.
+    Dash = 26,
 }
 
-pub const ALL_ITEMS: u8 = 20;
+pub const ALL_ITEMS: u8 = 26;
 /// Gadget charges given by one pick-up.
 pub const MINE_CHARGES: u8 = 3;
 pub const ROCKET_CHARGES: u8 = 3;
@@ -89,7 +101,7 @@ impl Mystery {
         match rng.below(100) {
             0..=54 => {
                 // Any regular power-up, rare ones more likely than from crates.
-                const POOL: [Item; 19] = [
+                const POOL: [Item; 25] = [
                     Item::ExtraBomb,
                     Item::Range,
                     Item::Speed,
@@ -109,6 +121,12 @@ impl Mystery {
                     Item::Stomp,
                     Item::Drone,
                     Item::Swarm,
+                    Item::Builder,
+                    Item::GasBomb,
+                    Item::Clone,
+                    Item::StickyBomb,
+                    Item::PortalPair,
+                    Item::Dash,
                 ];
                 Mystery::Item(POOL[rng.below(POOL.len() as u32) as usize])
             }
@@ -145,15 +163,21 @@ impl Item {
             18 => Item::Stomp,
             19 => Item::Drone,
             20 => Item::Swarm,
+            21 => Item::Builder,
+            22 => Item::GasBomb,
+            23 => Item::Clone,
+            24 => Item::StickyBomb,
+            25 => Item::PortalPair,
+            26 => Item::Dash,
             _ => return None,
         })
     }
 
-    /// Weighted random pick (per 200): bombs and range are common, full
+    /// Weighted random pick (per 224): bombs and range are common, full
     /// fire is rare, and the atomic bomb and the drone swarm rarest of all
-    /// (1% each).
+    /// (under 1% each). The six abilities take 4 of 224 each.
     pub fn random(rng: &mut Rng) -> Item {
-        match rng.below(200) {
+        match rng.below(224) {
             0..=41 => Item::ExtraBomb,
             42..=83 => Item::Range,
             84..=105 => Item::Speed,
@@ -173,7 +197,13 @@ impl Item {
             189..=192 => Item::Stomp,
             193..=195 => Item::Drone,
             196..=197 => Item::Swarm,
-            _ => Item::Nuke,
+            198..=199 => Item::Nuke,
+            200..=203 => Item::Builder,
+            204..=207 => Item::GasBomb,
+            208..=211 => Item::Clone,
+            212..=215 => Item::StickyBomb,
+            216..=219 => Item::PortalPair,
+            _ => Item::Dash,
         }
     }
 
@@ -191,9 +221,27 @@ impl Item {
         })
     }
 
-    /// Item revealed when a crate is destroyed, if any.
-    pub fn crate_drop(rng: &mut Rng) -> Option<Item> {
-        rng.chance(CRATE_DROP_CHANCE).then(|| Item::random(rng))
+    /// The six ability power-ups (see `abilities`): active abilities fired
+    /// with the ability key, and bomb modifiers.
+    #[must_use]
+    pub fn is_ability(self) -> bool {
+        matches!(self, Item::Builder | Item::GasBomb | Item::Clone | Item::StickyBomb | Item::PortalPair | Item::Dash)
+    }
+
+    /// Item revealed when a crate is destroyed, if any. Items `enabled`
+    /// rejects (abilities switched off in the config) are re-rolled, and
+    /// become an extra bomb if that keeps failing.
+    pub fn crate_drop(rng: &mut Rng, enabled: impl Fn(Item) -> bool) -> Option<Item> {
+        if !rng.chance(CRATE_DROP_CHANCE) {
+            return None;
+        }
+        for _ in 0..4 {
+            let item = Item::random(rng);
+            if enabled(item) {
+                return Some(item);
+            }
+        }
+        Some(Item::ExtraBomb)
     }
 }
 

@@ -495,7 +495,9 @@ impl World {
         }
         let hop = brain.path.last().is_some_and(|&next| is_hop(cur, next));
         let gadget = !want_bomb && self.bot_wants_gadget(id, in_danger, trapped);
+        let ability = !want_bomb && self.bot_wants_ability(id, in_danger);
         let p = self.players.get_mut(&id).unwrap();
+        p.want_ability |= ability;
         p.input_dir = dir;
         p.input_alt = 0;
         p.input_jump = hop;
@@ -529,6 +531,27 @@ impl World {
             }
             Some(Item::Swap) => trapped,
             Some(Item::Mine) => !in_danger && enemy_within(8) && self.rng.chance(0.05),
+            _ => false,
+        }
+    }
+
+    /// Whether a bot should use its ability now: a dash out of danger, a
+    /// wall or a clone when enemies are close, and a portal now and then
+    /// (the second one follows a few steps later).
+    fn bot_wants_ability(&mut self, id: u32, in_danger: bool) -> bool {
+        let p = &self.players[&id];
+        if p.ability_n == 0 && !(p.ability == Item::PortalPair as u8 && self.pending_portal(id).is_some()) {
+            return false;
+        }
+        let (cx, cy) = p.cell();
+        let enemy_within = |r: i32| {
+            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o))
+        };
+        match Item::from_u8(p.ability) {
+            Some(Item::Dash) => in_danger && p.input_dir != 0,
+            Some(Item::Builder) => !in_danger && enemy_within(3) && self.rng.chance(0.2),
+            Some(Item::Clone) => enemy_within(8) && self.rng.chance(0.05),
+            Some(Item::PortalPair) => !in_danger && self.rng.chance(0.03),
             _ => false,
         }
     }
@@ -658,7 +681,16 @@ impl World {
             // A gamble: usually good, sometimes a curse.
             Item::Mystery => 4.0,
             Item::Nuke => 5.0,
-            Item::Remote | Item::Punch | Item::LineBomb | Item::Ghost => 3.0,
+            Item::Remote
+            | Item::Punch
+            | Item::LineBomb
+            | Item::Ghost
+            | Item::Builder
+            | Item::GasBomb
+            | Item::Clone
+            | Item::StickyBomb
+            | Item::PortalPair
+            | Item::Dash => 3.0,
             _ => 1.0,
         }
     }

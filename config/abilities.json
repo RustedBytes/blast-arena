@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "abilities": {
+    "builder": {
+      "enabled": true,
+      "charges": 2,
+      "cooldownMs": 8000,
+      "wallDurationMs": 6000,
+      "wallHealth": 1,
+      "placementRange": 1,
+      "maxActiveWalls": 2
+    },
+    "gas_bomb": {
+      "enabled": true,
+      "charges": 2,
+      "fuseMs": 2500,
+      "cloudDurationMs": 4000,
+      "radius": 2,
+      "rangeBonus": 0,
+      "movementMultiplier": 0.7,
+      "slowAfterExitMs": 500,
+      "maxActiveClouds": 2,
+      "friendlyFire": false
+    },
+    "clone": {
+      "enabled": true,
+      "charges": 1,
+      "durationMs": 5000,
+      "playbackDelayMs": 2000,
+      "cooldownMs": 18000,
+      "maxActive": 1,
+      "decoyBombMs": 1000
+    },
+    "sticky_bomb": {
+      "enabled": true,
+      "charges": 2,
+      "fuseMs": 3000,
+      "throwRange": 2,
+      "detachDurationMs": 800,
+      "maxAttachedPerTarget": 1,
+      "friendlyFire": false,
+      "allowRemote": true
+    },
+    "portal_pair": {
+      "enabled": true,
+      "charges": 1,
+      "placementRange": 3,
+      "durationMs": 12000,
+      "placementTimeoutMs": 5000,
+      "cooldownMs": 20000,
+      "teleportCooldownMs": 750,
+      "maxActivePairs": 1
+    },
+    "dash": {
+      "enabled": true,
+      "distanceCells": 2.5,
+      "durationMs": 200,
+      "cooldownMs": 6000,
+      "charges": 1,
+      "invulnerable": false
+    }
+  }
+}

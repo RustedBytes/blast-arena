@@ -4,6 +4,38 @@ All notable changes to Blast Arena are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Settings can hide the minimap (also the **N** key) and set its size
+  (110–280 px); the FPS panel moves along with it.
+
+## [0.3.0] - 2026-11-10
+
+### Added
+
+- **Six ability power-ups**, all tuned from `config/abilities.json` (or
+  `--abilities <file>` / `ABILITIES_CONFIG`) without code changes: **builder**
+  (temporary walls), **gas bombs** (a slowing cloud that fire ignites once),
+  **clone** (a decoy replaying your moves from 2 s ago), **sticky bombs**
+  (thrown, they stick to enemies; hold C to shake one off), **portal pair**
+  and **dash**. Active abilities use the new **R** key (gamepad right
+  trigger, a touch button), with charges and cooldowns shown in the HUD; X
+  cancels a half-placed portal pair.
+- Ability events (`ev` kind 11) and an `EXTRA` snapshot section with gas
+  clouds, portals, clones, decoy bombs and who carries which sticky bomb;
+  twelve new `me` fields; the welcome carries the ability tuning.
+- Bots use dashes to escape, walls and clones near enemies, and portals.
+- `docs/ABILITIES.md`: the design, the protocol, how to add another ability,
+  benchmark results and known limitations.
+
+### Changed
+
+- `serde_json` is now a runtime dependency (the ability config).
+- Bombs going off in the same tick, and players hit by fire in the same
+  tick, are handled in id order, so identical input gives an identical game.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added
@@ -124,5 +156,6 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.3.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.3.0
 [0.2.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.2.0
 [0.1.0]: https://github.com/RustedBytes/blast-arena/tree/3873267

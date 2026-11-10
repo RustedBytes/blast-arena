@@ -11,16 +11,25 @@ const OP = {
   FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14, EVENT: 15,
 };
 /** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
-export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10 };
-const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8 };
+export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11 };
+/** Sub-kinds of ability events (values: [kind, tick, ...]); mirrors `game::abilities::ab`. */
+export const AB = {
+  ACTIVATED: 1, REJECTED: 2, COOLDOWN: 3, WALL_CREATED: 4, WALL_REMOVED: 5, GAS_CREATED: 6, GAS_EXPIRED: 7,
+  GAS_IGNITED: 8, CLONE_SPAWNED: 9, CLONE_DESTROYED: 10, STICKY_ATTACHED: 11, STICKY_DETACHED: 12,
+  PORTAL_CREATED: 13, PORTAL_LINKED: 14, PORTAL_DESTROYED: 15, TELEPORTED: 16, DASH_STARTED: 17, DASH_ENDED: 18,
+};
+const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8, ability: 9, cancel: 10 };
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
-const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64 };
+const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 };
+const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16 };
 const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
 
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
 export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 'curse_t', 'respawn', 'score', 'bombs',
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
-  'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying', 'storm', 'storm_max'];
+  'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying', 'storm', 'storm_max',
+  'ability', 'ability_n', 'ability_max', 'ability_cd', 'gas_bombs', 'sticky_bombs', 'stuck', 'detach', 'gassed', 'dash',
+  'dash_dir', 'portal_wait'];
 const ME_EMPTY = new Array(ME_FIELDS.length).fill(0);
 
 const textEncoder = new TextEncoder();
@@ -123,11 +132,11 @@ export function encodeClient(m) {
   const w = new Writer().u8(CLIENT_OP[m.t]);
   switch (m.t) {
     case 'join': w.str(m.name).str(m.token ?? '').u8(m.hat ?? 0).u8(m.trail ?? 0).uvar(m.near ?? 0); break;
-    case 'in': w.u8((m.d & 7) | ((m.s & 7) << 3) | (m.j ? 64 : 0)).uvar(m.q ?? 0).uvar(m.k ?? 0); break;
+    case 'in': w.u8((m.d & 7) | ((m.s & 7) << 3) | (m.j ? 64 : 0) | (m.h ? 128 : 0)).uvar(m.q ?? 0).uvar(m.k ?? 0); break;
     case 'emote': w.u8(m.e); break;
     case 'ping': w.f64(m.c); break;
     case 'view': w.uvar(m.w).uvar(m.h); break;
-    case 'bomb': case 'act': case 'gadget': break;
+    case 'bomb': case 'act': case 'gadget': case 'ability': case 'cancel': break;
     default: throw new Error(`protocol: unknown client message ${m.t}`);
   }
   return w.bytes();
@@ -203,13 +212,35 @@ function decodeSnapshot(r, baseFor) {
     ? r.list(r.uvar(), () => [r.uvar(), r.ivar() / 100, r.ivar() / 100, r.u8()])
     : [];
 
+  // Ability objects in view, sent whole every snapshot (see protocol::snap).
+  const x = { gas: [], portals: [], clones: [], decoys: [], stuck: [] };
+  if (sections & SECTION.EXTRA) {
+    const parts = r.u8();
+    // [id, x, y, arms, ticks left]
+    if (parts & EXTRA.GAS) x.gas = r.list(r.uvar(), () => {
+      const id = r.uvar(), cx = r.uvar(), cy = r.uvar(), a = r.u8(), b = r.u8();
+      return [id, cx, cy, [a & 15, a >> 4, b & 15, b >> 4], r.uvar()];
+    });
+    // [id, x, y, owner, partner (0 waiting), ticks left]
+    if (parts & EXTRA.PORTALS) x.portals = r.list(r.uvar(), () => [r.uvar(), r.uvar(), r.uvar(), r.uvar(), r.uvar(), r.uvar()]);
+    // [id, owner, x*100, y*100, facing, flags]: shaped like a player entry after the id
+    if (parts & EXTRA.CLONES) x.clones = r.list(r.uvar(), () => {
+      const id = r.uvar(), owner = r.uvar(), cx = r.ivar(), cy = r.ivar(), look = r.uvar();
+      return [id, owner, cx, cy, look & 7, Math.floor(look / 8)];
+    });
+    // [id, x, y, fuse ticks shown]
+    if (parts & EXTRA.DECOYS) x.decoys = r.list(r.uvar(), () => [r.uvar(), r.uvar(), r.uvar(), r.ivar()]);
+    // [bomb id, carrier id]
+    if (parts & EXTRA.STUCK) x.stuck = r.list(r.uvar(), () => [r.uvar(), r.uvar()]);
+  }
+
   const rawMe = (base?.rawMe ?? ME_EMPTY).slice();
   if (sections & SECTION.ME) {
     const mask = r.uvar();
     // The mask can exceed 32 bits, so no bitwise operators on it.
     for (let i = 0, m = mask; i < rawMe.length; i++, m = Math.floor(m / 2)) if (m % 2) rawMe[i] = r.ivar();
   }
-  return { t: 's', k, bk, p: Array.from(players.values()), rawB: Array.from(bombs.values()), e: flames, d: drones, rawMe };
+  return { t: 's', k, bk, p: Array.from(players.values()), rawB: Array.from(bombs.values()), e: flames, d: drones, x, rawMe };
 }
 
 /** The `me` block as a named object, with booleans, ids and the view size restored. */

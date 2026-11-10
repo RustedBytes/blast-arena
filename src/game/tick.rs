@@ -39,6 +39,10 @@ impl World {
         self.event_arenas.rotate();
         let tick = self.tick;
         self.explosions.retain(|e| e.until > tick);
+        // The order inside a tick is fixed (see `abilities` for the
+        // contract): commands and abilities, movement with portal trips and
+        // dashes, sticky bombs following their carriers, fuses and blasts,
+        // gas (which this tick's fire may ignite), damage, then timers.
         self.read_inputs();
         self.update_bots();
         self.update_players();
@@ -46,8 +50,14 @@ impl World {
         self.update_drones();
         self.update_mines();
         self.update_sliding_bombs();
+        self.update_sticky();
         self.update_fuses();
+        self.update_gas();
         self.apply_flame_damage();
+        self.update_clones();
+        self.update_walls();
+        self.update_portals();
+        self.recharge_abilities();
         self.update_hills();
         self.update_events();
         self.update_royale();

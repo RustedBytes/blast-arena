@@ -11,6 +11,7 @@
   <canvas id="game"></canvas>
   <div id="vignette" class="hidden"></div>
   <div id="storm-tint"></div>
+  <div id="gas-tint"></div>
 
   <div id="hud" class="hidden">
     <div id="stats" class="panel">
@@ -25,6 +26,8 @@
       <div class="stat off" id="st-freeze" title="Freeze"><img src="assets/pu_freeze.svg" alt=""></div>
       <div class="stat off" id="st-stomp" title="Stomp"><img src="assets/pu_stomp.svg" alt=""></div>
       <div class="stat gadget hidden" id="st-gadget" title="Gadget (Q)"><img src="assets/pu_mine.svg" alt=""><kbd>Q</kbd><span></span></div>
+      <div class="stat ability hidden" id="st-ability" title="Ability (R)"><img src="assets/pu_dash.svg" alt=""><kbd>R</kbd><span></span></div>
+      <div class="stat modifier hidden" id="st-modifier" title="Next bombs"><img src="assets/pu_gas.svg" alt=""><span></span></div>
       <div class="stat timer hidden" id="st-shield" title="Shield"><img src="assets/pu_shield.svg" alt=""><span></span></div>
       <div class="stat timer hidden" id="st-ghost" title="Ghost"><img src="assets/pu_ghost.svg" alt=""><span></span></div>
       <div class="stat timer curse hidden" id="st-stun" title="Stunned"><img src="assets/pu_stomp.svg" alt=""><span></span></div>
@@ -72,6 +75,8 @@
       <button id="act-btn" aria-label="Action">E</button>
       <button id="jump-btn" aria-label="Jump">⤒</button>
       <button id="gadget-btn" aria-label="Gadget">Q</button>
+      <button id="ability-btn" aria-label="Ability">R</button>
+      <button id="detach-btn" class="hidden" aria-label="Shake off the sticky bomb">✋</button>
       <button id="emote-btn" aria-label="Emote">😀</button>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
     </div>
@@ -111,6 +116,8 @@
       </label>
       <label class="row check"><input type="checkbox" id="set-muted"> <span data-i18n="mute">Mute all sound</span> <kbd>M</kbd></label>
       <label class="row check"><input type="checkbox" id="set-fps"> <span data-i18n="showFps">Show FPS</span> <kbd>P</kbd></label>
+      <label class="row check"><input type="checkbox" id="set-minimap"> <span data-i18n="showMinimap">Show minimap</span> <kbd>N</kbd></label>
+      <label class="row"><span data-i18n="minimapSize">Minimap size</span> <input type="range" id="set-minimap-size" min="110" max="280" step="10"></label>
       <label class="row check"><input type="checkbox" id="set-colorblind"> <span data-i18n="colorblind">Colour-blind friendly colours</span></label>
       <label class="row check"><input type="checkbox" id="set-contrast"> <span data-i18n="highContrast">High contrast</span></label>
       <button id="tutorial-again" class="link" data-i18n="tutorialAgain">Show the tutorial again</button>
@@ -121,6 +128,9 @@
         <span><kbd>Space</kbd></span><span data-i18n="ctlJump"></span>
         <span><kbd>E</kbd> <kbd>Shift</kbd></span><span data-i18n="ctlAct"></span>
         <span><kbd>Q</kbd></span><span data-i18n="ctlGadget"></span>
+        <span><kbd>R</kbd></span><span data-i18n="ctlAbility"></span>
+        <span><kbd>C</kbd></span><span data-i18n="ctlDetach"></span>
+        <span><kbd>X</kbd></span><span data-i18n="ctlCancel"></span>
         <span><kbd>Wheel</kbd> <kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></span><span data-i18n="ctlZoom"></span>
         <span><kbd>1</kbd>–<kbd>8</kbd></span><span data-i18n="ctlEmote"></span>
         <span><kbd>Tab</kbd></span><span data-i18n="ctlBoard"></span>

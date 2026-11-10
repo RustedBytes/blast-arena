@@ -33,7 +33,14 @@ impl World {
                     (p.gadget, p.gadget_n) = (item as u8, charges);
                 }
             }
-            Item::Mystery => {}
+            // Abilities need the tuning: see `grant_ability`.
+            Item::Mystery
+            | Item::Builder
+            | Item::GasBomb
+            | Item::Clone
+            | Item::StickyBomb
+            | Item::PortalPair
+            | Item::Dash => {}
         }
     }
 
@@ -43,7 +50,16 @@ impl World {
         let tick = self.tick;
         let (code, mystery) = if item == Item::Mystery {
             self.stats.mysteries_opened += 1;
-            let outcome = Mystery::open(&mut self.rng);
+            let outcome = match Mystery::open(&mut self.rng) {
+                // A switched-off ability from a box is an extra bomb instead.
+                Mystery::Item(i) if !self.ability_enabled(i) => Mystery::Item(Item::ExtraBomb),
+                o => o,
+            };
+            if let Mystery::Item(i) = outcome
+                && i.is_ability()
+            {
+                self.grant_ability(id, i);
+            }
             let p = self.players.get_mut(&id).unwrap();
             match outcome {
                 Mystery::Item(i) => Self::grant(p, i, tick),
@@ -62,7 +78,11 @@ impl World {
             }
             (outcome.code(), true)
         } else {
-            Self::grant(self.players.get_mut(&id).unwrap(), item, tick);
+            if item.is_ability() {
+                self.grant_ability(id, item);
+            } else {
+                Self::grant(self.players.get_mut(&id).unwrap(), item, tick);
+            }
             (item as u8, false)
         };
         if let Some(link) = &self.players[&id].link {

@@ -3,8 +3,16 @@
 //! lock-free input slots and get snapshots encoded into a reusable arena,
 //! so a steady-state tick performs no heap allocation.
 
+pub mod abilities;
+pub mod ability_config;
 pub mod ai;
 pub mod bomb;
+pub mod builder;
+pub mod clone;
+pub mod dash;
+pub mod gas;
+pub mod portal;
+pub mod sticky;
 pub mod items;
 pub mod link;
 pub mod map;
@@ -28,6 +36,8 @@ mod terrain;
 mod testing;
 mod tick;
 #[cfg(test)]
+mod ability_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
@@ -39,6 +49,7 @@ use tokio::sync::oneshot;
 use crate::db::{Db, Profile};
 use crate::metrics::ArenaStats;
 use crate::protocol::{ArenaRing, TileChange};
+use ability_config::Tuning;
 use bomb::{Bomb, Explosion};
 use delta::DeltaScratch;
 use items::Item;
@@ -133,12 +144,31 @@ pub struct Config {
     pub round_secs: u32,
     /// Seed for this arena's map; the same seed builds the same map.
     pub map_seed: u64,
+    /// Ability power-up tuning (see `ability_config`).
+    pub tuning: Arc<Tuning>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { name: "Main".into(), mode: Mode::Ffa, map_w: 81, map_h: 81, max_players: 256, bots: 10, round_secs: 300, map_seed: 0 }
+        Config {
+            name: "Main".into(),
+            mode: Mode::Ffa,
+            map_w: 81,
+            map_h: 81,
+            max_players: 256,
+            bots: 10,
+            round_secs: 300,
+            map_seed: 0,
+            tuning: default_tuning(),
+        }
     }
+}
+
+/// The shipped ability tuning, parsed once.
+#[must_use]
+pub fn default_tuning() -> Arc<Tuning> {
+    static DEFAULT: std::sync::LazyLock<Arc<Tuning>> = std::sync::LazyLock::new(|| Arc::new(Tuning::default()));
+    DEFAULT.clone()
 }
 
 /// Everything a client says when joining.
@@ -187,6 +217,8 @@ struct Scratch {
     broadcasts: Vec<Bytes>,
     dropped: Vec<u32>,
     emotes: Vec<(u32, u8)>,
+    gassed: Vec<u32>,
+    sticky_ids: Vec<u32>,
 }
 
 pub struct World {
@@ -215,6 +247,16 @@ pub struct World {
     pub drones: Vec<gadgets::Drone>,
     /// Ice from freeze blasts: (x, y, melts at tick).
     pub frozen: Vec<(i32, i32, u64)>,
+    /// Ability tuning, and the objects abilities put in the world (see
+    /// `abilities`): builder walls, gas clouds, clones and their decoy
+    /// bombs, portals, and the ids of live sticky bombs.
+    pub tuning: Arc<Tuning>,
+    pub walls: Vec<builder::Wall>,
+    pub gas: Vec<gas::GasCloud>,
+    pub clones: Vec<clone::Clone>,
+    pub decoys: Vec<clone::Decoy>,
+    pub portals: Vec<portal::Portal>,
+    pub sticky: Vec<u32>,
     /// Map events, sudden death and capture the flag (see `events`).
     pub events: events::Events,
     /// Everyone is slowed (blizzard) until this tick.
@@ -265,6 +307,13 @@ pub struct WorldStats {
     pub mysteries_opened: u64,
     pub nukes: u64,
     pub rounds: u64,
+    pub ability_events: u64,
+    pub gas_ignitions: u64,
+    pub clones: u64,
+    pub sticky_attached: u64,
+    pub portal_pairs: u64,
+    pub teleports: u64,
+    pub dashes: u64,
 }
 
 impl World {
@@ -292,6 +341,7 @@ impl World {
         world.mode = cfg.mode;
         world.live = live;
         world.db = db;
+        world.tuning = cfg.tuning.clone();
         world.round_ticks = u64::from(cfg.round_secs) * u64::from(TICK_RATE);
         // Royale matches end when one player is left, not on a timer.
         world.round_end = if cfg.mode == Mode::Royale { u64::MAX } else { world.round_ticks };
@@ -328,6 +378,13 @@ impl World {
             mines: Vec::new(),
             drones: Vec::new(),
             frozen: Vec::new(),
+            tuning: default_tuning(),
+            walls: Vec::new(),
+            gas: Vec::new(),
+            clones: Vec::new(),
+            decoys: Vec::new(),
+            portals: Vec::new(),
+            sticky: Vec::new(),
             events: events::Events::default(),
             blizzard_until: 0,
             royale: royale::Royale::default(),

@@ -241,7 +241,9 @@ impl World {
     fn remove_bomb(&mut self, id: u32) {
         if let Some(b) = self.bombs.remove(&id) {
             let i = self.map.idx(b.x, b.y);
-            self.bomb_grid[i] = 0;
+            if self.bomb_grid[i] == id {
+                self.bomb_grid[i] = 0;
+            }
             if let Some(o) = self.players.get_mut(&b.owner).filter(|_| b.counted) {
                 o.active_bombs = o.active_bombs.saturating_sub(1);
             }
@@ -543,7 +545,8 @@ impl World {
                     Tile::Crate if self.rng.chance(QUAKE_CRATE_BREAK) => {
                         self.set_tile(x, y, Tile::Floor);
                         self.stats.crates_destroyed += 1;
-                        if let Some(item) = Item::crate_drop(&mut self.rng) {
+                        let tuning = &self.tuning;
+                        if let Some(item) = Item::crate_drop(&mut self.rng, |i| tuning.item_enabled(i)) {
                             self.set_item(x, y, item as u8);
                         }
                     }

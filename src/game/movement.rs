@@ -27,18 +27,25 @@ impl World {
             let jumped = self.update_jump(id);
             let p = &self.players[&id];
             if p.jump_left > 0 {
+                self.record_history(id, false);
                 continue;
             }
+            // A dash takes over movement for its few ticks (no steering).
+            let dashed = p.dashing();
+            if dashed && !self.dash_step(id) {
+                continue; // ran into fire
+            }
+            let p = &self.players[&id];
             // Stunned players can't steer (ice and belts still carry them).
             let stunned = p.stunned_until > self.tick;
-            let (mut dir, alt) = if jumped || stunned { (0, 0) } else { (p.input_dir, p.input_alt) };
+            let (mut dir, alt) = if jumped || stunned || dashed { (0, 0) } else { (p.input_dir, p.input_alt) };
             let start = (p.x, p.y);
             let start_cell = p.cell();
             let on = self.map.get(start_cell.0, start_cell.1);
-            let dist = p.speed(self.tick) * self.weather_slow() * DT;
+            let dist = p.move_speed(self.tick, self.weather_slow(), self.tuning.raw.gas_bomb.movement_multiplier) * DT;
             // On ice you can't stop: letting go keeps you sliding until you
             // steer, hit something or reach the end of the ice.
-            if !jumped && dir == 0 && on == Tile::Ice && p.moving && p.slide_dir != 0 {
+            if !jumped && !dashed && dir == 0 && on == Tile::Ice && p.moving && p.slide_dir != 0 {
                 dir = p.slide_dir;
             }
             let ghost = p.ghost(self.tick);
@@ -49,10 +56,10 @@ impl World {
                 let bomb_grid = &self.bomb_grid;
                 // A bomb blocks unless it's in the cell the player stands in,
                 // which lets players walk off a bomb they just dropped. Ghosts
-                // pass through crates.
+                // pass through crates (not through builders' walls).
                 let blocked = |cx: i32, cy: i32| {
                     let t = map.get(cx, cy);
-                    (t == Tile::Wall || (!ghost && t.is_breakable()))
+                    (t == Tile::Wall || t == Tile::Built || (!ghost && t.is_breakable()))
                         || ((cx, cy) != start_cell && bomb_grid[map.idx(cx, cy)] != 0)
                 };
                 if dir != 0 {
@@ -67,13 +74,13 @@ impl World {
                 }
                 // Conveyors carry whoever stands on them.
                 let belt = on.conveyor_dir();
-                if belt != 0 && !jumped {
+                if belt != 0 && !jumped && !dashed {
                     step_move(&mut x, &mut y, belt, CONVEYOR_SPEED * DT, blocked);
                 }
             }
             let p = self.players.get_mut(&id).unwrap();
             let walked = (x, y) != start;
-            p.moving = walked;
+            p.moving = walked || dashed;
             if walked && used != 0 {
                 p.facing = used;
                 p.slide_dir = used;
@@ -95,6 +102,11 @@ impl World {
                     (cx, cy) = (tx, ty);
                 }
             }
+            // Player portals (from the portal pair ability).
+            if self.portal_entry(id, false) {
+                (cx, cy) = self.players[&id].cell();
+            }
+            let p = self.players.get_mut(&id).unwrap();
             let has_kick = p.kick;
             let moving = p.moving;
             let want_act = std::mem::take(&mut p.want_act);
@@ -102,7 +114,7 @@ impl World {
             // Kick: pressing into an adjacent bomb while standing at the
             // centre of the cell sends it sliding. A player boxed in by bombs
             // may kick even without the power-up, so they're never stuck.
-            if dir != 0 && !moving && (has_kick || self.is_trapped(cx, cy)) {
+            if dir != 0 && !moving && !dashed && (has_kick || self.is_trapped(cx, cy)) {
                 let (dx, dy) = DIRS[dir as usize];
                 if let Some(b) = self.bomb_at(cx + dx, cy + dy) {
                     self.kick_bomb(b, dir);
@@ -115,17 +127,31 @@ impl World {
                 self.pick_up(id, item);
             }
 
-            if want_act && !stunned {
-                self.act(id);
-            }
-            if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_gadget) && !stunned {
-                self.use_gadget(id);
-            }
-            if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_bomb) {
-                self.place_bomb(id);
-            }
+            self.player_actions(id, want_act, stunned);
         }
         self.scratch.ids = ids;
+    }
+
+    /// The keys pressed this tick: action, gadget, cancel, ability, bomb
+    /// (in that order); then the tick goes into the clone history.
+    fn player_actions(&mut self, id: u32, want_act: bool, stunned: bool) {
+        if want_act && !stunned {
+            self.act(id);
+        }
+        if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_gadget) && !stunned {
+            self.use_gadget(id);
+        }
+        if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_cancel) {
+            self.cancel_ability(id);
+        }
+        // (Stunned players are told why nothing happened.)
+        if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_ability) {
+            self.use_ability(id);
+        }
+        let bombed = std::mem::take(&mut self.players.get_mut(&id).unwrap().want_bomb) && self.place_bomb(id);
+        if self.players.get(&id).is_some_and(|p| p.alive) {
+            self.record_history(id, bombed);
+        }
     }
 
     /// Brings a dead player back: anywhere safe, or near their own base in

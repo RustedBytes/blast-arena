@@ -46,10 +46,19 @@ pub struct Bomb {
     pub rocket: bool,
     /// Counts towards the owner's bomb limit (gadget bombs don't).
     pub counted: bool,
+    /// Releases a gas cloud instead of fire (see `gas`).
+    pub gas: bool,
+    /// Sticks to players (see `sticky`).
+    pub sticky: bool,
+    /// The player a sticky bomb rides on (0: none). An attached bomb is
+    /// off the bomb grid; `x`, `y` follow the carrier's cell.
+    pub attached: u32,
     pub explode_at: u64,
     /// Direction code of a kicked bomb, 0 when resting.
     pub slide_dir: u8,
     pub next_slide: u64,
+    /// No portal trip before this tick.
+    pub portal_ready_at: u64,
 }
 
 /// What a newly placed bomb is like.
@@ -64,6 +73,8 @@ pub struct BombKind {
     pub rocket: bool,
     /// Counts towards the owner's bomb limit.
     pub counted: bool,
+    pub gas: bool,
+    pub sticky: bool,
     /// Ticks until it explodes (remote bombs use their safety timer instead).
     pub fuse: u64,
 }
@@ -83,7 +94,7 @@ impl BombKind {
     /// A plain bomb (bomb rain, tests).
     #[must_use]
     pub fn plain(range: u8, fuse: u64) -> Self {
-        Self { range, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, counted: true, fuse }
+        Self { range, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, counted: true, gas: false, sticky: false, fuse }
     }
 
     /// A bomb from a gadget (drone, mine, rocket): not counted towards the
@@ -136,7 +147,11 @@ impl World {
 
     /// The bomb button: drops a bomb where the player stands, or, with the
     /// line-bomb power-up while standing on their own bomb, lays the rest of
-    /// their bombs in a line ahead.
+    /// their bombs in a line ahead. A gas bomb (bomb modifier) drops the
+    /// same way; a sticky bomb is thrown (see `sticky`).
+    ///
+    /// # Panics
+    /// Never: the player was looked up just before.
     pub fn place_bomb(&mut self, owner: u32) -> bool {
         let Some(p) = self.players.get(&owner) else { return false };
         if !p.can_bomb(self.tick) {
@@ -144,6 +159,29 @@ impl World {
         }
         let (x, y) = p.cell();
         let (kind, line, facing) = (BombKind::of(p), p.line, p.facing);
+        // Bomb modifiers (an atomic bomb comes first): gas or sticky.
+        let t = &self.tuning;
+        if p.nukes == 0 && p.gas_bombs > 0 && t.raw.gas_bomb.enabled {
+            let range = self.gas_radius(owner);
+            let kind = BombKind { gas: true, ..BombKind::plain(range, t.gas_fuse) };
+            if self.bomb_at(x, y).is_some() || !self.place_bomb_at(owner, (x, y), kind) {
+                return false;
+            }
+            let p = self.players.get_mut(&owner).unwrap();
+            p.gas_bombs -= 1;
+            return true;
+        }
+        if p.nukes == 0 && p.sticky_bombs > 0 && t.raw.sticky_bomb.enabled {
+            let remote = p.remote && t.raw.sticky_bomb.allow_remote;
+            let kind = BombKind { sticky: true, remote, ..kind };
+            let kind = BombKind { fuse: t.sticky_fuse, ..kind };
+            if !self.throw_sticky(owner, kind) {
+                return false;
+            }
+            let p = self.players.get_mut(&owner).unwrap();
+            p.sticky_bombs -= 1;
+            return true;
+        }
         if let Some(b) = self.bomb_at(x, y) {
             if line && self.bombs[&b].owner == owner {
                 return self.line_bombs(owner, x, y, facing);
@@ -160,9 +198,28 @@ impl World {
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
-        let BombKind { range, pierce, remote, nuke, freeze, rocket, counted, fuse } = kind;
+        let BombKind { range, pierce, remote, nuke, freeze, rocket, counted, gas, sticky, fuse } = kind;
         let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
-        let bomb = Bomb { id, owner, x, y, range, pierce, remote, nuke, freeze, rocket, counted, explode_at, slide_dir: 0, next_slide: 0 };
+        let bomb = Bomb {
+            id,
+            owner,
+            x,
+            y,
+            range,
+            pierce,
+            remote,
+            nuke,
+            freeze,
+            rocket,
+            counted,
+            gas,
+            sticky,
+            attached: 0,
+            explode_at,
+            slide_dir: 0,
+            next_slide: 0,
+            portal_ready_at: 0,
+        };
         self.bombs.insert(id, bomb);
         let i = self.map.idx(x, y);
         self.bomb_grid[i] = id;
@@ -268,7 +325,7 @@ impl World {
     /// Starts a bomb sliding away from the player who kicked it.
     pub fn kick_bomb(&mut self, id: u32, dir: u8) {
         if let Some(b) = self.bombs.get_mut(&id)
-            && b.slide_dir == 0 {
+            && b.slide_dir == 0 && b.attached == 0 {
                 b.slide_dir = dir;
                 b.next_slide = self.tick + 1;
             }
@@ -291,10 +348,14 @@ impl World {
         sliding.extend(
             self.bombs
                 .values()
-                .filter(|b| b.next_slide <= self.tick && (b.slide_dir != 0 || map.get(b.x, b.y).conveyor_dir() != 0))
+                .filter(|b| b.attached == 0 && b.next_slide <= self.tick && (b.slide_dir != 0 || map.get(b.x, b.y).conveyor_dir() != 0))
                 .map(|b| b.id),
         );
+        sliding.sort_unstable();
         for &id in &sliding {
+            if self.bombs.get(&id).is_none_or(|b| b.attached != 0) {
+                continue; // stuck to someone earlier in this loop
+            }
             let (x, y, kicked) = {
                 let b = &self.bombs[&id];
                 (b.x, b.y, b.slide_dir)
@@ -321,6 +382,10 @@ impl World {
                     b.explode_at = tick;
                     continue;
                 }
+                // A sliding sticky bomb that runs into someone sticks to them.
+                if kicked != 0 && self.bombs[&id].sticky && self.sticky_hit(id, nx, ny) {
+                    continue;
+                }
                 let b = self.bombs.get_mut(&id).unwrap();
                 b.slide_dir = 0;
                 b.next_slide = self.tick + CONVEYOR_TICKS;
@@ -333,6 +398,7 @@ impl World {
             b.x = nx;
             b.y = ny;
             b.next_slide = self.tick + if b.rocket { 1 } else if kicked != 0 { SLIDE_TICKS } else { CONVEYOR_TICKS };
+            self.bomb_portal(id);
         }
         self.scratch.bomb_ids = sliding;
     }
@@ -342,6 +408,8 @@ impl World {
         let mut due = std::mem::take(&mut self.scratch.bomb_ids);
         due.clear();
         due.extend(self.bombs.values().filter(|b| b.explode_at <= self.tick || self.flame_active(b.x, b.y)).map(|b| b.id));
+        // A fixed order, so the same inputs always give the same outcome.
+        due.sort_unstable();
         for &id in &due {
             self.explode(id);
         }
@@ -361,9 +429,21 @@ impl World {
         while let Some(id) = queue.pop() {
             let Some(b) = self.bombs.remove(&id) else { continue };
             let ci = self.map.idx(b.x, b.y);
-            self.bomb_grid[ci] = 0;
+            // (An attached sticky bomb isn't on the grid; another bomb may be.)
+            if self.bomb_grid[ci] == id {
+                self.bomb_grid[ci] = 0;
+            }
             if let Some(owner) = self.players.get_mut(&b.owner).filter(|_| b.counted) {
                 owner.active_bombs = owner.active_bombs.saturating_sub(1);
+            }
+            if b.attached != 0
+                && let Some(t) = self.players.get_mut(&b.attached)
+            {
+                t.detach_ticks = 0;
+            }
+            if b.gas {
+                self.release_gas(&b);
+                continue;
             }
             if b.nuke {
                 self.detonate_nuke(&b, &mut queue);
@@ -383,12 +463,17 @@ impl World {
                     Tile::Crate => {
                         self.set_tile(x, y, Tile::Floor);
                         self.stats.crates_destroyed += 1;
-                        if let Some(item) = Item::crate_drop(&mut self.rng) {
+                        let tuning = &self.tuning;
+                        if let Some(item) = Item::crate_drop(&mut self.rng, |i| tuning.item_enabled(i)) {
                             drops.push((x, y, item));
                         }
                     }
                     // Armor absorbs one blast and leaves a normal crate.
                     Tile::Armored => self.set_tile(x, y, Tile::Crate),
+                    // A builder's wall takes a hit and stops this arm.
+                    Tile::Built => {
+                        self.damage_wall(x, y, false);
+                    }
                     _ => {
                         if let Some(other) = self.bomb_at(x, y) {
                             queue.push(other);
@@ -435,6 +520,9 @@ impl World {
                 Tile::Crate | Tile::Armored => {
                     self.set_tile(x, y, Tile::Floor);
                     self.stats.crates_destroyed += 1;
+                }
+                Tile::Built => {
+                    self.damage_wall(x, y, true);
                 }
                 _ => {
                     self.set_item(x, y, 0);
@@ -503,7 +591,9 @@ impl World {
                 let (cx, cy) = (x + dx * r, y + dy * r);
                 match self.map.get(cx, cy) {
                     Tile::Wall => break,
-                    Tile::Crate | Tile::Armored => {
+                    // A builder's wall burns like a crate: it stops the arm
+                    // unless the blast pierces.
+                    Tile::Crate | Tile::Armored | Tile::Built => {
                         f(arm, r as u8, cx, cy);
                         if !pierce {
                             break;
