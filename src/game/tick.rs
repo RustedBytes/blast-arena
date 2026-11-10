@@ -43,10 +43,14 @@ impl World {
         self.update_bots();
         self.update_players();
         self.rebuild_buckets();
+        self.update_drones();
+        self.update_mines();
         self.update_sliding_bombs();
         self.update_fuses();
         self.apply_flame_damage();
         self.update_hills();
+        self.update_events();
+        self.melt_ice();
         self.regrow_crates();
         if self.tick.is_multiple_of(u64::from(TICK_RATE)) {
             self.maintain_bots();

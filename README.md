@@ -27,12 +27,13 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | F / Enter | Drop a bomb. Press again while standing on it with the line bomb to lay a row. |
 | Space | Jump over the stone pillar in front of you into the free cell behind it (0.4 s hop, 0.5 s cooldown; hold to keep hopping). You're above the fire while airborne, but can't steer, and a bomb pressed mid-air drops on landing. Crates and the map border can't be jumped. |
 | E / Shift | Action: detonate remote bombs, or punch the bomb in front of you |
+| Q | Use your gadget (land mine, rocket, swap, drone, drone swarm) |
 | 1–8 | Emotes (also the 😀 button) |
 | Mouse wheel, `+` / `-` / `0` | Zoom in / out / reset |
 | Tab (hold) | Leaderboard with kills and deaths |
 | M / P / Esc | Mute / FPS / settings |
-| Gamepad | Stick or d-pad moves, A bomb, Y jump, X action, shoulder buttons zoom |
-| Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒) and action buttons, pinch to zoom |
+| Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom |
+| Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q) and action buttons, pinch to zoom |
 
 The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `static/js/pixelart.js` and sprites in `static/js/pixelsprites.js`, sharing `static/js/pixelkit.js`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 
@@ -125,7 +126,21 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
   | punch | Throw a bomb over obstacles |
   | ghost | Walk through crates for 6 s |
   | **atomic bomb** | Rare (1%). Your next bomb is a nuke: a 3.5 s fuse, then a shockwave that burns a disc of radius 6 over a few ticks. Pillars give no cover; crates (armored too) and items are vaporized. While it ticks, every cell it will burn is shown in red with a countdown, also on the minimap |
+  | freeze | Your blasts leave ice on the floor for 8 s |
+  | stomp | Landing a jump next to enemies stuns them for 1 s (no moving, jumping or bombs) |
   | **secret box** | A random outcome when opened (see below) |
+
+- **Gadgets** are one-shot items used with **Q** (gamepad B). You hold the last kind you picked up, with a charge count in the HUD:
+
+  | Gadget | Effect |
+  |---|---|
+  | land mines ×3 | Hidden from enemies (your team sees them). An enemy next to one sets it off half a second later; fire sets it off at once. |
+  | rockets ×3 | Flies straight ahead at 20 tiles/s and explodes on whatever it hits |
+  | swap ×2 | Trade places with the nearest enemy within 6 tiles |
+  | drone | Flies over walls to the nearest enemy and drops up to 3 bombs on them |
+  | drone swarm (1%) | Five drones, one bomb each, spreading over different enemies |
+
+  Gadget bombs don't count against your bomb limit.
 
 - **Secret box.** Opening it gives one of:
   - any power-up
@@ -135,6 +150,10 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 
   Secret boxes also appear on their own around the map.
 - **Rounds** last 5 minutes. At the end, the MVPs and the winning team are shown, the MVP's profile gets a win and bonus XP, and scores reset.
+- **Sudden death** fills the last minute of every round: the arena closes in, one ring at a time, towards a random centre. The next ring to close glows red; whoever is still in it when it turns to stone is crushed. Jumping over the closing wall at the last moment works. The arena reopens for the next round.
+- **Map events** every minute or two: a **meteor shower** (marked impact zones, then blasts), a **blizzard** in snowy maps (everyone slows down, the minimap fogs over), a **lava surge** in volcanic regions (the ground glows, then burns) and **reversed conveyors** in the desert.
+- **Capture the flag** in the Teams arena: each team has a flag at its base. Walk over the enemy flag to take it and bring it to your base while your own flag is home: +5 points. Carriers can't jump or drop bombs. A carrier who dies drops the flag; touching your own dropped flag sends it home, and it goes home by itself after 15 s. You respawn near your base.
+- **Death replay**: after you die, the last moments play again in slow motion from the killer's side until you respawn.
 - **Scoring:**
   - +1 per kill.
   - +1 every 3 s you stand on a glowing **hill**; hills move each round.

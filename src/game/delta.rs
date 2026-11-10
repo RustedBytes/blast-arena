@@ -120,7 +120,14 @@ fn look(e: &PlayerEntry) -> u64 {
 /// the section mask, then each non-empty section. Counting first (a cheap
 /// extra merge pass) keeps lengths exact. `flames` writes the flames
 /// section (nothing if empty) and returns how many it wrote.
-pub(super) fn write_delta(w: &mut Wire<'_>, tick: u64, cur: &DeltaScratch, base: &Base<'_>, flames: impl Fn(&mut Wire<'_>) -> usize) {
+pub(super) fn write_delta(
+    w: &mut Wire<'_>,
+    tick: u64,
+    cur: &DeltaScratch,
+    base: &Base<'_>,
+    flames: impl Fn(&mut Wire<'_>) -> usize,
+    drones: impl Fn(&mut Wire<'_>) -> usize,
+) {
     let np = changed(&cur.players, base.players).count();
     let npg = gone(&cur.players, base.players).count();
     let nb = changed(&cur.bombs, base.bombs).count();
@@ -186,6 +193,9 @@ pub(super) fn write_delta(w: &mut Wire<'_>, tick: u64, cur: &DeltaScratch, base:
     }
     if flames(w) > 0 {
         w.0[mask_at] |= snap::FLAMES;
+    }
+    if drones(w) > 0 {
+        w.0[mask_at] |= snap::DRONES;
     }
     if me_mask != 0 {
         w.uvar(me_mask);

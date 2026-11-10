@@ -344,6 +344,97 @@ function powerUps() {
       '  okkkko  ',
       '   oooo   ',
     ], { o: '#3a2a00', y: '#ffd23f', k: '#1a1400' }),
+    // Freeze: a snowflake.
+    token('blue', [
+      '    w     ',
+      ' w  w  w  ',
+      '  w w w   ',
+      '   www    ',
+      'wwwwwwwww ',
+      '   www    ',
+      '  w w w   ',
+      ' w  w  w  ',
+      '    w     ',
+      '          ',
+    ], { w: '#e6faff' }),
+    // Mine: a dark disc with a red light.
+    token('orange', [
+      '          ',
+      '  y   y   ',
+      '   y y    ',
+      '   orro   ',
+      ' oo#rr#oo ',
+      'o########o',
+      'o-######-o',
+      ' oo----oo ',
+      '   oooo   ',
+      '          ',
+    ], { o: '#16162a', '#': '#6a7394', '-': '#30344f', r: '#ff3a2a', y: '#ffd34a' }),
+    // Rocket.
+    token('orange', [
+      '       rr ',
+      '      r##r',
+      '     ####r',
+      '  r ####r ',
+      '  r###### ',
+      '   ####   ',
+      '  f####   ',
+      ' ff r r   ',
+      'ff  r     ',
+      'f         ',
+    ], { r: '#d23a2f', '#': '#e8ecf4', f: '#ffb02e' }),
+    // Swap: two arrows chasing each other.
+    token('purple', [
+      '   wwww   ',
+      '  w    ww ',
+      ' w     ww ',
+      ' w    www ',
+      '          ',
+      '          ',
+      ' www    w ',
+      ' ww     w ',
+      ' ww    w  ',
+      '   wwww   ',
+    ], { w: '#ffffff' }),
+    // Stomp: a boot with impact lines.
+    token('gold', [
+      '  ###     ',
+      '  ###     ',
+      '  ###     ',
+      '  #####   ',
+      '  ######  ',
+      '  ####### ',
+      '  ooooooo ',
+      '          ',
+      'y  y  y  y',
+      ' y  y  y  ',
+    ], { '#': '#a86b3a', o: '#3a2010', y: '#ffe680' }),
+    // Drone.
+    token('blue', [
+      'cc      cc',
+      ' k      k ',
+      '  k    k  ',
+      '   yyyy   ',
+      '   yrry   ',
+      '   yyyy   ',
+      '  k    k  ',
+      ' k      k ',
+      'cc  oo  cc',
+      '    oo    ',
+    ], { c: '#bfe6ff', k: '#2a2f3d', y: '#ffd34a', r: '#ff3a2a', o: '#16162a' }),
+    // Swarm: three small drones.
+    token('pink', [
+      'c y c     ',
+      ' yyy      ',
+      '      c y ',
+      '       yyy',
+      '  c y c   ',
+      '   yyy    ',
+      '          ',
+      ' o   o  o ',
+      '          ',
+      '          ',
+    ], { c: '#bfe6ff', y: '#ffd34a', o: '#16162a' }),
   ];
 }
 
@@ -479,7 +570,8 @@ export function buildPixelSprites() {
   const f = flames();
   const items = powerUps();
   const names = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
-    'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke'];
+    'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke',
+    'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm'];
   const out = {
     bomb_nuke: big(nukeBomb()),
     bomb: big(bomb(IRON, false)),

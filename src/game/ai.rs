@@ -95,6 +95,8 @@ struct Search {
     seen: Vec<u32>,
     generation: u32,
     nodes: Vec<Node>,
+    /// Also hop over stone pillars (2 cells), like players can.
+    jumps: bool,
 }
 
 impl Search {
@@ -117,6 +119,18 @@ impl Search {
             for &(dx, dy) in &DIRS[1..] {
                 let c = (cell.0 + dx, cell.1 + dy);
                 if !world.map.in_bounds(c.0, c.1) {
+                    continue;
+                }
+                // A pillar ahead: maybe hop over it (counted as two steps).
+                if self.jumps && world.map.get(c.0, c.1) == Tile::Wall {
+                    let l = (cell.0 + 2 * dx, cell.1 + 2 * dy);
+                    if world.map.in_bounds(l.0, l.1) && !world.map.is_solid(l.0, l.1) && world.bomb_at(l.0, l.1).is_none() {
+                        let i = world.map.idx(l.0, l.1);
+                        if self.seen[i] != g && passable(l, dist + 2) {
+                            self.seen[i] = g;
+                            self.nodes.push(Node { cell: l, parent: head, dist: dist + 2 });
+                        }
+                    }
                     continue;
                 }
                 let i = world.map.idx(c.0, c.1);
@@ -177,7 +191,7 @@ impl AiScratch {
             occupied: vec![0; cells],
             bombs: Vec::with_capacity(256),
             bomb_index: HashMap::with_capacity(256),
-            search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4) },
+            search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4), jumps: true },
         }
     }
 }
@@ -211,14 +225,21 @@ struct Me {
     remote_out: bool,
 }
 
+/// Direction from cell `a` to the next cell `b` on a path: a neighbour, or
+/// a cell two away in a straight line (a hop over a pillar).
 fn dir_between(a: (i32, i32), b: (i32, i32)) -> u8 {
     match (b.0 - a.0, b.1 - a.1) {
-        (0, -1) => 1,
-        (1, 0) => 2,
-        (0, 1) => 3,
-        (-1, 0) => 4,
+        (0, -1 | -2) => 1,
+        (1 | 2, 0) => 2,
+        (0, 1 | 2) => 3,
+        (-1 | -2, 0) => 4,
         _ => 0,
     }
+}
+
+/// The next path step is a hop over a pillar.
+fn is_hop(a: (i32, i32), b: (i32, i32)) -> bool {
+    (b.0 - a.0).abs() + (b.1 - a.1).abs() == 2 && (a.0 == b.0 || a.1 == b.1)
 }
 
 impl World {
@@ -323,6 +344,12 @@ impl World {
             brain.reset();
             return;
         }
+        if p.jump_left > 0 {
+            return; // mid-air: nothing to steer
+        }
+        // Flag carriers can't jump.
+        sc.search.jumps = p.carrying == 0;
+        let mut trapped = false;
         let me = Me {
             cur: p.cell(),
             spt: p.speed(self.tick) * DT,
@@ -361,6 +388,7 @@ impl World {
                 if !self.escape_path(&mut sc.search, cur, &sc.danger, me.spt, &mut brain.path) {
                     brain.path.clear();
                     brain.push_dir = self.last_resort_dir(cur, &sc.danger);
+                    trapped = true;
                 }
             } else {
                 brain.escaping = false;
@@ -402,13 +430,43 @@ impl World {
         if want_bomb {
             dir = 0;
         }
+        let hop = brain.path.last().is_some_and(|&next| is_hop(cur, next));
+        let gadget = !want_bomb && self.bot_wants_gadget(id, in_danger, trapped);
         let p = self.players.get_mut(&id).unwrap();
         p.input_dir = dir;
         p.input_alt = 0;
+        p.input_jump = hop;
         p.want_bomb |= want_bomb;
+        p.want_gadget |= gadget;
         // Safely clear of its remote bombs: set them off.
         if me.remote_out && !in_danger && !want_bomb && !brain.escaping {
             p.want_act = true;
+        }
+    }
+
+    /// Whether a bot should fire its gadget now: drones when enemies are
+    /// near, a rocket at an enemy straight ahead, a swap when trapped, and
+    /// now and then a mine near enemies.
+    fn bot_wants_gadget(&mut self, id: u32, in_danger: bool, trapped: bool) -> bool {
+        let p = &self.players[&id];
+        if p.gadget_n == 0 {
+            return false;
+        }
+        let (cx, cy) = p.cell();
+        let enemy_within = |r: i32| {
+            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o))
+        };
+        match Item::from_u8(p.gadget) {
+            Some(Item::Drone | Item::Swarm) => enemy_within(9),
+            Some(Item::Rocket) => {
+                let (dx, dy) = DIRS[p.facing as usize];
+                (1..=10).map(|k| (cx + dx * k, cy + dy * k)).take_while(|&(x, y)| !self.map.is_solid(x, y)).any(|(x, y)| {
+                    self.players_in_rect(x, y, x, y).any(|o| o.alive && o.id != p.id && p.can_hurt(o) && o.cell() == (x, y))
+                })
+            }
+            Some(Item::Swap) => trapped,
+            Some(Item::Mine) => !in_danger && enemy_within(8) && self.rng.chance(0.05),
+            _ => false,
         }
     }
 

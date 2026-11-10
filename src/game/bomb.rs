@@ -27,6 +27,7 @@ pub const NUKE_SHOW_TICKS: u64 = 60; // 3 s
 /// The shockwave expands this many cells per tick.
 pub const NUKE_WAVE_SPEED: f32 = 1.0;
 
+#[allow(clippy::struct_excessive_bools, reason = "independent kinds of bomb a power-up can make")]
 pub struct Bomb {
     pub id: u32,
     pub owner: u32,
@@ -39,6 +40,12 @@ pub struct Bomb {
     pub remote: bool,
     /// An atomic bomb: a disc of fire of `NUKE_RADIUS` that walls don't stop.
     pub nuke: bool,
+    /// The blast leaves ice on the floor (freeze power-up).
+    pub freeze: bool,
+    /// A rocket: slides every tick and blows up when it hits something.
+    pub rocket: bool,
+    /// Counts towards the owner's bomb limit (gadget bombs don't).
+    pub counted: bool,
     pub explode_at: u64,
     /// Direction code of a kicked bomb, 0 when resting.
     pub slide_dir: u8,
@@ -47,11 +54,16 @@ pub struct Bomb {
 
 /// What a newly placed bomb is like.
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools, reason = "independent kinds of bomb a power-up can make")]
 pub struct BombKind {
     pub range: u8,
     pub pierce: bool,
     pub remote: bool,
     pub nuke: bool,
+    pub freeze: bool,
+    pub rocket: bool,
+    /// Counts towards the owner's bomb limit.
+    pub counted: bool,
     /// Ticks until it explodes (remote bombs use their safety timer instead).
     pub fuse: u64,
 }
@@ -62,15 +74,23 @@ impl BombKind {
     #[must_use]
     pub fn of(p: &Player) -> Self {
         if p.nukes > 0 {
-            return Self { range: NUKE_RADIUS, pierce: true, remote: false, nuke: true, fuse: NUKE_FUSE_TICKS };
+            let base = Self::plain(NUKE_RADIUS, NUKE_FUSE_TICKS);
+            return Self { pierce: true, nuke: true, ..base };
         }
-        Self { range: p.range, pierce: p.pierce, remote: p.remote, nuke: false, fuse: FUSE_TICKS }
+        Self { pierce: p.pierce, remote: p.remote, freeze: p.freeze, ..Self::plain(p.range, FUSE_TICKS) }
     }
 
     /// A plain bomb (bomb rain, tests).
     #[must_use]
     pub fn plain(range: u8, fuse: u64) -> Self {
-        Self { range, pierce: false, remote: false, nuke: false, fuse }
+        Self { range, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, counted: true, fuse }
+    }
+
+    /// A bomb from a gadget (drone, mine, rocket): not counted towards the
+    /// owner's bomb limit.
+    #[must_use]
+    pub fn gadget(range: u8, fuse: u64) -> Self {
+        Self { counted: false, ..Self::plain(range, fuse) }
     }
 }
 
@@ -140,12 +160,13 @@ impl World {
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
-        let BombKind { range, pierce, remote, nuke, fuse } = kind;
+        let BombKind { range, pierce, remote, nuke, freeze, rocket, counted, fuse } = kind;
         let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
-        self.bombs.insert(id, Bomb { id, owner, x, y, range, pierce, remote, nuke, explode_at, slide_dir: 0, next_slide: 0 });
+        let bomb = Bomb { id, owner, x, y, range, pierce, remote, nuke, freeze, rocket, counted, explode_at, slide_dir: 0, next_slide: 0 };
+        self.bombs.insert(id, bomb);
         let i = self.map.idx(x, y);
         self.bomb_grid[i] = id;
-        if let Some(p) = self.players.get_mut(&owner) {
+        if let Some(p) = self.players.get_mut(&owner).filter(|_| counted) {
             p.active_bombs += 1;
             if nuke {
                 p.nukes = p.nukes.saturating_sub(1);
@@ -282,7 +303,13 @@ impl World {
             let (dx, dy) = DIRS[dir as usize];
             let (nx, ny) = (x + dx, y + dy);
             if self.cell_blocks_slide(nx, ny) {
+                let tick = self.tick;
                 let b = self.bombs.get_mut(&id).unwrap();
+                if b.rocket {
+                    // A rocket blows up on impact.
+                    b.explode_at = tick;
+                    continue;
+                }
                 b.slide_dir = 0;
                 b.next_slide = self.tick + CONVEYOR_TICKS;
                 continue;
@@ -293,7 +320,7 @@ impl World {
             let b = self.bombs.get_mut(&id).unwrap();
             b.x = nx;
             b.y = ny;
-            b.next_slide = self.tick + if kicked != 0 { SLIDE_TICKS } else { CONVEYOR_TICKS };
+            b.next_slide = self.tick + if b.rocket { 1 } else if kicked != 0 { SLIDE_TICKS } else { CONVEYOR_TICKS };
         }
         self.scratch.bomb_ids = sliding;
     }
@@ -323,7 +350,7 @@ impl World {
             let Some(b) = self.bombs.remove(&id) else { continue };
             let ci = self.map.idx(b.x, b.y);
             self.bomb_grid[ci] = 0;
-            if let Some(owner) = self.players.get_mut(&b.owner) {
+            if let Some(owner) = self.players.get_mut(&b.owner).filter(|_| b.counted) {
                 owner.active_bombs = owner.active_bombs.saturating_sub(1);
             }
             if b.nuke {
@@ -358,6 +385,12 @@ impl World {
                 }
             }
             self.explosions.push(Explosion { x: b.x, y: b.y, arms, nuke: 0, until: flame_until });
+            if b.freeze {
+                self.freeze_cell(b.x, b.y);
+                for &(_, _, x, y) in &cells {
+                    self.freeze_cell(x, y);
+                }
+            }
         }
 
         // Items revealed by crates appear only after the whole chain resolved,
@@ -476,7 +509,7 @@ impl World {
 
     /// Fire in a cell from tick `from` until `until`. Overlapping fire
     /// merges into one continuous window; the newest blast owns the cell.
-    fn set_flame(&mut self, x: i32, y: i32, owner: u32, from: u64, until: u64) {
+    pub(super) fn set_flame(&mut self, x: i32, y: i32, owner: u32, from: u64, until: u64) {
         let i = self.map.idx(x, y);
         if self.flame_until[i] > self.tick {
             self.flame_from[i] = self.flame_from[i].min(from);

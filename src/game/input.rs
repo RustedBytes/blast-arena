@@ -21,6 +21,11 @@ impl World {
                 p.bomb_presses = presses;
                 p.want_bomb = true;
             }
+            let gadgets = link.input.gadget_presses();
+            if gadgets != p.gadget_presses {
+                p.gadget_presses = gadgets;
+                p.want_gadget = true;
+            }
             let acts = link.input.act_presses();
             if acts != p.act_presses {
                 p.act_presses = acts;

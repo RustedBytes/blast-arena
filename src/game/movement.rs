@@ -16,15 +16,7 @@ impl World {
             let p = &self.players[&id];
             if !p.alive {
                 if self.tick >= p.respawn_at {
-                    let (x, y) = self.find_spawn();
-                    let p = self.players.get_mut(&id).unwrap();
-                    p.x = x as f32 + 0.5;
-                    p.y = y as f32 + 0.5;
-                    p.alive = true;
-                    p.killed_by = None;
-                    (p.jump_dir, p.jump_left) = (0, 0);
-                    p.want_bomb = false;
-                    p.invulnerable_until = self.tick + SPAWN_SHIELD_TICKS;
+                    self.respawn(id);
                 }
                 continue;
             }
@@ -37,11 +29,13 @@ impl World {
             if p.jump_left > 0 {
                 continue;
             }
-            let (mut dir, alt) = if jumped { (0, 0) } else { (p.input_dir, p.input_alt) };
+            // Stunned players can't steer (ice and belts still carry them).
+            let stunned = p.stunned_until > self.tick;
+            let (mut dir, alt) = if jumped || stunned { (0, 0) } else { (p.input_dir, p.input_alt) };
             let start = (p.x, p.y);
             let start_cell = p.cell();
             let on = self.map.get(start_cell.0, start_cell.1);
-            let dist = p.speed(self.tick) * DT;
+            let dist = p.speed(self.tick) * self.weather_slow() * DT;
             // On ice you can't stop: letting go keeps you sliding until you
             // steer, hit something or reach the end of the ice.
             if !jumped && dir == 0 && on == Tile::Ice && p.moving && p.slide_dir != 0 {
@@ -93,7 +87,8 @@ impl World {
             // Teleporters: stepping onto a pad's centre moves you to its twin.
             if self.map.get(cx, cy) == Tile::Teleport && p.teleport_ready_at <= self.tick {
                 let near_centre = (p.x - (cx as f32 + 0.5)).abs() + (p.y - (cy as f32 + 0.5)).abs() < 0.35;
-                if let (true, Some((tx, ty))) = (near_centre, self.map.teleport_partner(cx, cy)) {
+                let partner = self.map.teleport_partner(cx, cy).filter(|&(tx, ty)| !self.map.is_solid(tx, ty));
+                if let (true, Some((tx, ty))) = (near_centre, partner) {
                     p.x = tx as f32 + 0.5;
                     p.y = ty as f32 + 0.5;
                     p.teleport_ready_at = self.tick + TELEPORT_COOLDOWN_TICKS;
@@ -120,14 +115,34 @@ impl World {
                 self.pick_up(id, item);
             }
 
-            if want_act {
+            if want_act && !stunned {
                 self.act(id);
+            }
+            if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_gadget) && !stunned {
+                self.use_gadget(id);
             }
             if std::mem::take(&mut self.players.get_mut(&id).unwrap().want_bomb) {
                 self.place_bomb(id);
             }
         }
         self.scratch.ids = ids;
+    }
+
+    /// Brings a dead player back: anywhere safe, or near their own base in
+    /// capture the flag.
+    fn respawn(&mut self, id: u32) {
+        let (x, y) = match self.team_base(self.players[&id].team) {
+            Some((bx, by)) => self.find_spawn_near(bx, by),
+            None => self.find_spawn(),
+        };
+        let p = self.players.get_mut(&id).unwrap();
+        p.x = x as f32 + 0.5;
+        p.y = y as f32 + 0.5;
+        p.alive = true;
+        p.killed_by = None;
+        (p.jump_dir, p.jump_left) = (0, 0);
+        p.want_bomb = false;
+        p.invulnerable_until = self.tick + SPAWN_SHIELD_TICKS;
     }
 
     /// Starts a jump if the jump key is held and one is possible, and moves
@@ -137,7 +152,7 @@ impl World {
         let tick = self.tick;
         let p = &self.players[&id];
         if p.jump_left == 0 {
-            if !p.input_jump || tick < p.jump_ready_at {
+            if !p.input_jump || tick < p.jump_ready_at || p.stunned_until > tick || p.carrying != 0 {
                 return false;
             }
             let dir = if p.input_dir != 0 { p.input_dir } else { p.facing };
@@ -163,6 +178,9 @@ impl World {
             p.jump_dir = 0;
             p.moving = false;
             p.jump_ready_at = tick + JUMP_COOLDOWN_TICKS;
+            if p.stomp {
+                self.stomp(id);
+            }
         }
         true
     }

@@ -27,7 +27,12 @@ const MINIMAP_CSS = 170;    // minimap size in CSS px (see style.css)
 const MINIMAP_MS = 250;     // minimap overlay refresh period
 // Item halo colour by rarity.
 const HALO = [null, '#ffffff', '#ffffff', '#7fd0ff', '#7fd0ff', '#c08bff', '#c08bff', '#ffd34a', '#ff7af0',
-  '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff', '#9dff5a'];
+  '#7fd0ff', '#ffb02e', '#ff7a7a', '#d6c8ff', '#9dff5a', '#bff4ff', '#ff9a6a', '#ffb02e', '#e08bff', '#ffd34a',
+  '#7fd0ff', '#ff7af0'];
+const TEAM_COLORS = ['#ffd34a', '#ff5a4a', '#5aa0ff'];
+// Map events (src/game/events.rs): meteor warning, and kinds as announced.
+const METEOR_WARN_MS = 1500;
+const EVENT_BLIZZARD = 2;
 // Atomic bomb, mirroring the server (src/game/bomb.rs): fuse, how long each
 // cell burns after the shockwave reaches it, how long the blast is shown,
 // and shockwave speed in cells per second.
@@ -36,6 +41,8 @@ const NUKE_FLAME_S = 0.8;
 export const NUKE_SHOW_TICKS = 60;
 const NUKE_WAVE_CPS = 20;
 const NUKE_LIFE_S = 3.2;
+/** Death replay speed (game time per real time). */
+export const REPLAY_RATE = 0.6;
 const NUKE_RADIUS = 6;
 /** Whether offset (dx, dy) from ground zero is inside the atomic disc (as on the server). */
 const inNukeDisc = (dx, dy) => dx * dx + dy * dy <= NUKE_RADIUS * NUKE_RADIUS + NUKE_RADIUS;
@@ -109,6 +116,12 @@ export class Renderer {
     this.flash = 0; // strength of the current atomic flash (0..1)
     this.flashAt = -1e9;
     this.puffs = null; // soft cloud sprites, built on first use
+    this.meteors = []; // { x, y, at } incoming meteor strikes
+    this.lava = []; // { cells, start, end } lava surges
+    this.weather = null; // { kind, start, end } current map event
+    this.snow = null; // blizzard flakes (x, y in 0..1, speed)
+    this.dronePrev = new Map();
+    this.replaying = false;
     this.specials = []; // [x, y, tile] of animated tiles (conveyors, pads)
     this.highContrast = false;
     this.colorblind = false;
@@ -116,10 +129,12 @@ export class Renderer {
     this.tileStyle = 'pixel';
     // Pooled frame data, reused every frame.
     this.frame = {
-      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0 })),
+      players: Array.from({ length: POOL }, () => ({ id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0, stunned: false, carrying: false })),
       nPlayers: 0,
-      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false })),
+      bombs: Array.from({ length: POOL }, () => ({ x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, dx: 0, dy: 0 })),
       nBombs: 0,
+      drones: Array.from({ length: 64 }, () => ({ id: 0, x: 0, y: 0, team: 0 })),
+      nDrones: 0,
     };
     this.prev = new Map();
     this.mapImage = document.createElement('canvas');
@@ -670,6 +685,7 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
 
+    this.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
     const inZone = this.drawNukeZones(state, f, camX, camY, T, sec);
     this.drawItems(state.items, camX, camY, T, sec, W, H);
     this.drawBombs(f, camX, camY, T, sec, dt);
@@ -690,9 +706,12 @@ export class Renderer {
     this.particles.draw(ctx, camX, camY, T);
     this.drawEffects(now, camX, camY, T);
     this.drawNukeCloud(now, camX, camY, T);
+    this.drawSky(state, now, camX, camY, T, sec);
     for (let i = 0; i < f.nPlayers; i++) this.drawName(ps[i], camX, camY, T, state, now);
     this.drawNukeCountdowns(f, camX, camY, T);
     if (inZone) this.drawRunWarning(state, inZone, camX, camY, T, sec, W);
+    this.drawWeather(now, dt, W, H);
+    if (this.replaying) this.drawReplayFrame(sec, W, H);
     this.drawFlash(now, W, H);
 
     // (The vignette is a CSS overlay: the compositor blends it for free.)
@@ -830,6 +849,21 @@ export class Renderer {
       if (late) {
         px += (Math.random() - 0.5) * T * 0.06;
         py += (Math.random() - 0.5) * T * 0.06;
+      }
+      if (b.mine) {
+        this.drawMine(px, py, T, sec);
+        continue;
+      }
+      if (b.rocket) {
+        this.drawRocket(b, px, py, T, sec);
+        continue;
+      }
+      if (b.freeze) {
+        // Frosty halo around freeze bombs.
+        ctx.fillStyle = 'rgba(160,230,255,0.35)';
+        ctx.beginPath();
+        ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
+        ctx.fill();
       }
       ctx.drawImage(this.art(b.nuke ? 'bomb_nuke' : b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
       if (b.remote && pix) {
@@ -973,6 +1007,334 @@ export class Renderer {
     ctx.fillStyle = '#fff';
     ctx.fillText(text, W / 2, y);
     ctx.globalAlpha = 1;
+  }
+
+  // ------------------------------------------------- events and gadgets
+
+  /** A conveyor or teleporter changed (map events): keep the animated list in step. */
+  updateSpecial(x, y, tile) {
+    const i = this.specials.findIndex((s) => s[0] === x && s[1] === y);
+    const special = CONVEYOR_DIR[tile] || tile === T_TELEPORT;
+    if (i >= 0 && special) this.specials[i][2] = tile;
+    else if (i >= 0) this.specials.splice(i, 1);
+    else if (special) this.specials.push([x, y, tile]);
+  }
+
+  /** A map event started (1 meteors, 2 blizzard, 3 lava, 4 conveyors). */
+  mapEvent(kind, now, durationMs) {
+    this.weather = { kind, start: now, end: now + durationMs };
+  }
+
+  addMeteor(x, y, at) {
+    this.meteors.push({ x, y, at, hit: false });
+  }
+
+  /** Lava surge: flat [x0, y0, x1, y1, ...] cells, erupting at `start` for `burnMs`. */
+  addLava(flat, start, burnMs) {
+    this.lava.push({ cells: flat, warn: performance.now(), start, end: start + burnMs });
+  }
+
+  /** A small five-pointed star. */
+  star(ctx, x, y, r) {
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r;
+      if (k === 0) ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** A waving flag on a pole whose foot is at (x, y), `h` tall. */
+  drawFlag(x, y, h, color, sec) {
+    const { ctx } = this;
+    ctx.strokeStyle = '#d8d8d8';
+    ctx.lineWidth = Math.max(2, h * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y - h);
+    ctx.stroke();
+    const w = h * 0.55, fh = h * 0.36, top = y - h;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    for (let k = 0; k <= 6; k++) {
+      const fx = x + (w * k) / 6;
+      ctx.lineTo(fx, top + Math.sin(sec * 8 + k) * h * 0.04 * (k / 6));
+    }
+    for (let k = 6; k >= 0; k--) {
+      const fx = x + (w * k) / 6;
+      ctx.lineTo(fx, top + fh + Math.sin(sec * 8 + k) * h * 0.04 * (k / 6));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  /** Your own hidden land mine: a dim disc with a blinking light. */
+  drawMine(px, py, T, sec) {
+    const { ctx } = this;
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#3a3f4f';
+    ctx.beginPath();
+    ctx.ellipse(px, py + T * 0.1, T * 0.3, T * 0.18, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.fillStyle = '#6a7394';
+    ctx.beginPath();
+    ctx.ellipse(px, py + T * 0.04, T * 0.2, T * 0.11, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = Math.floor(sec * 2) % 2 ? '#ff4a3a' : '#5a1a14';
+    ctx.beginPath();
+    ctx.arc(px, py + T * 0.02, T * 0.05, 0, 6.2832);
+    ctx.fill();
+  }
+
+  /** A rocket pointing the way it flies, with an exhaust flame. */
+  drawRocket(b, px, py, T, sec) {
+    const { ctx } = this;
+    let a = Math.atan2(b.dy, b.dx);
+    if (b.dx === 0 && b.dy === 0) a = (b.rocketA ?? 0);
+    b.rocketA = a;
+    const c = Math.cos(a), s = Math.sin(a);
+    ctx.setTransform(c, s, -s, c, px, py);
+    const L = T * 0.8, R = T * 0.17;
+    // Exhaust.
+    ctx.globalCompositeOperation = 'lighter';
+    const flick = 0.8 + 0.4 * Math.sin(sec * 40);
+    ctx.fillStyle = 'rgba(255,170,40,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.45, -R * 0.7);
+    ctx.lineTo(-L * (0.45 + 0.5 * flick), 0);
+    ctx.lineTo(-L * 0.45, R * 0.7);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // Body, fins and nose.
+    ctx.fillStyle = '#d9dde8';
+    ctx.fillRect(-L * 0.45, -R, L * 0.7, R * 2);
+    ctx.fillStyle = '#d23a2f';
+    ctx.beginPath();
+    ctx.moveTo(L * 0.25, -R);
+    ctx.lineTo(L * 0.55, 0);
+    ctx.lineTo(L * 0.25, R);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.45, -R);
+    ctx.lineTo(-L * 0.55, -R * 1.9);
+    ctx.lineTo(-L * 0.2, -R);
+    ctx.moveTo(-L * 0.45, R);
+    ctx.lineTo(-L * 0.55, R * 1.9);
+    ctx.lineTo(-L * 0.2, R);
+    ctx.fill();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (Math.random() < 0.6) this.particles.emit(P_SMOKE, b.x + 0.5 - c * 0.45, b.y + 0.5 - s * 0.45, -c * 0.5, -s * 0.5, 0.5, 0.12, 4);
+  }
+
+  /**
+   * Things on the ground under everything else: the sudden-death ring
+   * about to close, lava surges, meteor targets, and capture-the-flag
+   * bases and flags lying around.
+   */
+  drawGroundEvents(state, now, camX, camY, T, sec, W, H) {
+    const { ctx } = this;
+    const sd = state.sd;
+    if (sd) {
+      // The next ring to turn to stone, pulsing faster as it nears.
+      const left = Math.max(0, sd.nextAt - now);
+      const urgency = 1 - Math.min(1, left / 2500);
+      const beat = 0.5 + 0.5 * Math.sin(sec * (4 + 16 * urgency));
+      ctx.fillStyle = `rgba(255,40,20,${0.18 + 0.3 * urgency * beat})`;
+      const r = sd.r;
+      const x0 = (sd.cx - r) * T - camX, y0 = (sd.cy - r) * T - camY, size = (2 * r + 1) * T;
+      ctx.beginPath();
+      ctx.rect(x0, y0, size, size);
+      ctx.rect(x0 + T, y0 + T, size - 2 * T, size - 2 * T);
+      ctx.fill('evenodd');
+      ctx.strokeStyle = `rgba(255,${Math.round(220 - 160 * urgency)},40,0.9)`;
+      ctx.lineWidth = Math.max(2, T * 0.08);
+      ctx.strokeRect(x0 + T, y0 + T, size - 2 * T, size - 2 * T);
+    }
+    // Lava: glowing cracks while it warns, then fire.
+    let keep = 0;
+    for (const lv of this.lava) {
+      if (now > lv.end) continue;
+      this.lava[keep++] = lv;
+      const burning = now >= lv.start;
+      const pix = this.pixelArt();
+      const tick = Math.floor(now / 70);
+      for (let i = 0; i < lv.cells.length; i += 2) {
+        const x = lv.cells[i], y = lv.cells[i + 1];
+        const px = x * T - camX, py = y * T - camY;
+        if (px < -T || py < -T || px > W || py > H) continue;
+        if (!burning) {
+          const k = (now - lv.warn) / Math.max(1, lv.start - lv.warn);
+          ctx.fillStyle = `rgba(255,${Math.round(120 - 60 * k)},20,${0.15 + 0.4 * k * (0.6 + 0.4 * Math.sin(sec * 12 + x + y))})`;
+          ctx.fillRect(px + T * 0.1, py + T * 0.1, T * 0.8, T * 0.8);
+        } else {
+          const sprite = pix ? pix.flames.center[(tick + x * 7 + y * 3) % 3] : this.assets.sprite('flame_center');
+          ctx.globalAlpha = Math.min(1, (lv.end - now) / 300);
+          ctx.drawImage(sprite, px, py, T, T);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+    this.lava.length = keep;
+    // Meteor targets: a shrinking ring and cross-hair where it will land.
+    keep = 0;
+    for (const m of this.meteors) {
+      if (now > m.at + 300) continue;
+      this.meteors[keep++] = m;
+      if (now >= m.at) {
+        if (!m.hit) {
+          m.hit = true;
+          this.particles.burst(P_DEBRIS, m.x + 0.5, m.y + 0.5, 14, 5, 0.9, 0.14, 4, 3);
+          this.shake = Math.max(this.shake, 0.25);
+        }
+        continue;
+      }
+      const k = Math.max(0, Math.min(1, 1 - (m.at - now) / METEOR_WARN_MS));
+      const cx = (m.x + 0.5) * T - camX, cy = (m.y + 0.5) * T - camY;
+      ctx.strokeStyle = `rgba(255,90,40,${0.4 + 0.5 * k})`;
+      ctx.lineWidth = Math.max(2, T * 0.06);
+      ctx.beginPath();
+      ctx.arc(cx, cy, T * (1.6 - 1.1 * k), 0, 6.2832);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,60,20,${0.15 + 0.3 * k})`;
+      ctx.fillRect(cx - T * 1.5, cy - T * 0.5, T * 3, T);
+      ctx.fillRect(cx - T * 0.5, cy - T * 1.5, T, T * 3);
+    }
+    this.meteors.length = keep;
+    // Capture the flag: bases, and flags at home or dropped.
+    if (state.flags) {
+      for (let k = 0; k < 2; k++) {
+        const f = state.flags[k];
+        const color = TEAM_COLORS[k + 1];
+        const bx = (f.base[0] + 0.5) * T - camX, by = (f.base[1] + 0.5) * T - camY;
+        ctx.fillStyle = k === 0 ? 'rgba(255,90,74,0.25)' : 'rgba(90,160,255,0.25)';
+        ctx.fillRect(bx - T * 1.5, by - T * 1.5, T * 3, T * 3);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2, T * 0.06);
+        ctx.setLineDash([T * 0.25, T * 0.15]);
+        ctx.strokeRect(bx - T * 1.5 + 2, by - T * 1.5 + 2, T * 3 - 4, T * 3 - 4);
+        ctx.setLineDash([]);
+        if (f.state !== 1) {
+          const fx = (f.pos[0] + 0.5) * T - camX, fy = (f.pos[1] + 0.5) * T - camY;
+          this.drawFlag(fx - T * 0.1, fy + T * 0.35, T * 0.95, color, sec);
+          if (f.state === 2) {
+            // Dropped: blinking so both teams notice it.
+            ctx.strokeStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(sec * 8)})`;
+            ctx.beginPath();
+            ctx.arc(fx, fy, T * 0.55, 0, 6.2832);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+
+  /** In the sky: falling meteors and bomber drones. */
+  drawSky(state, now, camX, camY, T, sec) {
+    const { ctx } = this;
+    for (const m of this.meteors) {
+      const left = m.at - now;
+      if (left < 0 || left > 600) continue;
+      const k = left / 600; // 1 high up, 0 at impact
+      const cx = (m.x + 0.5 + k * 3) * T - camX, cy = (m.y + 0.5 - k * 7) * T - camY;
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createLinearGradient(cx, cy, cx + T * 1.5, cy - T * 3.5);
+      g.addColorStop(0, 'rgba(255,200,80,0.9)');
+      g.addColorStop(1, 'rgba(255,80,0,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = T * 0.35;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + T * 1.5, cy - T * 3.5);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#5a3a2a';
+      ctx.beginPath();
+      ctx.arc(cx, cy, T * 0.3, 0, 6.2832);
+      ctx.fill();
+      ctx.fillStyle = '#ffb02e';
+      ctx.beginPath();
+      ctx.arc(cx - T * 0.08, cy + T * 0.06, T * 0.16, 0, 6.2832);
+      ctx.fill();
+    }
+    const f = this.frame;
+    for (let i = 0; i < f.nDrones; i++) {
+      const d = f.drones[i];
+      const px = d.x * T - camX, py = d.y * T - camY;
+      const hover = Math.sin(sec * 5 + d.id) * T * 0.05;
+      // Shadow on the ground.
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(px, py + T * 0.3, T * 0.32, T * 0.1, 0, 0, 6.2832);
+      ctx.fill();
+      const y = py - T * 0.55 + hover;
+      // Arms, rotors and body.
+      ctx.strokeStyle = '#2a2f3d';
+      ctx.lineWidth = Math.max(2, T * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(px - T * 0.3, y - T * 0.18); ctx.lineTo(px + T * 0.3, y + T * 0.18);
+      ctx.moveTo(px + T * 0.3, y - T * 0.18); ctx.lineTo(px - T * 0.3, y + T * 0.18);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(220,230,255,0.45)';
+      for (const [rx, ry] of [[-0.3, -0.18], [0.3, -0.18], [-0.3, 0.18], [0.3, 0.18]]) {
+        ctx.beginPath();
+        ctx.ellipse(px + rx * T, y + ry * T, T * 0.16, T * 0.05 * (1 + Math.abs(Math.sin(sec * 40 + rx))), 0, 0, 6.2832);
+        ctx.fill();
+      }
+      ctx.fillStyle = TEAM_COLORS[d.team] ?? TEAM_COLORS[0];
+      ctx.fillRect(px - T * 0.14, y - T * 0.1, T * 0.28, T * 0.2);
+      ctx.fillStyle = Math.floor(sec * 4 + d.id) % 2 ? '#ff4a3a' : '#7fff6a';
+      ctx.beginPath();
+      ctx.arc(px, y, T * 0.04, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  /** Blizzard: driving snow over the whole view. */
+  drawWeather(now, dt, W, H) {
+    const w = this.weather;
+    if (!w || w.kind !== EVENT_BLIZZARD || now > w.end) return;
+    const { ctx } = this;
+    if (!this.snow) {
+      this.snow = new Float32Array(240 * 3);
+      for (let i = 0; i < this.snow.length; i += 3) {
+        this.snow[i] = Math.random(); this.snow[i + 1] = Math.random(); this.snow[i + 2] = 0.3 + Math.random() * 0.7;
+      }
+    }
+    const fade = Math.min(1, (now - w.start) / 1000, (w.end - now) / 1000);
+    ctx.fillStyle = `rgba(230,240,255,${0.18 * fade})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = `rgba(255,255,255,${0.85 * fade})`;
+    const s = this.snow, r = Math.max(1.5, 2 * this.dpr);
+    ctx.beginPath();
+    for (let i = 0; i < s.length; i += 3) {
+      s[i] = (s[i] + dt * 0.25 * s[i + 2] + 1) % 1;
+      s[i + 1] = (s[i + 1] + dt * 0.35 * s[i + 2]) % 1;
+      const x = s[i] * W, y = s[i + 1] * H, rr = r * (0.6 + s[i + 2]);
+      ctx.moveTo(x + rr, y);
+      ctx.arc(x, y, rr, 0, 6.2832);
+    }
+    ctx.fill();
+  }
+
+  /** Letterbox and label while a death replay plays. */
+  drawReplayFrame(sec, W, H) {
+    const { ctx } = this;
+    const bar = Math.round(H * 0.07);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, 0, W, bar);
+    ctx.fillRect(0, H - bar, W, bar);
+    const fs = Math.round(16 * this.dpr);
+    ctx.font = this.font(fs, 800);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = Math.floor(sec * 2) % 2 ? '#ff5a4a' : '#ffffff';
+    ctx.fillText(`● ${t('replay')}`, W / 2, H - bar / 2);
   }
 
   drawExplosions(explosions, camX, camY, T) {
@@ -1159,6 +1521,19 @@ export class Renderer {
       ctx.lineWidth = Math.max(1.5, T * 0.04);
       ctx.stroke();
       ctx.restore();
+    }
+    if (p.stunned) {
+      // Dizzy stars circling the head.
+      ctx.fillStyle = '#ffe680';
+      for (let k = 0; k < 3; k++) {
+        const a = sec * 6 + k * 2.094;
+        this.star(ctx, px + Math.cos(a) * T * 0.32, py - T * 0.78 + Math.sin(a) * T * 0.1, T * 0.09);
+      }
+    }
+    if (p.carrying) {
+      // The flag being carried: the other team's colour.
+      const team = state.rosterInfo.get(p.id)?.team ?? 0;
+      this.drawFlag(px + T * 0.18, py - T * 0.35, T * 0.8, TEAM_COLORS[team === 1 ? 2 : 1], sec);
     }
     if (p.bounty) {
       // Crosshair over the bounty holder.
@@ -1443,6 +1818,19 @@ export class Renderer {
       c.lineWidth = this.dpr * 1.5;
       c.stroke();
     }
+    if (state.sd) {
+      const r = state.sd.r;
+      c.strokeStyle = '#ff5a3a';
+      c.lineWidth = this.dpr * 1.5;
+      c.strokeRect((state.sd.cx - r + 1) * scale, (state.sd.cy - r + 1) * scale, (2 * r - 1) * scale, (2 * r - 1) * scale);
+    }
+    if (state.flags) {
+      for (let k = 0; k < 2; k++) {
+        const f = state.flags[k];
+        c.fillStyle = TEAM_COLORS[k + 1];
+        c.fillRect((f.pos[0] + 0.5) * scale - 3 * this.dpr, (f.pos[1] + 0.5) * scale - 3 * this.dpr, 6 * this.dpr, 6 * this.dpr);
+      }
+    }
     const T = this.T;
     c.strokeStyle = 'rgba(255,255,255,0.7)';
     c.lineWidth = this.dpr;
@@ -1457,6 +1845,12 @@ export class Renderer {
       const s = me ? dot * 2.5 : dot * 1.5;
       c.fillRect(p.x * scale - s / 2, p.y * scale - s / 2, s, s);
     }
+    // A blizzard fogs the minimap.
+    const w = this.weather;
+    if (w && w.kind === EVENT_BLIZZARD && performance.now() < w.end) {
+      c.fillStyle = 'rgba(235,242,255,0.82)';
+      c.fillRect(0, 0, size, size);
+    }
   }
 
   /**
@@ -1467,7 +1861,12 @@ export class Renderer {
   interpolate(state, now) {
     const ring = state.snaps;
     const latest = ring.latest();
-    const rt = now / state.tickMs - state.offset - (state.interpDelay ?? INTERP_TICKS);
+    // A death replay plays recent snapshots again, slowly.
+    const rp = state.replay;
+    this.replaying = !!rp;
+    const rt = rp
+      ? Math.min(latest.k, rp.from + ((now - rp.t0) / state.tickMs) * REPLAY_RATE)
+      : now / state.tickMs - state.offset - (state.interpDelay ?? INTERP_TICKS);
     let a = ring.get(0), b = a;
     for (let i = ring.len - 1; i >= 0; i--) {
       const s = ring.get(i);
@@ -1486,7 +1885,7 @@ export class Renderer {
     let n = 0;
     for (let i = 0; i < b.p.length && n < POOL - 1; i++) {
       const q = b.p[i];
-      if (q[0] === state.myId) continue;
+      if (q[0] === state.myId && !rp) continue;
       const p = prev.get(q[0]) ?? q;
       const jump = Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) > 200; // teleport or respawn
       const t = jump ? 1 : alpha;
@@ -1517,9 +1916,31 @@ export class Renderer {
       o.pierce = (q[4] & 1) !== 0;
       o.remote = (q[4] & 2) !== 0;
       o.nuke = (q[4] & 4) !== 0;
+      o.freeze = (q[4] & 8) !== 0;
+      o.rocket = (q[4] & 16) !== 0;
+      o.mine = (q[4] & 32) !== 0;
+      o.dx = q[1] - p[1];
+      o.dy = q[2] - p[2];
     }
     f.nBombs = m;
-    state.explosions = latest.e;
+
+    // Drones, interpolated by id.
+    const dp = this.dronePrev;
+    dp.clear();
+    for (const d of a.d ?? []) dp.set(d[0], d);
+    let nd = 0;
+    for (const d of b.d ?? []) {
+      if (nd >= f.drones.length) break;
+      const p = dp.get(d[0]) ?? d;
+      const o = f.drones[nd++];
+      o.id = d[0];
+      o.x = p[1] + (d[1] - p[1]) * alpha;
+      o.y = p[2] + (d[2] - p[2]) * alpha;
+      o.team = d[3];
+    }
+    f.nDrones = nd;
+    // Replaying a death shows the flames of that moment.
+    state.explosions = this.replaying ? b.e : latest.e;
   }
 }
 
@@ -1534,6 +1955,8 @@ function setPlayer(o, q, x, y) {
   o.ghost = (q[4] & 8) !== 0;
   o.bounty = (q[4] & 16) !== 0;
   o.jumpDir = (q[4] & 32) !== 0 ? q[3] : 0;
+  o.stunned = (q[4] & 64) !== 0;
+  o.carrying = (q[4] & 128) !== 0;
 }
 
 function clampCam(cam, worldPx, viewPx) {

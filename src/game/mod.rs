@@ -14,6 +14,8 @@ pub mod rng;
 
 mod combat;
 mod delta;
+mod events;
+pub mod gadgets;
 mod input;
 mod movement;
 mod pickups;
@@ -201,6 +203,15 @@ pub struct World {
     pub flame_until: Vec<u64>,
     pub flame_owner: Vec<u32>,
     pub explosions: Vec<Explosion>,
+    /// Hidden land mines and flying drones (see `gadgets`).
+    pub mines: Vec<gadgets::Mine>,
+    pub drones: Vec<gadgets::Drone>,
+    /// Ice from freeze blasts: (x, y, melts at tick).
+    pub frozen: Vec<(i32, i32, u64)>,
+    /// Map events, sudden death and capture the flag (see `events`).
+    pub events: events::Events,
+    /// Everyone is slowed (blizzard) until this tick.
+    pub blizzard_until: u64,
     /// Tile and item changes made during the current tick, sent to everyone.
     pub tile_changes: Vec<TileChange>,
     pub item_changes: Vec<(i32, i32, u8)>,
@@ -270,6 +281,7 @@ impl World {
         world.round_ticks = u64::from(cfg.round_secs) * u64::from(TICK_RATE);
         world.round_end = world.round_ticks;
         world.place_hills();
+        world.init_events();
         world.set_target_bots(cfg.bots);
         world
     }
@@ -297,6 +309,11 @@ impl World {
             flame_until: vec![0; n],
             flame_owner: vec![0; n],
             explosions: Vec::new(),
+            mines: Vec::new(),
+            drones: Vec::new(),
+            frozen: Vec::new(),
+            events: events::Events::default(),
+            blizzard_until: 0,
             tile_changes: Vec::new(),
             item_changes: Vec::new(),
             crate_target: (crate_count as f32 * CRATE_REGROW_TARGET) as usize,

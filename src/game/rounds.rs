@@ -135,6 +135,7 @@ impl World {
             (p.score, p.kills, p.deaths, p.streak, p.bounty) = (0, 0, 0, 0, false);
         }
         self.round_end = self.tick + self.round_ticks;
+        self.reset_events_for_round();
         self.place_hills();
         let hills = protocol::encode_hills(self.event_arenas.current(), &self.hills);
         self.broadcasts.push(hills);

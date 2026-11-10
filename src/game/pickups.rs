@@ -4,7 +4,7 @@ use crate::protocol;
 
 use super::World;
 use super::items::{self, Item, Mystery};
-use super::player::{MAX_BOMBS, MAX_NUKES, MAX_RANGE, MAX_SPEED_LVL, Player};
+use super::player::{MAX_BOMBS, MAX_GADGET_CHARGES, MAX_NUKES, MAX_RANGE, MAX_SPEED_LVL, Player};
 
 impl World {
     /// Gives a power-up's effect to a player.
@@ -22,6 +22,17 @@ impl World {
             Item::Punch => p.punch = true,
             Item::Ghost => p.ghost_until = p.ghost_until.max(tick + items::GHOST_TICKS),
             Item::Nuke => p.nukes = (p.nukes + 1).min(MAX_NUKES),
+            Item::Freeze => p.freeze = true,
+            Item::Stomp => p.stomp = true,
+            Item::Mine | Item::Rocket | Item::Swap | Item::Drone | Item::Swarm => {
+                let charges = item.gadget_charges().unwrap_or(1);
+                // A new kind of gadget replaces the one held.
+                if p.gadget == item as u8 {
+                    p.gadget_n = (p.gadget_n + charges).min(MAX_GADGET_CHARGES);
+                } else {
+                    (p.gadget, p.gadget_n) = (item as u8, charges);
+                }
+            }
             Item::Mystery => {}
         }
     }

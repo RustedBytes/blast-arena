@@ -8,6 +8,26 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- **Gadgets** fired with the new **Q** key (gamepad B, a touch button): land
+  mines (hidden from enemies, go off when one comes next to them), rockets
+  (fly straight and explode on impact), swap (trade places with the nearest
+  enemy), a bomber **drone** that hunts the nearest enemy and drops bombs,
+  and a **drone swarm** (five drones, one bomb each).
+- **Freeze** power-up (blasts leave ice for 8 s) and **stomp** power-up
+  (landing a jump stuns adjacent enemies for 1 s).
+- **Sudden death**: the last minute of each round shrinks the arena ring by
+  ring towards a random centre; the next ring is shown in red and crushes
+  whoever stays in it. The arena reopens for the next round.
+- **Map events** every one to two minutes: meteor showers, blizzards (slower
+  movement, fogged minimap), lava surges in volcanic regions and reversed
+  conveyors.
+- **Capture the flag** in the Teams arena: bases, flags, carriers (who can't
+  jump or bomb), drops, returns, captures worth 5 points, and respawning
+  near your base.
+- **Death replay**: the moments before your death play again in slow motion
+  until you respawn.
+- **Bots** hop over pillars when it's quicker or safer, and use gadgets.
+
 - **Jumping.** Hold Space to hop over the stone pillar in front of you into
   the free cell behind it (0.4 s hop, 0.5 s cooldown). Airborne players are
   above the fire but can't steer; a bomb pressed mid-air drops on landing.
@@ -51,10 +71,16 @@ All notable changes to Blast Arena are documented here. The format follows
     only rebuilds when tiles change and is sharp on high-DPI screens, and
     tile repaints are spread over frames after big blasts;
   - about 35% less script time per frame overall.
+- Secret box outcome codes moved to 100 and up to make room for new items,
+  and a jump can now start from anywhere in a cell (it still takes off
+  from the centre).
 - **Wire protocol**: replaced the MessagePack messages with a compact binary
   protocol with delta-compressed snapshots (the welcome message keeps a
   MessagePack body). The player look in snapshots is now a varint, and the
-  player state has `nukes`, `jump` and `jump_cd` fields. Clients and servers
+  player state has `nukes`, `jump`, `jump_cd`, `gadget`, `gadget_n`, `freeze`,
+  `stomp`, `stun`, `blizzard` and `carrying` fields. New: a `gadget` client
+  message, a generic game `event` message (sudden death, map events, flags,
+  swaps) and a drones section in snapshots. Clients and servers
   of different versions can't talk to each other; the client ships with the
   server.
 - The Docker image now holds just the executable.

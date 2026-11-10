@@ -82,6 +82,13 @@ impl World {
         if let Some(link) = &p.link {
             let _ = link.events.try_send(welcome.encode());
         }
+        // Sudden death and the flags, if any, so the client is up to date.
+        let extra = self.event_state_for_join();
+        if let Some(link) = &self.players[&id].link {
+            for msg in extra {
+                let _ = link.events.try_send(msg);
+            }
+        }
         Ok(id)
     }
 
@@ -139,6 +146,9 @@ impl World {
     }
 
     pub fn leave(&mut self, id: u32) {
+        if let Some(cell) = self.players.get(&id).map(Player::cell) {
+            self.carrier_lost(id, cell);
+        }
         self.histories.remove(&id);
         if self.bots.remove(&id).is_some() {
             self.bot_ids.retain(|&b| b != id);
@@ -193,7 +203,7 @@ impl World {
     }
 
     pub(super) fn spawn_ok(&self, x: i32, y: i32, avoid_players: bool) -> bool {
-        if self.map.is_solid(x, y) || self.bomb_at(x, y).is_some() || self.map.get(x, y) == Tile::Teleport {
+        if self.map.is_solid(x, y) || self.bomb_at(x, y).is_some() || self.map.get(x, y) == Tile::Teleport || self.sudden_death_unsafe(x, y) {
             return false;
         }
         if self.danger_near(x, y, 4) {

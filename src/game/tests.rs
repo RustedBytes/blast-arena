@@ -650,3 +650,202 @@ fn jumping_players_are_above_the_fire() {
     assert!(!w.players[&id].can_bomb(w.tick), "no bombs mid-air");
 }
 
+/// Gives player `id` a gadget with one charge.
+fn give_gadget(w: &mut World, id: u32, item: Item) {
+    let p = w.players.get_mut(&id).unwrap();
+    (p.gadget, p.gadget_n) = (item as u8, 1);
+}
+
+#[test]
+fn freeze_blast_leaves_ice_that_melts() {
+    let mut w = test_world(Map::empty(15, 15));
+    let id = w.spawn_test_player(1.5, 1.5);
+    World::grant(w.players.get_mut(&id).unwrap(), Item::Freeze, 0);
+    w.place_bomb(id);
+    w.explode(w.bomb_at(1, 1).unwrap());
+    assert_eq!(w.map.get(1, 1), Tile::Ice);
+    assert_eq!(w.map.get(3, 1), Tile::Ice, "along the blast");
+    w.tick += gadgets::FREEZE_TICKS;
+    w.melt_ice();
+    assert_eq!(w.map.get(3, 1), Tile::Floor, "melted");
+}
+
+#[test]
+fn rocket_flies_until_it_hits_something() {
+    let mut map = Map::empty(15, 15);
+    map.set(9, 1, Tile::Crate);
+    let mut w = test_world(map);
+    let id = w.spawn_test_player(1.5, 1.5);
+    w.players.get_mut(&id).unwrap().facing = 2;
+    give_gadget(&mut w, id, Item::Rocket);
+    w.use_gadget(id);
+    assert_eq!(w.players[&id].gadget_n, 0, "charge used");
+    assert_eq!(w.players[&id].active_bombs, 0, "gadget bombs don't count");
+    for _ in 0..12 {
+        w.tick += 1;
+        w.update_sliding_bombs();
+        w.update_fuses();
+    }
+    assert!(w.bombs.is_empty(), "blew up on the crate");
+    assert_eq!(w.map.get(9, 1), Tile::Floor, "next to the crate, which it destroyed");
+}
+
+#[test]
+fn mines_hide_then_go_off_next_to_enemies() {
+    let mut w = test_world(Map::empty(15, 15));
+    let owner = w.spawn_test_player(1.5, 1.5);
+    let other = w.spawn_test_player(9.5, 9.5);
+    give_gadget(&mut w, owner, Item::Mine);
+    w.use_gadget(owner);
+    assert_eq!(w.mines.len(), 1);
+    let mine_seen = |w: &mut World, id: u32| {
+        let snap: serde_json::Value = w.full_snapshot(id);
+        snap["b"].as_array().unwrap().iter().any(|b| b[4].as_u64().unwrap() & 32 != 0)
+    };
+    w.players.get_mut(&other).unwrap().x = 3.5;
+    w.players.get_mut(&other).unwrap().y = 1.5;
+    w.rebuild_buckets();
+    assert!(mine_seen(&mut w, owner), "the owner sees it");
+    assert!(!mine_seen(&mut w, other), "enemies don't");
+    w.players.get_mut(&owner).unwrap().x = 7.5; // owner walks off
+    w.players.get_mut(&other).unwrap().x = 2.5; // the enemy comes next to it
+    w.rebuild_buckets();
+    w.update_mines();
+    assert!(w.mines.is_empty() && w.bomb_at(1, 1).is_some(), "armed");
+    for _ in 0..gadgets::MINE_ARM_TICKS {
+        w.tick += 1;
+        w.update_fuses();
+    }
+    w.apply_flame_damage();
+    assert!(!w.players[&other].alive);
+}
+
+#[test]
+fn swap_trades_places_with_the_nearest_enemy() {
+    let mut w = test_world(Map::empty(15, 15));
+    let me = w.spawn_test_player(1.5, 1.5);
+    let near = w.spawn_test_player(5.5, 1.5);
+    let far = w.spawn_test_player(13.5, 13.5);
+    give_gadget(&mut w, me, Item::Swap);
+    w.use_gadget(me);
+    assert_eq!((w.players[&me].x, w.players[&near].x), (5.5, 1.5));
+    assert!((w.players[&far].x - 13.5).abs() < 1e-6, "the farther enemy stays put");
+}
+
+#[test]
+fn stomp_landing_stuns_enemies() {
+    let mut w = test_world(Map::empty(15, 15));
+    let me = w.spawn_test_player(1.5, 2.5);
+    let victim = w.spawn_test_player(3.5, 1.5); // next to the landing cell (3, 2)
+    World::grant(w.players.get_mut(&me).unwrap(), Item::Stomp, 0);
+    w.players[&me].link.as_ref().unwrap().input.set_dirs(2, 0, true, 1);
+    for _ in 0..8 {
+        w.step();
+    }
+    assert_eq!(w.players[&me].cell(), (3, 2));
+    assert!(w.players[&victim].stunned_until > w.tick, "stunned");
+    assert!(!w.players[&victim].can_bomb(w.tick));
+}
+
+#[test]
+fn drones_hunt_and_bomb_enemies() {
+    let mut w = test_world(Map::empty(21, 21));
+    let me = w.spawn_test_player(1.5, 1.5);
+    let _target = w.spawn_test_player(9.5, 5.5);
+    give_gadget(&mut w, me, Item::Drone);
+    w.use_gadget(me);
+    assert_eq!(w.drones.len(), 1);
+    for _ in 0..60 {
+        w.tick += 1;
+        w.update_drones();
+        if !w.bombs.is_empty() {
+            break;
+        }
+    }
+    let b = w.bombs.values().next().expect("dropped a bomb");
+    assert_eq!((b.x, b.y, b.owner), (9, 5, me));
+}
+
+#[test]
+fn sudden_death_closes_the_arena_and_reopens_it() {
+    let mut w = test_world(Map::empty(21, 21));
+    let id = w.spawn_test_player(1.5, 1.5);
+    w.round_end = w.tick + events::SUDDEN_DEATH_TICKS;
+    w.update_events();
+    assert!(w.events.sd_active);
+    let r = w.events.sd_radius;
+    // Run until the corner ring closes.
+    while w.players[&id].alive && w.tick < w.round_end {
+        w.tick += 1;
+        w.update_events();
+    }
+    assert!(!w.players[&id].alive, "crushed in the corner");
+    assert!(w.events.sd_radius < r);
+    assert_eq!(w.map.get(1, 1), Tile::Wall, "closed");
+    w.end_round();
+    assert!(!w.events.sd_active);
+    assert_eq!(w.map.get(1, 1), Tile::Floor, "reopened");
+}
+
+#[test]
+fn meteors_strike_where_announced() {
+    let mut w = test_world(Map::empty(21, 21));
+    let _id = w.spawn_test_player(9.5, 9.5);
+    w.start_event(events::MapEvent::Meteors);
+    let strikes = w.events.meteors.clone();
+    assert!(!strikes.is_empty());
+    let (x, y, at) = strikes[0];
+    w.tick = at;
+    w.update_events();
+    w.update_fuses();
+    assert!(w.flame_active(x, y), "impact at ({x}, {y})");
+}
+
+#[test]
+fn conveyors_reverse_and_come_back() {
+    let mut map = Map::empty(15, 15);
+    map.set(3, 1, Tile::ConveyorRight);
+    let mut w = test_world(map);
+    w.start_event(events::MapEvent::Conveyors);
+    assert_eq!(w.map.get(3, 1), Tile::ConveyorLeft);
+    let (_, end) = w.events.current.unwrap();
+    w.tick = end;
+    w.update_events();
+    assert_eq!(w.map.get(3, 1), Tile::ConveyorRight);
+}
+
+#[test]
+fn capture_the_flag() {
+    let mut w = test_world(Map::empty(41, 21));
+    w.mode = Mode::Teams;
+    w.init_events();
+    let red = w.spawn_test_player(1.5, 1.5);
+    let blue = w.spawn_test_player(1.5, 3.5);
+    w.players.get_mut(&red).unwrap().team = 1;
+    w.players.get_mut(&blue).unwrap().team = 2;
+    let [rf, bf] = w.events.flags;
+    // Red walks onto the blue flag and takes it.
+    let p = w.players.get_mut(&red).unwrap();
+    (p.x, p.y) = (bf.base.0 as f32 + 0.5, bf.base.1 as f32 + 0.5);
+    w.update_events();
+    assert_eq!(w.players[&red].carrying, 2);
+    assert!(!w.players[&red].can_bomb(w.tick), "carriers can't bomb");
+    // Back home to capture.
+    let p = w.players.get_mut(&red).unwrap();
+    (p.x, p.y) = (rf.base.0 as f32 + 0.5, rf.base.1 as f32 + 0.5);
+    let before = w.players[&red].score;
+    w.update_events();
+    assert_eq!(w.events.captures, [1, 0]);
+    assert_eq!(w.players[&red].score, before + events::CAPTURE_POINTS);
+    assert_eq!(w.players[&red].carrying, 0);
+    // A carrier who dies drops the flag where they fell.
+    let p = w.players.get_mut(&red).unwrap();
+    (p.x, p.y) = (bf.base.0 as f32 + 0.5, bf.base.1 as f32 + 0.5);
+    w.update_events();
+    let p = w.players.get_mut(&red).unwrap();
+    (p.x, p.y) = (10.5, 9.5);
+    w.kill(red, None);
+    assert_eq!(w.events.flags[1].state, events::FlagState::Dropped);
+    assert_eq!(w.events.flags[1].pos, (10, 9));
+}
+

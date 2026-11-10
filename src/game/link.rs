@@ -23,6 +23,8 @@ pub struct InputSlot {
     bombs: AtomicU32,
     /// Running count of action-key presses (remote detonation, punch).
     acts: AtomicU32,
+    /// Running count of gadget-key presses.
+    gadgets: AtomicU32,
     /// Latest emote as `count << 8 | emote`.
     emote: AtomicU32,
     /// Requested view half extents as `w << 16 | h`; 0 when never set.
@@ -65,6 +67,14 @@ impl InputSlot {
 
     pub fn ack(&self) -> u32 {
         self.ack.load(Relaxed)
+    }
+
+    pub fn press_gadget(&self) {
+        self.gadgets.fetch_add(1, Relaxed);
+    }
+
+    pub fn gadget_presses(&self) -> u32 {
+        self.gadgets.load(Relaxed)
     }
 
     pub fn press_act(&self) {

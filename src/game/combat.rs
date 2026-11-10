@@ -10,8 +10,11 @@ use super::{BOUNTY_BONUS, EMOTE_COOL, ITEMS_DROPPED_ON_DEATH, RESPAWN_TICKS, STR
 
 impl World {
     pub(super) fn kill(&mut self, victim: u32, killer: Option<u32>) {
+        let Some(cell) = self.players.get(&victim).map(super::player::Player::cell) else { return };
+        self.carrier_lost(victim, cell);
         let Some(dead) = self.players.get_mut(&victim) else { return };
         dead.alive = false;
+        (dead.jump_left, dead.jump_dir, dead.stunned_until) = (0, 0, 0);
         dead.moving = false;
         dead.deaths += 1;
         dead.streak = 0;
@@ -43,6 +46,11 @@ impl World {
         lose(Item::LineBomb, u8::from(dead.line));
         lose(Item::Punch, u8::from(dead.punch));
         lose(Item::Nuke, dead.nukes);
+        lose(Item::Freeze, u8::from(dead.freeze));
+        lose(Item::Stomp, u8::from(dead.stomp));
+        if let Some(g) = Item::from_u8(dead.gadget).filter(|_| dead.gadget_n > 0) {
+            lose(g, 1);
+        }
         dead.reset_stats();
         for _ in 0..ITEMS_DROPPED_ON_DEATH.min(count) {
             let pick = self.rng.below(count as u32) as usize;

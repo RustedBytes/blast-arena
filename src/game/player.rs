@@ -14,6 +14,8 @@ pub const MAX_RANGE: u8 = 8;
 pub const MAX_SPEED_LVL: u8 = 6;
 /// Atomic bombs a player can carry at once.
 pub const MAX_NUKES: u8 = 2;
+/// Gadget charges a player can hold.
+pub const MAX_GADGET_CHARGES: u8 = 9;
 pub const BASE_SPEED: f32 = 3.5; // tiles per second
 pub const SPEED_STEP: f32 = 0.6;
 /// Speed while under the slow curse.
@@ -26,12 +28,12 @@ pub const AOI_MAX: (i32, i32) = (26, 18);
 
 /// Jumping over a stone pillar: the hop takes `JUMP_TICKS` and covers
 /// `JUMP_CELLS` (from the cell centre in front of the pillar to the one
-/// behind it); then there's a cooldown. The player has to be roughly on the
-/// lane (within `JUMP_LANE_SLACK` of its centre line).
+/// behind it); then there's a cooldown. Anywhere in the cell will do
+/// (`JUMP_LANE_SLACK` is half a cell): the hop starts from its centre.
 pub const JUMP_TICKS: u8 = 8;
 pub const JUMP_CELLS: f32 = 2.0;
 pub const JUMP_COOLDOWN_TICKS: u64 = 10;
-pub const JUMP_LANE_SLACK: f32 = 0.3;
+pub const JUMP_LANE_SLACK: f32 = 0.5;
 
 /// How far off a lane the player must be before corner assist kicks in.
 const CORNER_ASSIST_MIN: f32 = 0.12;
@@ -97,6 +99,19 @@ pub struct Player {
     pub punch: bool,
     /// Atomic bombs carried: the next bombs placed are nukes.
     pub nukes: u8,
+    /// Blasts leave ice behind (freeze power-up).
+    pub freeze: bool,
+    /// Landing a jump stuns enemies next to you (stomp power-up).
+    pub stomp: bool,
+    /// The gadget held (an `Item` code, 0 for none) and its charges.
+    pub gadget: u8,
+    pub gadget_n: u8,
+    pub gadget_presses: u32,
+    pub want_gadget: bool,
+    /// Stunned (by a stomp) until this tick: can't move, jump or bomb.
+    pub stunned_until: u64,
+    /// Team whose flag this player carries (capture the flag), 0 for none.
+    pub carrying: u8,
     pub ghost_until: u64,
     pub slow_until: u64,
     pub nobomb_until: u64,
@@ -160,6 +175,14 @@ impl Player {
             line: false,
             punch: false,
             nukes: 0,
+            freeze: false,
+            stomp: false,
+            gadget: 0,
+            gadget_n: 0,
+            gadget_presses: 0,
+            want_gadget: false,
+            stunned_until: 0,
+            carrying: 0,
             ghost_until: 0,
             slow_until: 0,
             nobomb_until: 0,
@@ -196,7 +219,12 @@ impl Player {
 
     #[must_use]
     pub fn can_bomb(&self, tick: u64) -> bool {
-        self.alive && self.active_bombs < self.max_bombs && self.nobomb_until <= tick && self.jump_left == 0
+        self.alive
+            && self.active_bombs < self.max_bombs
+            && self.nobomb_until <= tick
+            && self.jump_left == 0
+            && self.stunned_until <= tick
+            && self.carrying == 0
     }
 
     #[must_use]
@@ -229,6 +257,10 @@ impl Player {
         self.line = false;
         self.punch = false;
         self.nukes = 0;
+        self.freeze = false;
+        self.stomp = false;
+        (self.gadget, self.gadget_n) = (0, 0);
+        self.stunned_until = 0;
         self.ghost_until = 0;
         self.slow_until = 0;
         self.nobomb_until = 0;

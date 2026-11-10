@@ -272,6 +272,7 @@ async fn read_loop(
             }
             Some(ClientMsg::Bomb) => input.press_bomb(),
             Some(ClientMsg::Act) => input.press_act(),
+            Some(ClientMsg::Gadget) => input.press_gadget(),
             Some(ClientMsg::Emote { e }) => input.emote(e),
             Some(ClientMsg::View { w, h }) => {
                 tracing::trace!(w, h, "view requested");

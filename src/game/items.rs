@@ -25,9 +25,29 @@ pub enum Item {
     Ghost = 12,
     /// The next bomb is an atomic bomb (see `bomb::NUKE_RADIUS`).
     Nuke = 13,
+    /// Your blasts leave ice behind for a while.
+    Freeze = 14,
+    /// Gadget: hidden land mines (Q places one).
+    Mine = 15,
+    /// Gadget: a rocket that flies straight and blows up on impact.
+    Rocket = 16,
+    /// Gadget: swap places with the nearest enemy.
+    Swap = 17,
+    /// Landing a jump next to enemies stuns them.
+    Stomp = 18,
+    /// Gadget: a drone that hunts enemies and drops bombs on them.
+    Drone = 19,
+    /// Gadget: a swarm of drones, one bomb each.
+    Swarm = 20,
 }
 
-pub const ALL_ITEMS: u8 = 13;
+pub const ALL_ITEMS: u8 = 20;
+/// Gadget charges given by one pick-up.
+pub const MINE_CHARGES: u8 = 3;
+pub const ROCKET_CHARGES: u8 = 3;
+pub const SWAP_CHARGES: u8 = 2;
+pub const DRONE_CHARGES: u8 = 1;
+pub const SWARM_CHARGES: u8 = 1;
 pub const CRATE_DROP_CHANCE: f32 = 0.25;
 pub const SHIELD_TICKS: u64 = 6 * 20;
 pub const GHOST_TICKS: u64 = 6 * 20;
@@ -57,11 +77,11 @@ impl Mystery {
     pub fn code(self) -> u8 {
         match self {
             Mystery::Item(i) => i as u8,
-            Mystery::Jackpot => 20,
-            Mystery::Slow => 30,
-            Mystery::NoBomb => 31,
-            Mystery::BombRain => 32,
-            Mystery::Reversed => 33,
+            Mystery::Jackpot => 100,
+            Mystery::Slow => 110,
+            Mystery::NoBomb => 111,
+            Mystery::BombRain => 112,
+            Mystery::Reversed => 113,
         }
     }
 
@@ -69,7 +89,7 @@ impl Mystery {
         match rng.below(100) {
             0..=54 => {
                 // Any regular power-up, rare ones more likely than from crates.
-                const POOL: [Item; 12] = [
+                const POOL: [Item; 19] = [
                     Item::ExtraBomb,
                     Item::Range,
                     Item::Speed,
@@ -82,6 +102,13 @@ impl Mystery {
                     Item::Punch,
                     Item::Ghost,
                     Item::Nuke,
+                    Item::Freeze,
+                    Item::Mine,
+                    Item::Rocket,
+                    Item::Swap,
+                    Item::Stomp,
+                    Item::Drone,
+                    Item::Swarm,
                 ];
                 Mystery::Item(POOL[rng.below(POOL.len() as u32) as usize])
             }
@@ -111,28 +138,57 @@ impl Item {
             11 => Item::Punch,
             12 => Item::Ghost,
             13 => Item::Nuke,
+            14 => Item::Freeze,
+            15 => Item::Mine,
+            16 => Item::Rocket,
+            17 => Item::Swap,
+            18 => Item::Stomp,
+            19 => Item::Drone,
+            20 => Item::Swarm,
             _ => return None,
         })
     }
 
     /// Weighted random pick (per 200): bombs and range are common, full
-    /// fire is rare, and the atomic bomb rarest of all (1%).
+    /// fire is rare, and the atomic bomb and the drone swarm rarest of all
+    /// (1% each).
     pub fn random(rng: &mut Rng) -> Item {
         match rng.below(200) {
-            0..=47 => Item::ExtraBomb,
-            48..=95 => Item::Range,
-            96..=121 => Item::Speed,
-            122..=133 => Item::Kick,
-            134..=143 => Item::Shield,
-            144..=151 => Item::Pierce,
-            152..=157 => Item::FullFire,
-            158..=169 => Item::Mystery,
-            170..=177 => Item::Remote,
-            178..=185 => Item::LineBomb,
-            186..=193 => Item::Punch,
-            194..=197 => Item::Ghost,
+            0..=41 => Item::ExtraBomb,
+            42..=83 => Item::Range,
+            84..=105 => Item::Speed,
+            106..=115 => Item::Kick,
+            116..=123 => Item::Shield,
+            124..=130 => Item::Pierce,
+            131..=135 => Item::FullFire,
+            136..=145 => Item::Mystery,
+            146..=151 => Item::Remote,
+            152..=157 => Item::LineBomb,
+            158..=163 => Item::Punch,
+            164..=167 => Item::Ghost,
+            168..=172 => Item::Freeze,
+            173..=178 => Item::Mine,
+            179..=184 => Item::Rocket,
+            185..=188 => Item::Swap,
+            189..=192 => Item::Stomp,
+            193..=195 => Item::Drone,
+            196..=197 => Item::Swarm,
             _ => Item::Nuke,
         }
+    }
+
+    /// One-shot gadgets fired with the gadget key, and how many charges a
+    /// pick-up gives; `None` for everything else.
+    #[must_use]
+    pub fn gadget_charges(self) -> Option<u8> {
+        Some(match self {
+            Item::Mine => MINE_CHARGES,
+            Item::Rocket => ROCKET_CHARGES,
+            Item::Swap => SWAP_CHARGES,
+            Item::Drone => DRONE_CHARGES,
+            Item::Swarm => SWARM_CHARGES,
+            _ => return None,
+        })
     }
 
     /// Item revealed when a crate is destroyed, if any.

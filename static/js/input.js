@@ -16,7 +16,7 @@ const JOY_RADIUS = 60;
 
 export class Input {
   /**
-   * handlers: onDir(d, s, j), onBomb(), onAct(), onEmote(e), onZoom(factor),
+   * handlers: onDir(d, s, j), onBomb(), onAct(), onGadget(), onEmote(e), onZoom(factor),
    * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
    * 'menu', 'board', 'emoteWheel'.
    */
@@ -36,6 +36,7 @@ export class Input {
     this.sent = -1;        // last (d << 3 | s) reported
     this.current = { d: 0, s: 0, j: false }; // read every prediction step
     this.padAct = false;
+    this.padGadget = false;
 
     addEventListener('keydown', (e) => this.keydown(e));
     addEventListener('keyup', (e) => this.keyup(e));
@@ -68,6 +69,9 @@ export class Input {
         break;
       case 'KeyE': case 'ShiftLeft': case 'ShiftRight':
         if (!e.repeat) this.h.onAct();
+        break;
+      case 'KeyQ':
+        if (!e.repeat) this.h.onGadget();
         break;
       case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
       case 'Digit5': case 'Digit6': case 'Digit7': case 'Digit8':
@@ -128,7 +132,7 @@ export class Input {
   /** Call once per frame: reads connected gamepads. */
   pollGamepad() {
     if (!this.enabled || !navigator.getGamepads) return;
-    let dir = 0, alt = 0, bomb = false, act = false, jump = false, zoom = 0;
+    let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
       const b = (i) => gp.buttons[i]?.pressed;
@@ -139,7 +143,8 @@ export class Input {
         dir = major;
         if (Math.abs(minor) > DEADZONE * 0.75) alt = Math.abs(ax) > Math.abs(ay) ? (ay > 0 ? 3 : 1) : (ax > 0 ? 2 : 4);
       }
-      bomb ||= b(0) || b(1);
+      bomb ||= b(0);
+      gadget ||= b(1);
       act ||= b(2);
       jump ||= b(3);
       if (b(5)) zoom = 1; else if (b(4)) zoom = -1;
@@ -149,6 +154,8 @@ export class Input {
     this.padBomb = bomb;
     if (act && !this.padAct) this.h.onAct();
     this.padAct = act;
+    if (gadget && !this.padGadget) this.h.onGadget();
+    this.padGadget = gadget;
     if (zoom) this.h.onZoom(zoom > 0 ? 1.02 : 1 / 1.02);
     if (dir !== this.padDir || alt !== this.padAlt || jump !== this.padJump) {
       this.padDir = dir;
@@ -262,6 +269,11 @@ export class Input {
     jumpBtn.addEventListener('pointerup', jumpUp);
     jumpBtn.addEventListener('pointercancel', jumpUp);
     jumpBtn.addEventListener('pointerleave', jumpUp);
+    document.getElementById('gadget-btn').addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      navigator.vibrate?.(10);
+      this.h.onGadget();
+    });
     document.getElementById('emote-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);

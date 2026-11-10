@@ -330,13 +330,18 @@ select {
 button.link { background: none; border: 0; color: var(--accent); text-align: left; cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
 
 /* ---------- Touch extras ---------- */
-#act-btn, #emote-btn, #jump-btn {
+#act-btn, #emote-btn, #jump-btn, #gadget-btn {
   position: fixed; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.15); color: #fff; font-weight: 800; touch-action: none;
 }
 #act-btn { right: 140px; bottom: 50px; width: 64px; height: 64px; font-size: 22px; }
 #emote-btn { right: 40px; bottom: 160px; width: 52px; height: 52px; font-size: 22px; }
 #jump-btn { right: 130px; bottom: 130px; width: 60px; height: 60px; font-size: 26px; }
+#gadget-btn { right: 40px; bottom: 230px; width: 52px; height: 52px; font-size: 20px; }
+.stat.gadget kbd { font-size: 10px; padding: 0 3px; }
+.stat.gadget span { font-weight: 700; }
+#ctf-caps { margin-left: 10px; }
+#ctf-caps .red { color: #ff8a80; } #ctf-caps .blue { color: #8ab8ff; }
 #jump-btn.active { background: rgba(127, 246, 255, 0.45); transform: scale(0.94); }
 
 @media (max-width: 820px) {

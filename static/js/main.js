@@ -5,7 +5,7 @@ import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
-import { meObject } from './protocol.js';
+import { EV, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
@@ -18,6 +18,9 @@ const RECONNECT_DELAYS = [500, 1500, 3000, 5000];
 // (ticks); the delay grows with measured network jitter.
 const INTERP_MIN_TICKS = 1.15;
 const INTERP_MARGIN_TICKS = 0.15;
+// Death replay: starts this much game time before the death (played at
+// REPLAY_RATE, see render.js) and runs until respawn.
+const REPLAY_TICKS = 40;
 
 /** Fixed-capacity ring of snapshots, oldest first. */
 class SnapRing {
@@ -104,7 +107,11 @@ const net = new Net({
       aoiMax: m.aoi_max ?? m.aoi,
       tickMs: 1000 / m.rate,
       rosterInfo,
-      snaps: new SnapRing(32),
+      snaps: new SnapRing(100),
+      sd: null,        // sudden death: { cx, cy, r, nextAt }
+      flags: null,     // capture the flag: [{ base, state, pos, carrier }] x2
+      captures: [0, 0],
+      replay: null,    // death replay: { from, t0 }
       offset: null,
       // Adaptive interpolation delay for remote entities, in ticks: one
       // tick between snapshots plus the recent worst-case lateness.
@@ -171,7 +178,8 @@ const net = new Net({
     state.snaps.push(m);
 
     state.bombCells.clear();
-    for (const b of m.b) state.bombCells.add(b[2] * state.map.w + b[1]);
+    // Hidden mines (flag 32) don't block anyone, so they're not obstacles.
+    for (const b of m.b) if (!(b[4] & 32)) state.bombCells.add(b[2] * state.map.w + b[1]);
 
     const prevMe = state.me;
     state.me = m.me;
@@ -191,6 +199,9 @@ const net = new Net({
     } else if (!m.me.alive) {
       predictor.active = false;
     }
+    // Death replay: watch the last moments again, slowly, until respawn.
+    if (prevMe?.alive && !m.me.alive) state.replay = { from: m.k - REPLAY_TICKS, t0: now };
+    else if (m.me.alive) state.replay = null;
 
     // New explosions: effects, shake and positional sound.
     nextExplosions.clear();
@@ -231,9 +242,10 @@ const net = new Net({
     const map = state.map;
     for (const [x, y, tile] of m.tc) {
       const idx = y * map.w + x;
-      if ((map.tiles[idx] === 2 || map.tiles[idx] === 9) && tile !== map.tiles[idx]) renderer.crateBroken(x, y);
+      if ((map.tiles[idx] === 2 || map.tiles[idx] === 9) && tile !== map.tiles[idx] && tile !== 1) renderer.crateBroken(x, y);
       map.tiles[idx] = tile;
       renderer.invalidateTile(map, x, y);
+      renderer.updateSpecial(x, y, tile);
     }
     for (const [x, y, kind] of m.ic) {
       const idx = y * map.w + x;
@@ -248,7 +260,7 @@ const net = new Net({
   fx(m) {
     if (!state) return;
     const what = t('items')[m.f] ?? '?';
-    const curse = m.f >= 30 && m.f !== 32;
+    const curse = m.f >= 110 && m.f !== 112;
     const icon = m.f < ITEM_SPRITES.length ? ITEM_SPRITES[m.f] : 'pu_mystery';
     toast(m.m ? t('secretBox', { what }) : what, icon, m.m ? (curse ? 'curse' : 'mystery') : '');
     renderer.sparkle(state.self.x, state.self.y, m.m);
@@ -316,6 +328,61 @@ const net = new Net({
     if (state) state.hills = m.h;
   },
 
+  /** Game events: sudden death, map events, capture the flag, swaps. */
+  ev(m) {
+    if (!state) return;
+    const now = performance.now();
+    const v = m.v;
+    switch (m.kind) {
+      case EV.SHRINK: {
+        const was = state.sd;
+        state.sd = v[4] ? { cx: v[0], cy: v[1], r: v[2], nextAt: now + v[3] * state.tickMs } : null;
+        if (state.sd && !was) {
+          banner(t('suddenDeath'));
+          audio.curse();
+        }
+        break;
+      }
+      case EV.ANNOUNCE:
+        banner(t('mapEvents')[v[0]] ?? '!');
+        renderer.mapEvent(v[0], now, v[1] * 1000);
+        audio.mystery();
+        break;
+      case EV.STRIKES:
+        for (let i = 0; i + 2 < v.length; i += 3) renderer.addMeteor(v[i], v[i + 1], now + v[i + 2] * state.tickMs);
+        break;
+      case EV.LAVA:
+        renderer.addLava(v.slice(2), now + v[0] * state.tickMs, v[1] * state.tickMs);
+        break;
+      case EV.FLAGS:
+        state.flags = [0, 1].map((k) => {
+          const o = k * 6;
+          return { base: [v[o], v[o + 1]], state: v[o + 2], pos: [v[o + 3], v[o + 4]], carrier: v[o + 5] - 1 };
+        });
+        state.captures = [v[12], v[13]];
+        updateCaptures();
+        break;
+      case EV.FLAG_NEWS: {
+        const [what, team, pid] = v;
+        const name = state.rosterInfo.get(pid - 1)?.name ?? '';
+        const flag = team === 1 ? t('red') : t('blue');
+        toast(t('flagNews')[what]?.replace('{name}', name).replace('{flag}', flag) ?? '', null, what === 4 ? 'mystery' : '');
+        if (what === 4) {
+          banner(t('flagNews')[4].replace('{name}', name).replace('{flag}', flag));
+          audio.mystery();
+        } else audio.pickup();
+        break;
+      }
+      case EV.SWAP:
+        for (const id of v) {
+          const f = renderer.frame;
+          for (let i = 0; i < f.nPlayers; i++) if (f.players[i].id === id) renderer.sparkle(f.players[i].x, f.players[i].y, true);
+        }
+        audio.curse();
+        break;
+    }
+  },
+
   round(m) {
     if (!state) return;
     const list = $('round-mvp');
@@ -365,6 +432,7 @@ const input = new Input({
     net.send({ t: 'bomb' });
   },
   onAct: () => net.send({ t: 'act' }),
+  onGadget: () => net.send({ t: 'gadget' }),
   onEmote: (e) => sendEmote(e),
   onZoom: (factor) => {
     setZoom((state?.zoomTarget ?? settings.get('zoom')) * factor);
@@ -454,6 +522,7 @@ let hudKey = '';
 function updateHud(me) {
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
+    me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun > 0, me.carrying,
     getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
@@ -463,8 +532,18 @@ function updateHud(me) {
   for (const k of ['kick', 'pierce', 'remote', 'line', 'punch']) $(`st-${k}`).classList.toggle('off', !me[k]);
   $('st-score').textContent = me.score;
   $('st-nuke').classList.toggle('hidden', !me.nukes);
+  for (const k of ['freeze', 'stomp']) $(`st-${k}`).classList.toggle('off', !me[k]);
+  const g = $('st-gadget');
+  g.classList.toggle('hidden', !me.gadget_n);
+  if (me.gadget_n) {
+    const name = ITEM_SPRITES[me.gadget] ?? 'pu_mystery';
+    if (g.dataset.icon !== name) { g.dataset.icon = name; g.querySelector('img').src = `assets/${name}.svg`; }
+    g.lastChild.textContent = `×${me.gadget_n}`;
+    g.title = `${t('items')[me.gadget] ?? ''} (Q)`;
+  }
   $('st-nuke').lastChild.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
   const tickS = state.tickMs / 1000;
+  timer($('st-stun'), me.stun > 0, me.stun * tickS, 1);
   timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
   timer($('st-ghost'), me.ghost > 0, me.ghost * tickS, 6);
   timer($('st-curse'), me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);
@@ -480,6 +559,15 @@ function updateHud(me) {
     $('dead-timer').textContent = t('respawning', { n: Math.ceil(me.respawn * tickS) }) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');
   }
+}
+
+/** Capture-the-flag captures next to the team scores. */
+function updateCaptures() {
+  const el = $('ctf-caps');
+  if (!state?.flags) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.querySelector('.red').textContent = state.captures[0];
+  el.querySelector('.blue').textContent = state.captures[1];
 }
 
 function timer(el, on, seconds, total) {
@@ -681,10 +769,12 @@ function frame(now) {
     tutorial.notify('moved', Math.abs(state.self.x - px) + Math.abs(state.self.y - py));
     state.focus.x = state.self.x;
     state.focus.y = state.self.y;
-  } else if (state.me && !state.me.alive && state.me.spec) {
+  } else if (state.me && !state.me.alive && (state.me.spec || state.replay)) {
+    // Dead: watch whoever got you (in the replay too), or your own last moments.
     const f = renderer.frame;
+    const watch = state.replay ? (state.me.killer ?? state.myId) : state.me.spec;
     for (let i = 0; i < f.nPlayers; i++) {
-      if (f.players[i].id === state.me.spec) {
+      if (f.players[i].id === watch) {
         const k = 1 - Math.exp(-dt * 6);
         state.focus.x += (f.players[i].x - state.focus.x) * k;
         state.focus.y += (f.players[i].y - state.focus.y) * k;

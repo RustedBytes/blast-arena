@@ -8,17 +8,19 @@ import { decode as decodeMsgpack } from './msgpack.js';
 
 const OP = {
   WELCOME: 1, ERR: 2, SNAP: 3, PJ: 4, PL: 5, KILL: 6, LB: 7, WORLD: 8,
-  FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14,
+  FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14, EVENT: 15,
 };
-const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7 };
+/** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
+export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7 };
+const CLIENT_OP = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8 };
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
-const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32 };
+const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64 };
 const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
 
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
 export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 'curse_t', 'respawn', 'score', 'bombs',
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
-  'nukes', 'jump', 'jump_cd'];
+  'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying'];
 const ME_EMPTY = new Array(ME_FIELDS.length).fill(0);
 
 const textEncoder = new TextEncoder();
@@ -125,7 +127,7 @@ export function encodeClient(m) {
     case 'emote': w.u8(m.e); break;
     case 'ping': w.f64(m.c); break;
     case 'view': w.uvar(m.w).uvar(m.h); break;
-    case 'bomb': case 'act': break;
+    case 'bomb': case 'act': case 'gadget': break;
     default: throw new Error(`protocol: unknown client message ${m.t}`);
   }
   return w.bytes();
@@ -196,19 +198,25 @@ function decodeSnapshot(r, baseFor) {
     })
     : [];
 
+  // [id, x, y, team] per drone in view, positions in tiles.
+  const drones = sections & SECTION.DRONES
+    ? r.list(r.uvar(), () => [r.uvar(), r.ivar() / 100, r.ivar() / 100, r.u8()])
+    : [];
+
   const rawMe = (base?.rawMe ?? ME_EMPTY).slice();
   if (sections & SECTION.ME) {
     const mask = r.uvar();
-    for (let i = 0; i < rawMe.length; i++) if ((mask >>> i) & 1) rawMe[i] = r.ivar();
+    // The mask can exceed 32 bits, so no bitwise operators on it.
+    for (let i = 0, m = mask; i < rawMe.length; i++, m = Math.floor(m / 2)) if (m % 2) rawMe[i] = r.ivar();
   }
-  return { t: 's', k, bk, p: Array.from(players.values()), rawB: Array.from(bombs.values()), e: flames, rawMe };
+  return { t: 's', k, bk, p: Array.from(players.values()), rawB: Array.from(bombs.values()), e: flames, d: drones, rawMe };
 }
 
 /** The `me` block as a named object, with booleans, ids and the view size restored. */
 export function meObject(raw) {
   const me = {};
   for (let i = 0; i < ME_FIELDS.length; i++) me[ME_FIELDS[i]] = raw[i];
-  for (const k of ['alive', 'kick', 'pierce', 'remote', 'line', 'punch']) me[k] = me[k] !== 0;
+  for (const k of ['alive', 'kick', 'pierce', 'remote', 'line', 'punch', 'freeze', 'stomp']) me[k] = me[k] !== 0;
   me.killer = me.killer ? me.killer - 1 : null;
   me.spec = me.spec ? me.spec - 1 : null;
   me.aoi = [me.aoi_w, me.aoi_h];
@@ -248,6 +256,10 @@ export function decodeServer(bytes, baseFor) {
       return { t: 'round', mvp, teams: [r.ivar(), r.ivar()], win: r.u8(), next: r.uvar() };
     }
     case OP.PONG: return { t: 'pong', c: r.f64() };
+    case OP.EVENT: {
+      const kind = r.u8();
+      return { t: 'ev', kind, v: r.list(r.uvar(), () => r.ivar()) };
+    }
     default: return null;
   }
 }

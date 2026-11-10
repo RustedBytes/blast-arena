@@ -31,7 +31,9 @@ const CONVEYOR = [0, 0, 0, 0, 1, 2, 3, 4]; // tile code -> direction
 export const JUMP_TICKS = 8;
 const JUMP_STEP = 2 / JUMP_TICKS;
 const JUMP_COOLDOWN_TICKS = 10;
-const JUMP_LANE_SLACK = 0.3;
+const JUMP_LANE_SLACK = 0.5;
+// Speed factor in a blizzard (src/game/events.rs BLIZZARD_SLOW).
+const BLIZZARD_SLOW = 0.65;
 const SMOOTH_TAU = 0.06;   // s, decay time of visual corrections
 const SNAP_DIST = 2;       // tiles: larger errors jump instead of gliding
 
@@ -165,6 +167,7 @@ export class Predictor {
     p.jumpLeft = world.me.jump ?? 0;
     p.jumpDir = p.jumpLeft > 0 ? facing : 0;
     p.jumpCd = world.me.jump_cd ?? 0;
+    p.stun = world.me.stun ?? 0;
     // Replay the inputs the server hasn't applied yet, oldest first. An ack
     // ahead of our last step (an early-sent input) needs no replay.
     const behind = (this.seq - ack) & 0xffff;
@@ -236,12 +239,12 @@ export class Predictor {
 
 /** Predicted player state (positions in tiles; jump timers in ticks). */
 function newState() {
-  return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0 };
+  return { x: 0, y: 0, moving: false, slide: 0, facing: 3, jumpDir: 0, jumpLeft: 0, jumpCd: 0, stun: 0 };
 }
 
 function copyState(dst, src) {
   dst.x = src.x; dst.y = src.y; dst.moving = src.moving; dst.slide = src.slide; dst.facing = src.facing;
-  dst.jumpDir = src.jumpDir; dst.jumpLeft = src.jumpLeft; dst.jumpCd = src.jumpCd;
+  dst.jumpDir = src.jumpDir; dst.jumpLeft = src.jumpLeft; dst.jumpCd = src.jumpCd; dst.stun = src.stun;
   return dst;
 }
 
@@ -301,6 +304,11 @@ function simulate(p, d, s, j, world, frac) {
   const me = world.me;
   if (!me?.alive) return;
   if (me.curse === 3) { d = OPPOSITE[d]; s = OPPOSITE[s]; }
+  // Stunned (by a stomp): no steering or jumping, ice and belts still carry.
+  const stunNow = Math.max(0, p.stun - 1);
+  if (frac === 1) p.stun = stunNow;
+  if (stunNow > 0) { d = 0; s = 0; j = false; }
+  if (me.carrying) j = false; // flag carriers can't jump
   // Jumping (mirrors World::update_jump): take off from the cell centre,
   // hop two cells in JUMP_TICKS, land on the centre, then cool down.
   const cdNow = Math.max(0, p.jumpCd - 1);
@@ -336,7 +344,8 @@ function simulate(p, d, s, j, world, frac) {
   simCx = Math.floor(sx);
   simCy = Math.floor(sy);
   const on = tileAt(simCx, simCy);
-  const dist = (me.curse === 1 ? CURSED_SPEED : BASE_SPEED + SPEED_STEP * me.speed) * DT * frac;
+  const weather = me.blizzard > 0 ? BLIZZARD_SLOW : 1;
+  const dist = (me.curse === 1 ? CURSED_SPEED : BASE_SPEED + SPEED_STEP * me.speed) * weather * DT * frac;
   let dir = d;
   // On ice you keep sliding until you steer or hit something.
   if (dir === 0 && on === T_ICE && p.moving && p.slide) dir = p.slide;

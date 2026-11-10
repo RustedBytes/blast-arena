@@ -59,6 +59,8 @@ pub mod op {
     pub const ROUND: u8 = 13;
     /// Ping echo: f64 client timestamp.
     pub const PONG: u8 = 14;
+    /// A game event: u8 kind (see [`super::ev`]), then a list of ivars.
+    pub const EVENT: u8 = 15;
 }
 
 /// Client → server opcodes: the first byte of every client frame.
@@ -75,6 +77,31 @@ pub mod cop {
     pub const PING: u8 = 6;
     /// Half extents w, h.
     pub const VIEW: u8 = 7;
+    /// Use the held gadget.
+    pub const GADGET: u8 = 8;
+}
+
+/// Kinds of [`op::EVENT`] messages and their values.
+pub mod ev {
+    /// Sudden death: centre x, y, open radius (cells farther than this in
+    /// Chebyshev distance are stone), ticks until the next ring closes, and
+    /// 1 while active (0 when it ends).
+    pub const SHRINK: u8 = 1;
+    /// A map event starts: kind (1 meteor shower, 2 blizzard, 3 lava surge,
+    /// 4 conveyors reversed), seconds it lasts.
+    pub const ANNOUNCE: u8 = 2;
+    /// Meteor strikes: (x, y, ticks until impact) triples.
+    pub const STRIKES: u8 = 3;
+    /// Lava surge: ticks until it erupts, ticks it burns, then (x, y) pairs.
+    pub const LAVA: u8 = 4;
+    /// Capture the flag: per team (red, blue): base x, base y, state (0 at
+    /// base, 1 carried, 2 dropped), x, y, carrier id + 1; then captures.
+    pub const FLAGS: u8 = 5;
+    /// A flag moment: what (1 taken, 2 dropped, 3 returned, 4 captured),
+    /// whose flag (team), player id + 1.
+    pub const FLAG_NEWS: u8 = 6;
+    /// Two players swapped places: their ids.
+    pub const SWAP: u8 = 7;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -87,6 +114,7 @@ pub mod cop {
 /// [BOMBS_GONE]   n, n × id gap
 /// [FLAMES]       n, n × (x, y, u8 arm0 | arm1 << 4, u8 arm2 | arm3 << 4, ticks left)
 ///                an atomic blast is (x, y, 0xFF, u8 radius, ticks left)
+/// [DRONES]       n, n × (id, ivar x, ivar y in hundredths, u8 team)
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -103,6 +131,7 @@ pub mod snap {
     pub const BOMBS_GONE: u8 = 8;
     pub const FLAMES: u8 = 16;
     pub const ME: u8 = 32;
+    pub const DRONES: u8 = 64;
 
     pub const DX: u64 = 1;
     pub const DY: u64 = 2;
@@ -117,9 +146,9 @@ pub mod snap {
 pub const ME_FIELDS: [&str; ME_LEN] = [
     "ack", "alive", "active", "shield", "ghost", "curse", "curse_t", "respawn", "score", "bombs", "range", "speed",
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
-    "jump", "jump_cd",
+    "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying",
 ];
-pub const ME_LEN: usize = 26;
+pub const ME_LEN: usize = 33;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -255,6 +284,8 @@ pub enum ClientMsg<'a> {
     Bomb,
     /// Action key: detonate remote bombs, or punch the bomb in front.
     Act,
+    /// Gadget key: use the held gadget (mine, rocket, swap, drones).
+    Gadget,
     /// Quick-chat emote.
     Emote { e: u8 },
     /// Client timestamp, echoed back in `pong` for latency measurement.
@@ -291,6 +322,7 @@ impl<'a> ClientMsg<'a> {
             }
             cop::BOMB => ClientMsg::Bomb,
             cop::ACT => ClientMsg::Act,
+            cop::GADGET => ClientMsg::Gadget,
             cop::EMOTE => ClientMsg::Emote { e: r.u8()?.min(15) },
             cop::PING => ClientMsg::Ping { c: r.f64()? },
             cop::VIEW => ClientMsg::View { w: clamp(r.uvar()?, 1000) as u16, h: clamp(r.uvar()?, 1000) as u16 },
@@ -315,6 +347,9 @@ impl<'a> ClientMsg<'a> {
             }
             ClientMsg::Act => {
                 w.u8(cop::ACT);
+            }
+            ClientMsg::Gadget => {
+                w.u8(cop::GADGET);
             }
             ClientMsg::Emote { e } => {
                 w.u8(cop::EMOTE).u8(e);
@@ -484,6 +519,16 @@ pub fn encode_round<'n>(
     finish(arena)
 }
 
+/// A game event of `kind` (see [`ev`]) with its values.
+pub fn encode_event(arena: &mut BytesMut, kind: u8, values: &[i64]) -> Bytes {
+    let mut w = Wire(arena);
+    w.u8(op::EVENT).u8(kind).len(values.len());
+    for &v in values {
+        w.ivar(v);
+    }
+    finish(arena)
+}
+
 pub fn encode_pong(arena: &mut BytesMut, c: f64) -> Bytes {
     Wire(arena).u8(op::PONG).f64(c);
     finish(arena)
@@ -623,6 +668,10 @@ pub mod testing {
                 json!({"t": "round", "mvp": mvp, "teams": [i(&mut r), i(&mut r)], "win": u(&mut r), "next": id(&mut r)})
             }
             op::PONG => json!({"t": "pong", "c": r.f64().unwrap()}),
+            op::EVENT => {
+                let kind = u(&mut r);
+                json!({"t": "ev", "kind": kind, "v": (0..id(&mut r)).map(|_| i(&mut r)).collect::<Vec<_>>()})
+            }
             other => panic!("not an event frame: opcode {other}"),
         };
         assert!(r.done(), "trailing bytes in {v}");
@@ -651,7 +700,7 @@ pub mod testing {
             let k = r.uvar().unwrap();
             let gap = r.uvar().unwrap();
             let bk = if gap == 0 { 0 } else { k - gap };
-            let (mut players, mut bombs, mut me) = if bk == 0 { Default::default() } else { self.seen.get(&bk)?.clone() };
+            let (mut players, mut bombs, mut me) = if bk == 0 { (Vec::new(), Vec::new(), [0; ME_LEN]) } else { self.seen.get(&bk)?.clone() };
             let sections = r.u8().unwrap();
             let has = |bit: u8| sections & bit != 0;
             let ids = |r: &mut Reader| {
@@ -708,6 +757,12 @@ pub mod testing {
                     }
                 }
             }
+            let mut drones = Vec::new();
+            if has(snap::DRONES) {
+                for _ in 0..r.uvar().unwrap() {
+                    drones.push(json!([r.uvar().unwrap(), r.ivar().unwrap(), r.ivar().unwrap(), r.u8().unwrap()]));
+                }
+            }
             if has(snap::ME) {
                 let mask = r.uvar().unwrap();
                 for (i, v) in me.iter_mut().enumerate().take(ME_LEN) {
@@ -718,7 +773,7 @@ pub mod testing {
             }
             assert!(r.done(), "trailing bytes in snapshot {k}");
             self.seen.insert(k, (players.clone(), bombs.clone(), me));
-            Some(json!({"t": "s", "k": k, "bk": bk, "p": players, "b": bombs, "e": flames, "me": me.to_vec()}))
+            Some(json!({"t": "s", "k": k, "bk": bk, "p": players, "b": bombs, "e": flames, "d": drones, "me": me.to_vec()}))
         }
     }
 }
