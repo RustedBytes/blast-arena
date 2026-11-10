@@ -1,3 +1,4 @@
+import { Alerts } from './alerts.js';
 import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
 import { GameAudio } from './audio.js';
 import { LANGUAGES, applyI18n, detectLanguage, getLanguage, setLanguage, t } from './i18n.js';
@@ -38,7 +39,11 @@ class SnapRing {
   latest() { return this.get(this.len - 1); }
 }
 
+// How each map event is announced: icon and tone, by kind.
+const EVENT_LOOK = [null, ['☄️', 'danger'], ['❄️', 'info'], ['🌋', 'danger'], ['⚙️', 'warn'], ['🌍', 'danger']];
+
 const settings = new Settings();
+const alerts = new Alerts(document.getElementById('alerts'));
 setLanguage(detectLanguage(settings.get('lang')));
 const audio = new GameAudio();
 const assets = new Assets();
@@ -292,7 +297,7 @@ const net = new Net({
     feed.prepend(el);
     while (feed.children.length > KILLFEED_SIZE) feed.lastChild.remove();
     setTimeout(() => el.remove(), 6000);
-    if (m.b && m.k === state.myId) banner(t('bountyKill'));
+    if (m.b && m.k === state.myId) alerts.announce({ text: t('bountyKill'), icon: '🎯', tone: 'epic', priority: 2 });
   },
 
   lb(m) {
@@ -323,7 +328,7 @@ const net = new Net({
   streak(m) {
     if (!state) return;
     const name = state.rosterInfo.get(m.id)?.name ?? '?';
-    banner(t('streak', { name, n: m.n }));
+    alerts.announce({ text: t('streak', { name, n: m.n }), icon: '🔥', tone: m.id === state.myId ? 'epic' : 'warn', key: `streak${m.id}` });
   },
 
   hills(m) {
@@ -340,13 +345,16 @@ const net = new Net({
         const was = state.sd;
         state.sd = v[4] ? { cx: v[0], cy: v[1], r: v[2], nextAt: now + v[3] * state.tickMs } : null;
         if (state.sd && !was) {
-          banner(t('suddenDeath'));
+          alerts.announce({ text: t('suddenDeath'), sub: t('suddenDeathHint'), icon: '⏳', tone: 'danger', priority: 3, duration: 4000 });
           audio.curse();
         }
         break;
       }
       case EV.ANNOUNCE:
-        banner(t('mapEvents')[v[0]] ?? '!');
+        {
+          const [icon, tone] = EVENT_LOOK[v[0]] ?? ['❗', 'warn'];
+          alerts.announce({ text: t('mapEvents')[v[0]] ?? '!', sub: t('mapEventHints')[v[0]], icon, tone, priority: 2, duration: 3800 });
+        }
         renderer.mapEvent(v[0], now, v[1] * 1000);
         if (v[0] === 5) audio.nuke(22, 0); // an earthquake: a deep rumble
         else audio.mystery();
@@ -369,18 +377,24 @@ const net = new Net({
         const [what, team, pid] = v;
         const name = state.rosterInfo.get(pid - 1)?.name ?? '';
         const flag = team === 1 ? t('red') : t('blue');
-        toast(t('flagNews')[what]?.replace('{name}', name).replace('{flag}', flag) ?? '', null, what === 4 ? 'mystery' : '');
+        const news = t('flagNews')[what]?.replace('{name}', name).replace('{flag}', flag) ?? '';
         if (what === 4) {
-          banner(t('flagNews')[4].replace('{name}', name).replace('{flag}', flag));
+          alerts.announce({ text: news, icon: '🚩', tone: 'epic', priority: 2, duration: 3500 });
           audio.mystery();
-        } else audio.pickup();
+        } else {
+          alerts.toast(news, { icon: '🚩', tone: what === 1 ? 'warn' : 'info' });
+          audio.pickup();
+        }
         break;
       }
       case EV.ZONE: {
         const c = (k) => ({ x: v[k] / 100, y: v[k + 1] / 100, r: v[k + 2] / 100 });
         const was = state.zone?.state;
         state.zone = { state: v[0], start: now, end: now + v[1] * state.tickMs, from: c(2), to: c(5), phase: v[8] };
-        if (v[0] === 1 && was !== 1) { banner(t('zoneClosing')); audio.curse(); }
+        if (v[0] === 1 && was !== 1) {
+          alerts.announce({ text: t('zoneClosing'), sub: t('zoneHint'), icon: '🌀', tone: 'warn', priority: 2, duration: 3500 });
+          audio.curse();
+        }
         break;
       }
       case EV.ROYALE:
@@ -389,7 +403,10 @@ const net = new Net({
       case EV.WINNER: {
         const id = v[0] - 1;
         const name = state.rosterInfo.get(id)?.name ?? '?';
-        banner(id < 0 ? t('nobodyWins') : id === state.myId ? t('youWin') : t('winnerIs', { name }));
+        alerts.announce({
+          text: id < 0 ? t('nobodyWins') : id === state.myId ? t('youWin') : t('winnerIs', { name }),
+          icon: id < 0 ? '💀' : '🏆', tone: id === state.myId ? 'good' : 'epic', priority: 4, duration: 4500,
+        });
         audio.mystery();
         renderer.confetti(state);
         break;
@@ -421,6 +438,7 @@ const net = new Net({
   },
 
   close() {
+    alerts.reset();
     input.enabled = false;
     input.clear();
     const wasPlaying = state !== null;
@@ -478,27 +496,36 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+/** A small notice; `kind` '' (good news), 'mystery' or 'curse'; `icon` a sprite name. */
 function toast(text, icon, kind) {
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
-  el.innerHTML = `${icon ? `<img src="assets/${icon}.svg" alt="">` : ''}<span></span>`;
-  el.lastChild.textContent = text;
-  const box = $('toasts');
-  box.append(el);
-  while (box.children.length > 3) box.firstChild.remove();
-  setTimeout(() => el.remove(), 2300);
+  const tone = kind === 'curse' ? 'danger' : kind === 'mystery' ? 'epic' : kind === 'info' ? 'info' : 'good';
+  alerts.toast(text, { icon: icon ? `img:${icon}` : undefined, tone });
 }
 
-function banner(text) {
-  const b = $('banner');
-  b.textContent = text;
-  b.classList.remove('hidden');
-  // Restart the animation.
-  b.style.animation = 'none';
-  void b.offsetWidth;
-  b.style.animation = '';
-  clearTimeout(banner.timer);
-  banner.timer = setTimeout(() => b.classList.add('hidden'), 2600);
+/**
+ * Pinned alerts for situations that last: in the storm, in a nuke's zone,
+ * at the sudden-death edge, stunned, carrying a flag. Called every frame;
+ * the alerts only touch the page when something changes.
+ */
+function updateStatusAlerts(now) {
+  const me = state?.me;
+  const alive = !!me?.alive;
+  const show = (key, on, text, opts) => (on ? alerts.status(key, text, opts) : alerts.clear(key));
+  show('storm', alive && me.storm > 0, t('inStorm'),
+    { icon: '🌀', tone: 'danger', progress: 1 - me?.storm / Math.max(1, me?.storm_max ?? 1) });
+  const nuke = alive ? renderer.inNukeZone : null;
+  show('nuke', !!nuke, t('nukeRun', { n: Math.ceil((nuke?.fuse ?? 0) * 0.05) }),
+    { icon: '☢️', tone: 'danger', progress: (nuke?.fuse ?? 0) / 70 });
+  const sd = state?.sd;
+  let edge = false;
+  if (alive && sd) {
+    const ring = Math.max(Math.abs(Math.floor(state.self.x) - sd.cx), Math.abs(Math.floor(state.self.y) - sd.cy));
+    edge = ring >= sd.r - 1;
+  }
+  show('sd', edge, t('moveInward'), { icon: '⏳', tone: 'danger', progress: Math.max(0, (sd?.nextAt ?? now) - now) / 2000 });
+  show('stun', alive && me.stun > 0, t('stunned'), { icon: '💫', tone: 'warn' });
+  show('flag', alive && !!me.carrying, t('carryFlag'), { icon: '🚩', tone: 'info' });
+  document.body.classList.toggle('in-storm', alive && me.storm > 0);
 }
 
 // ------------------------------------------------------------------- zoom
@@ -565,11 +592,6 @@ function updateHud(me) {
   $('st-nuke').lastChild.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
   const tickS = state.tickMs / 1000;
   timer($('st-stun'), me.stun > 0, me.stun * tickS, 1);
-  // Battle royale: how long you can last in the storm.
-  const storm = $('storm');
-  storm.classList.toggle('hidden', !(me.alive && me.storm > 0));
-  document.body.classList.toggle('in-storm', me.alive && me.storm > 0);
-  if (me.storm > 0) storm.style.setProperty('--p', Math.max(0, 1 - me.storm / Math.max(1, me.storm_max)).toFixed(2));
   timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
   timer($('st-ghost'), me.ghost > 0, me.ghost * tickS, 6);
   timer($('st-curse'), me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);
@@ -629,7 +651,7 @@ $('invite').addEventListener('click', async () => {
   if (!state) return;
   const url = `${location.origin}${location.pathname}?arena=${state.arena}&near=${state.myId}`;
   try { await navigator.clipboard.writeText(url); } catch { prompt(t('invite'), url); return; }
-  toast(t('inviteCopied'), null, '');
+  alerts.toast(t('inviteCopied'), { icon: '🔗', tone: 'info' });
 });
 
 // ------------------------------------------------------------- settings
@@ -821,6 +843,7 @@ function frame(now) {
   }
   state.zoom += (state.zoomTarget - state.zoom) * (1 - Math.exp(-dt * 12));
   renderer.draw(state, now, dt);
+  updateStatusAlerts(now);
 
   perfWork += performance.now() - t0;
   perfFrames++;
@@ -858,7 +881,7 @@ $('join-form').addEventListener('submit', (e) => {
 
 // With ?debug, expose internals for testing from the browser console.
 if (params.has('debug')) {
-  window.__blast = { get state() { return state; }, predictor, net, audio, input, renderer };
+  window.__blast = { get state() { return state; }, predictor, net, audio, input, renderer, alerts };
 }
 
 applyLanguage(getLanguage());

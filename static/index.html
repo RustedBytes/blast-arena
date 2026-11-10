@@ -32,7 +32,6 @@
       <div class="stat timer curse hidden" id="st-curse"><img src="assets/pu_mystery.svg" alt=""><span></span></div>
       <div class="stat score"><span data-i18n="score">Score</span> <b id="st-score">0</b></div>
     </div>
-    <div id="storm" class="hidden"><span data-i18n="inStorm">You're in the storm!</span><div class="bar"><i></i></div></div>
     <div id="roundbar" class="panel">
       <span id="round-time">5:00</span>
       <span id="team-scores" class="hidden"><b class="red">0</b> : <b class="blue">0</b></span>
@@ -46,8 +45,12 @@
       </div>
       <div id="killfeed"></div>
     </div>
-    <div id="toasts"></div>
-    <div id="banner" class="hidden"></div>
+    <div id="alerts">
+      <div class="alerts-top"></div>
+      <div class="alerts-status"></div>
+      <div class="alerts-toasts"></div>
+      <div class="alerts-live sr-only" aria-live="polite"></div>
+    </div>
     <canvas id="minimap" class="panel"></canvas>
     <div id="perf" class="panel">
       <div id="fps">– FPS</div>

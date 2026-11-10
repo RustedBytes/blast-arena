@@ -27,6 +27,13 @@ All notable changes to Blast Arena are documented here. The format follows
   near your base.
 - **Death replay**: the moments before your death play again in slow motion
   until you respawn.
+- **Humans arena** (`Humans:ffa:51:0`): a free-for-all with no bots, for
+  real players only.
+- **Alerts**: announcements are queued cards with an icon, a hint line, a
+  colour by severity and a timer bar (urgent ones go first, repeats merge);
+  power-ups and flag news are toasts lower down; ongoing dangers (in the
+  storm, in a nuke's zone, at the sudden-death edge, stunned, carrying the
+  flag) are pinned status pills with a live bar. Screen readers hear them.
 - **Battle royale arena** (`Royale:royale:81:15`, new `royale` mode): last
   player standing in a safe zone that shrinks in five phases, with the next
   circle shown before each move; a storm outside it that kills after 5 s

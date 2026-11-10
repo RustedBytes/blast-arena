@@ -696,6 +696,8 @@ export class Renderer {
 
     this.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
     const inZone = this.drawNukeZones(state, f, camX, camY, T, sec);
+    /** The atomic bomb whose zone the local player is in (for the alerts), or null. */
+    this.inNukeZone = inZone;
     this.drawItems(state.items, camX, camY, T, sec, W, H);
     this.drawBombs(f, camX, camY, T, sec, dt);
     this.drawExplosions(state.explosions, camX, camY, T);
@@ -979,7 +981,7 @@ export class Renderer {
 
   /**
    * The local player is inside an atomic bomb's zone: an arrow points the
-   * way out (straight away from ground zero) and a banner says to run.
+   * way out (straight away from ground zero).
    */
   drawRunWarning(state, b, camX, camY, T, sec, W) {
     const { ctx } = this;
@@ -1002,21 +1004,7 @@ export class Renderer {
     ctx.lineWidth = Math.max(2, T * 0.05);
     ctx.fill();
     ctx.stroke();
-    // Banner at the top of the screen.
-    const fs = Math.round(18 * this.dpr);
-    ctx.font = this.font(fs, 800);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const text = `☢ ${t('nukeRun', { n: Math.ceil(b.fuse * 0.05) })}`;
-    const w = ctx.measureText(text).width + fs * 1.4, h = fs * 1.9;
-    const y = Math.round(90 * this.dpr);
-    ctx.globalAlpha = 0.8 + 0.2 * Math.sin(sec * 10);
-    ctx.fillStyle = 'rgba(160,20,10,0.9)';
-    roundRect(ctx, W / 2 - w / 2, y - h / 2, w, h, h / 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.fillText(text, W / 2, y);
-    ctx.globalAlpha = 1;
+    // (The "get out" message is a status alert: see main.js.)
   }
 
   // ------------------------------------------------- events and gadgets

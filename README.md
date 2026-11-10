@@ -74,11 +74,12 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
-Without `--arena` the server runs four arenas:
+Without `--arena` the server runs five arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
 - `Royale:royale:81:15`
+- `Humans:ffa:51:0` (no bots: real players only)
 
 Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, or open plazas), optional mirror or rotational symmetry, patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The log shows the seed and a summary of each map (`map generated`). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
 
