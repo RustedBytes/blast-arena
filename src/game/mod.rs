@@ -333,6 +333,7 @@ impl World {
             crates = format_args!("{:.2}", s.crate_density),
             regions = ?map.biomes.iter().map(|b| b.biome).collect::<Vec<_>>(),
             teleports = map.teleports.len(),
+            quality = %map.quality(),
             "map generated"
         );
         // Gameplay randomness stays independent of the map seed.

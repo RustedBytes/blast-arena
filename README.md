@@ -85,7 +85,7 @@ Without `--arena` the server runs five arenas:
 - `Royale:royale:81:15`
 - `Humans:ffa:51:0` (no bots: real players only)
 
-Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, or open plazas), optional mirror or rotational symmetry, patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The log shows the seed and a summary of each map (`map generated`). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
+Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, open plazas, a winding maze with loops, or concentric rings with gates), optional mirror or rotational symmetry (walls, crates and spawn pockets alike, so no side is favoured), patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The generator builds three candidate layouts and keeps the best by a quality score: spawn points spread over the whole arena, crates balanced between the quarters, few dead ends. The log shows the seed and a summary of each map with its score (`map generated`). To preview layouts without starting a server, run `cargo run --release --bin mapview -- --size 41 --count 5` (add `--open` for battle royale maps). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
 
 ### Logging
 
@@ -311,6 +311,7 @@ src/game/abilities.rs ability power-ups: inventory, ability key, events, cleanup
 src/game/ai.rs        server-side AI bots
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
+src/bin/mapview.rs    prints generated maps as text, with their quality scores
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
 static/js/            main, render, prediction, particles, input, audio, i18n,

@@ -10,6 +10,28 @@ All notable changes to Blast Arena are documented here. The format follows
 
 - Settings can hide the minimap (also the **N** key) and set its size
   (110–280 px); the FPS panel moves along with it.
+- Two new map layouts: **Maze** (pillar gaps walled into a winding maze
+  with loops) and **Rings** (concentric walled rings with gates).
+- `mapview` binary: prints generated maps as text with their style and
+  quality report (`cargo run --release --bin mapview -- --size 41`).
+
+### Changed
+
+- The map generator builds three candidate layouts per seed and keeps the
+  one with the best quality score: spawn points spread over the whole arena,
+  crates balanced between the quarters, few dead ends. The score is logged
+  with each generated map.
+- Spawn pockets are spread out (farthest-point sampling) instead of random.
+- On mirrored and rotated maps, crates and spawn pockets mirror too, not
+  just walls, so no side starts with an advantage.
+- Crate cover uses smoother two-octave noise: broad thickets and clearings
+  with clumps inside them. Mazes get fewer crates.
+- Crates next to teleporter pads are cleared, so pads are never buried.
+
+### Fixed
+
+- The Docker image builds again: it now copies `config/`, which the
+  server compiles in for the default ability tuning.
 
 ## [0.3.0] - 2026-11-10
 
