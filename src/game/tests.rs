@@ -849,3 +849,59 @@ fn capture_the_flag() {
     assert_eq!(w.events.flags[1].pos, (10, 9));
 }
 
+#[test]
+fn sudden_death_respawns_inside_the_open_zone() {
+    // A crowded arena: crates everywhere except the top lane, so random
+    // spawn sampling can't find room and must not carve a spot in the stone.
+    let mut map = Map::empty(81, 81);
+    for y in 2..80 {
+        for x in 1..80 {
+            if map.get(x, y) == Tile::Floor {
+                map.set(x, y, Tile::Crate);
+            }
+        }
+    }
+    let mut w = test_world(map);
+    let ids: Vec<u32> = (0..8).map(|k| w.spawn_test_player(1.5 + k as f32 * 2.0, 1.5)).collect();
+    w.round_end = w.tick + events::SUDDEN_DEATH_TICKS;
+    w.update_events();
+    // Shrink all the way down.
+    while w.events.sd_radius > events::SUDDEN_DEATH_MIN_RADIUS {
+        w.tick += 1;
+        w.update_events();
+    }
+    let (centre, radius) = (w.events.sd_center, w.events.sd_radius);
+    for &id in &ids {
+        assert!(!w.players[&id].alive, "crushed in the corner");
+        w.players.get_mut(&id).unwrap().respawn_at = w.tick;
+    }
+    w.step();
+    for &id in &ids {
+        let player = &w.players[&id];
+        let cell = player.cell();
+        assert!(player.alive);
+        let dist = (cell.0 - centre.0).abs().max((cell.1 - centre.1).abs());
+        assert!(dist <= radius, "player {id} at {cell:?} is outside the zone around {centre:?} (radius {radius})");
+        assert!(!w.map.is_solid(cell.0, cell.1), "player {id} spawned inside a wall at {cell:?}");
+    }
+}
+
+#[test]
+fn a_rocket_point_blank_spares_the_shooter() {
+    let mut w = test_world(Map::empty(15, 15));
+    let me = w.spawn_test_player(1.5, 1.5);
+    let target = w.spawn_test_player(2.5, 1.5); // right in front
+    w.players.get_mut(&me).unwrap().facing = 2;
+    give_gadget(&mut w, me, Item::Rocket);
+    w.use_gadget(me);
+    for _ in 0..3 {
+        w.tick += 1;
+        w.update_sliding_bombs();
+        w.update_fuses();
+        w.apply_flame_damage();
+    }
+    assert!(w.players[&me].alive, "the shooter survives their own rocket");
+    assert!(!w.players[&target].alive, "the target doesn't");
+    assert!(w.flame_active(2, 1), "it blew up in the target's cell");
+}
+

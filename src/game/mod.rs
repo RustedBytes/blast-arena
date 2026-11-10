@@ -202,6 +202,8 @@ pub struct World {
     pub flame_from: Vec<u64>,
     pub flame_until: Vec<u64>,
     pub flame_owner: Vec<u32>,
+    /// A player the fire in a cell doesn't hurt (the shooter of a rocket), or 0.
+    pub flame_spare: Vec<u32>,
     pub explosions: Vec<Explosion>,
     /// Hidden land mines and flying drones (see `gadgets`).
     pub mines: Vec<gadgets::Mine>,
@@ -308,6 +310,7 @@ impl World {
             flame_from: vec![0; n],
             flame_until: vec![0; n],
             flame_owner: vec![0; n],
+            flame_spare: vec![0; n],
             explosions: Vec::new(),
             mines: Vec::new(),
             drones: Vec::new(),

@@ -12,7 +12,7 @@ const SEC: u64 = TICK_RATE as u64;
 /// Sudden death: the last this-many ticks of a round; the ring stops
 /// closing at this radius; and each ring is shown this long before closing.
 pub const SUDDEN_DEATH_TICKS: u64 = 60 * SEC;
-pub const SUDDEN_DEATH_MIN_RADIUS: i32 = 4;
+pub const SUDDEN_DEATH_MIN_RADIUS: i32 = 6;
 /// Map events: the first one comes after `EVENT_FIRST_TICKS`, then every
 /// `EVENT_GAP_MIN..=EVENT_GAP_MAX` seconds.
 const EVENT_FIRST_TICKS: u64 = 45 * SEC;
@@ -225,10 +225,62 @@ impl World {
         }
     }
 
+    /// During sudden death: the centre and the radius (Chebyshev) of the
+    /// area that is safe to spawn in. Cells up to `sd_radius` are open; while
+    /// the arena still shrinks, the next two rings are about to close.
+    #[must_use]
+    pub fn sudden_death_zone(&self) -> Option<((i32, i32), i32)> {
+        let e = &self.events;
+        if !e.sd_active {
+            return None;
+        }
+        let shrinking = e.sd_radius > SUDDEN_DEATH_MIN_RADIUS;
+        Some((e.sd_center, if shrinking { e.sd_radius - 2 } else { e.sd_radius }))
+    }
+
     /// A cell is closed or about to close (no spawning there).
     #[must_use]
     pub fn sudden_death_unsafe(&self, x: i32, y: i32) -> bool {
-        self.events.sd_active && cheb((x, y), self.events.sd_center) >= self.events.sd_radius - 2
+        self.sudden_death_zone().is_some_and(|(c, r)| cheb((x, y), c) > r)
+    }
+
+    /// A spawn cell inside the sudden-death zone. Random sampling over the
+    /// whole map would almost never hit the small open area (and then carve
+    /// a spawn inside the stone), so this scans the zone itself, relaxing
+    /// its demands step by step, and as a last resort clears a cell there.
+    pub(super) fn find_spawn_in_zone(&mut self, c: (i32, i32), r: i32) -> (i32, i32) {
+        let r = r.max(0);
+        let mut cells = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
+        for y in (c.1 - r).max(1)..=(c.1 + r).min(self.map.h - 2) {
+            for x in (c.0 - r).max(1)..=(c.0 + r).min(self.map.w - 2) {
+                cells.push((x, y));
+            }
+        }
+        // Shuffle so players don't all appear in the same corner.
+        for i in (1..cells.len()).rev() {
+            let j = self.rng.below(i as u32 + 1) as usize;
+            cells.swap(i, j);
+        }
+        for strict in [true, false] {
+            if let Some(&cell) = cells.iter().find(|&&(x, y)| self.spawn_ok(x, y, strict)) {
+                return cell;
+            }
+        }
+        // Anything walkable and free of bombs and fire.
+        let free = |w: &World, (x, y): (i32, i32)| {
+            let i = w.map.idx(x, y);
+            !w.map.is_solid(x, y) && w.bomb_grid[i] == 0 && w.flame_until[i] <= w.tick && w.map.get(x, y) != Tile::Teleport
+        };
+        if let Some(&cell) = cells.iter().find(|&&cell| free(self, cell)) {
+            return cell;
+        }
+        // Clear a crate (or, failing that, the centre) to make room.
+        let cell = cells.iter().copied().find(|&(x, y)| self.map.get(x, y).is_breakable()).unwrap_or(c);
+        self.set_tile(cell.0, cell.1, Tile::Floor);
+        if let Some(b) = self.bomb_at(cell.0, cell.1) {
+            self.remove_bomb(b);
+        }
+        cell
     }
 
     /// End of round: the arena opens up again and flags go home.

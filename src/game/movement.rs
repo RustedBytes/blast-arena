@@ -131,7 +131,9 @@ impl World {
     /// Brings a dead player back: anywhere safe, or near their own base in
     /// capture the flag.
     fn respawn(&mut self, id: u32) {
-        let (x, y) = match self.team_base(self.players[&id].team) {
+        // Near your base in capture the flag, unless sudden death shut it in.
+        let base = self.team_base(self.players[&id].team).filter(|&(bx, by)| !self.sudden_death_unsafe(bx, by));
+        let (x, y) = match base {
             Some((bx, by)) => self.find_spawn_near(bx, by),
             None => self.find_spawn(),
         };

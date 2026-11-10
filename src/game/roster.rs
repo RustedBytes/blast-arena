@@ -180,6 +180,10 @@ impl World {
     /// Finds an open cell away from bombs, fire and other players, with room
     /// to escape from a first bomb. Carves space as a last resort.
     pub(super) fn find_spawn(&mut self) -> (i32, i32) {
+        // Sudden death: only the open middle of the arena is left.
+        if let Some((c, r)) = self.sudden_death_zone() {
+            return self.find_spawn_in_zone(c, r);
+        }
         for attempt in 0..400 {
             let x = self.rng.between(1, self.map.w - 2);
             let y = self.rng.between(1, self.map.h - 2);

@@ -304,12 +304,24 @@ impl World {
             let (nx, ny) = (x + dx, y + dy);
             if self.cell_blocks_slide(nx, ny) {
                 let tick = self.tick;
-                let b = self.bombs.get_mut(&id).unwrap();
-                if b.rocket {
-                    // A rocket blows up on impact.
+                let rocket = self.bombs[&id].rocket;
+                if rocket {
+                    // A rocket blows up on impact: a direct hit on a player
+                    // explodes in their cell, anything else right in front.
+                    let hit_player = !self.map.is_solid(nx, ny) && self.bomb_at(nx, ny).is_none();
+                    if hit_player {
+                        let (oi, ni) = (self.map.idx(x, y), self.map.idx(nx, ny));
+                        self.bomb_grid[oi] = 0;
+                        self.bomb_grid[ni] = id;
+                    }
+                    let b = self.bombs.get_mut(&id).unwrap();
+                    if hit_player {
+                        (b.x, b.y) = (nx, ny);
+                    }
                     b.explode_at = tick;
                     continue;
                 }
+                let b = self.bombs.get_mut(&id).unwrap();
                 b.slide_dir = 0;
                 b.next_slide = self.tick + CONVEYOR_TICKS;
                 continue;
@@ -357,14 +369,16 @@ impl World {
                 self.detonate_nuke(&b, &mut queue);
                 continue;
             }
-            self.set_flame(b.x, b.y, b.owner, self.tick, flame_until);
+            // A rocket's blast spares whoever fired it.
+            let spare = if b.rocket { b.owner } else { 0 };
+            self.set_flame_sparing(b.x, b.y, b.owner, self.tick, flame_until, spare);
 
             cells.clear();
             self.trace_blast(b.x, b.y, b.range, true, b.pierce, |arm, r, x, y| cells.push((arm, r, x, y)));
             let mut arms = [0u8; 4];
             for &(arm, r, x, y) in &cells {
                 arms[arm] = r;
-                self.set_flame(x, y, b.owner, self.tick, flame_until);
+                self.set_flame_sparing(x, y, b.owner, self.tick, flame_until, spare);
                 match self.map.get(x, y) {
                     Tile::Crate => {
                         self.set_tile(x, y, Tile::Floor);
@@ -510,13 +524,23 @@ impl World {
     /// Fire in a cell from tick `from` until `until`. Overlapping fire
     /// merges into one continuous window; the newest blast owns the cell.
     pub(super) fn set_flame(&mut self, x: i32, y: i32, owner: u32, from: u64, until: u64) {
+        self.set_flame_sparing(x, y, owner, from, until, 0);
+    }
+
+    /// Like `set_flame`, but the fire doesn't hurt player `spare` (0: hurts
+    /// everyone). Fire from another blast in the same cell hurts everyone.
+    pub(super) fn set_flame_sparing(&mut self, x: i32, y: i32, owner: u32, from: u64, until: u64, spare: u32) {
         let i = self.map.idx(x, y);
         if self.flame_until[i] > self.tick {
             self.flame_from[i] = self.flame_from[i].min(from);
             self.flame_until[i] = self.flame_until[i].max(until);
+            if self.flame_spare[i] != spare {
+                self.flame_spare[i] = 0;
+            }
         } else {
             self.flame_from[i] = from;
             self.flame_until[i] = until;
+            self.flame_spare[i] = spare;
         }
         self.flame_owner[i] = owner;
     }

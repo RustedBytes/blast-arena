@@ -109,7 +109,11 @@ impl World {
             if !self.flame_active(x, y) {
                 return None;
             }
-            let owner = self.flame_owner[self.map.idx(x, y)];
+            let i = self.map.idx(x, y);
+            if self.flame_spare[i] == p.id {
+                return None; // your own rocket's blast
+            }
+            let owner = self.flame_owner[i];
             // No friendly fire in team mode (your own bombs still hurt).
             let friendly = self.players.get(&owner).is_some_and(|o| !o.can_hurt(p));
             (!friendly).then_some((p.id, owner))
