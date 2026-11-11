@@ -264,7 +264,7 @@ How a bot plays:
 DOMAIN=play.example.com docker compose up -d
 ```
 
-- `Dockerfile` compiles the dependencies in a layer of their own, so after a code change only the server itself is recompiled. It builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume.
+- `Dockerfile` compiles the dependencies in a layer of their own, so after a code change only the server itself is recompiled. It builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume. The server runs a worker thread per CPU core, so arenas tick in parallel; set `TOKIO_WORKER_THREADS` to use fewer (1 runs everything on one thread, for the least memory).
 - `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
 - WebTransport skips Caddy: host port **443/udp** goes straight to the game's 3000/udp, so open UDP 443 in the firewall. Caddy is limited to HTTP/1.1 and HTTP/2 so it doesn't claim UDP 443 for HTTP/3. Without the UDP port, everyone plays over the WebSocket.
 - Profiles live in the `blast-data` volume, owned by the container's `blast` user (UID and GID 999). If the server logs that the database is read-only, the volume's files belong to someone else; re-own them once with `docker compose run --rm --user root game chown -R 999:999 /data`.

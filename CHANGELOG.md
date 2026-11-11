@@ -13,8 +13,7 @@ All notable changes to Blast Arena are documented here. The format follows
   each. An arena's player limit (`--max-players`) is now raised to fit
   its bots, and a human joining a full arena still takes a bot's place.
   A tick of it takes about 4 ms in `simbench --bots 1000 --map-size 321`
-  and about 8 ms in the running server (of the 50 ms per tick, shared
-  with the other arenas on the single game thread).
+  and about 8 ms in the running server, of the 50 ms each tick has.
 
 - A Rockets arena (`rockets` mode, `Rockets:rockets:51:8` in the default
   list): a free-for-all where the bomb key fires a rocket in the
@@ -64,8 +63,11 @@ All notable changes to Blast Arena are documented here. The format follows
   one. Nobody is named MVP or rewarded for the bots' round, and a player
   coming back to their parked state carries on as before.
 
-- The server runs on a single-threaded tokio runtime (one thread for
-  every task) to keep its memory low. The Docker image tunes mimalloc to
+- The server runs a tokio worker thread per CPU core again
+  (`TOKIO_WORKER_THREADS` sets another count), so arenas tick in
+  parallel and a big arena such as Horde doesn't hold up the others.
+  A single-threaded runtime used less memory but ran every arena, socket
+  and HTTP request on one thread. The Docker image tunes mimalloc to
   return freed memory to the OS at once (`MIMALLOC_PURGE_DELAY=0`) and to
   commit arena memory only as it's used (`MIMALLOC_ARENA_EAGER_COMMIT=0`).
 

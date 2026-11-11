@@ -140,11 +140,12 @@ fn load_tuning(path: Option<&str>) -> std::sync::Arc<game::ability_config::Tunin
     }
 }
 
-// One thread runs every task (the arenas' ticks, the sockets, the HTTP
-// handlers): a single worker keeps memory low, since each extra worker
-// holds its own allocator caches and scheduler queues. Blocking work
-// (`tokio::fs`) still goes to tokio's blocking pool.
-#[tokio::main(flavor = "current_thread")]
+// A worker thread per CPU core (`TOKIO_WORKER_THREADS` sets another
+// count), so the arenas tick in parallel: a slow tick in a big arena no
+// longer holds up the others, the sockets or the HTTP handlers. Each
+// worker costs some memory (its own allocator caches and scheduler queue).
+// Blocking work (`tokio::fs`) goes to tokio's blocking pool.
+#[tokio::main]
 async fn main() {
     let args = Args::parse();
     logging::init(&args.log_level, args.log_format);
