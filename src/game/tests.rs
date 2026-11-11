@@ -1296,3 +1296,49 @@ fn rockets_mode_respects_the_bomb_limit() {
     let b = ffa.bombs.values().next().unwrap();
     assert!(!b.rocket && b.slide_dir == 0);
 }
+
+#[test]
+fn first_human_in_a_bot_arena_restarts_the_round() {
+    let mut w = test_world(Map::empty(31, 31));
+    let bots: Vec<u32> = (0..3).map(|_| w.add_bot()).collect();
+    // The bots have been at it a while: points on the board, the clock low.
+    w.tick = 3000;
+    w.round_end = w.tick + 200;
+    for &b in &bots {
+        let p = w.players.get_mut(&b).unwrap();
+        (p.score, p.kills) = (4, 2);
+    }
+    let (link, _rx) = testing::test_link();
+    let human = w.join(plain_join("first"), link).unwrap();
+    assert_eq!(w.round_end, w.tick + w.round_ticks, "a full round from now");
+    assert!(w.players.values().all(|p| p.score == 0 && p.kills == 0), "scores start over");
+    assert_eq!(w.stats.rounds, 0, "the bots' round isn't counted or rewarded");
+
+    // With a human already playing, the next one joins the round in progress.
+    w.tick += 500;
+    w.players.get_mut(&human).unwrap().score = 3;
+    let round_end = w.round_end;
+    let (link, _rx2) = testing::test_link();
+    w.join(plain_join("second"), link).unwrap();
+    assert_eq!(w.round_end, round_end);
+    assert_eq!(w.players[&human].score, 3);
+}
+
+#[test]
+fn first_human_in_a_bot_royale_starts_a_new_match() {
+    let mut w = royale_world(41);
+    for _ in 0..4 {
+        w.add_bot();
+    }
+    w.update_royale();
+    // The zone has moved on: a latecomer would have to watch.
+    w.tick = w.royale.state_end;
+    w.update_royale();
+    assert!(w.royale.phase > 0 || w.royale.state != royale::ZoneState::Waiting);
+    let (link, _rx) = testing::test_link();
+    let human = w.join(plain_join("first"), link).unwrap();
+    assert!(w.royale.match_on);
+    assert_eq!((w.royale.phase, w.royale.state), (0, royale::ZoneState::Waiting), "a new match, zone not moving yet");
+    assert!(w.players[&human].alive, "in the match, not watching");
+    assert_eq!(w.royale.started_with, 5);
+}

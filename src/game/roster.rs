@@ -11,7 +11,9 @@ use super::{JoinRequest, Mode, PARK_TICKS, Parked, SPAWN_SHIELD_TICKS, TICK_RATE
 
 impl World {
     /// Adds a human player (making room by removing a bot if the arena is
-    /// full) and sends them the welcome. Returns the new player id.
+    /// full) and sends them the welcome. Returns the new player id. The
+    /// first human in an arena of bots starts the round over (see
+    /// `restart_round`).
     ///
     /// # Errors
     /// A reason to show the player when the arena is full of humans.
@@ -28,6 +30,8 @@ impl World {
             self.leave(bot);
         }
         let parked = req.token.as_ref().and_then(|t| self.parked.remove(t)).filter(|p| p.expires > self.tick);
+        // (Someone coming back to their parked state carries on their round.)
+        let first_human = parked.is_none() && !self.players.values().any(|p| p.link.is_some());
         let team = parked.as_ref().map_or_else(|| self.team_for_new(), |p| p.team);
         let (hat, trail) = match &req.profile {
             Some(p) => (p.allowed_hat(req.hat), p.allowed_trail(req.trail)),
@@ -48,6 +52,10 @@ impl World {
         if let Some(prof) = &mut p.profile {
             prof.games += 1;
             p.profile_dirty = true;
+        }
+        // Before the welcome, so it carries the fresh round's timer and hills.
+        if first_human {
+            self.restart_round();
         }
 
         let p = &self.players[&id];

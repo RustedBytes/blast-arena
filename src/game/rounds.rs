@@ -137,6 +137,12 @@ impl World {
             }
             (p.score, p.kills, p.deaths, p.streak, p.bounty) = (0, 0, 0, 0, false);
         }
+        self.start_round();
+    }
+
+    /// A fresh round: the full timer, no sudden death or flags out, abilities
+    /// reset and the hills in new spots.
+    fn start_round(&mut self) {
         // Royale matches end when one player is left, not on a timer.
         self.round_end = if self.is_royale() { u64::MAX } else { self.tick + self.round_ticks };
         self.reset_events_for_round();
@@ -144,5 +150,22 @@ impl World {
         self.place_hills();
         let hills = protocol::encode_hills(self.event_arenas.current(), &self.hills);
         self.broadcasts.push(hills);
+    }
+
+    /// The first human to join an arena that only bots were playing in
+    /// starts a round from the beginning instead of landing in the middle
+    /// of one: scores back to zero and the full timer (in battle royale, a
+    /// new match with everyone in it). Nobody is named MVP or rewarded for
+    /// the bots' round.
+    pub(super) fn restart_round(&mut self) {
+        tracing::info!("first human joined, round restarted");
+        for p in self.players.values_mut() {
+            (p.score, p.kills, p.deaths, p.streak, p.bounty) = (0, 0, 0, 0, false);
+        }
+        if self.is_royale() {
+            self.start_match();
+        } else {
+            self.start_round();
+        }
     }
 }

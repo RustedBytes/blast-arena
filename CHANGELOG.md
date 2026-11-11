@@ -43,6 +43,13 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The first human to join an arena that only bots are playing in starts
+  the round from the beginning: the full timer, everyone's score back to
+  zero, sudden death and flags reset, new hills. In battle royale they
+  start a new match with everyone in it instead of watching the bots'
+  one. Nobody is named MVP or rewarded for the bots' round, and a player
+  coming back to their parked state carries on as before.
+
 - The server runs on a single-threaded tokio runtime (one thread for
   every task) to keep its memory low. The Docker image tunes mimalloc to
   return freed memory to the OS at once (`MIMALLOC_PURGE_DELAY=0`) and to
