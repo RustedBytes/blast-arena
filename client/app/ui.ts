@@ -20,6 +20,7 @@ export const ui = {
     name: byId('name', HTMLInputElement),
     language: byId('join-lang', HTMLSelectElement),
     play: byId('play', HTMLButtonElement),
+    howToPlay: byId('how-to-play', HTMLButtonElement),
     error: byId('join-error'),
     arenaList: byId('arena-list'),
     allTime: byId('alltime'),

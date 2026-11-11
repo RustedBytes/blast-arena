@@ -8,6 +8,7 @@ import { audio, params, settings, token } from './services.js';
 import { connection, state } from './session.js';
 import { applySettings } from './settings-ui.js';
 import { ui } from './ui.js';
+import { showTutorial } from './controls.js';
 
 // ---------------------------------------------------------------- lobby
 
@@ -129,21 +130,29 @@ export function setupLobby(): void {
     renderArenas();
   });
   ui.join.name.value = (() => { try { return localStorage.getItem('blast-name') ?? ''; } catch { return ''; } })();
+  ui.join.howToPlay.addEventListener('click', () => showTutorial());
   ui.join.form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = ui.join.name.value.trim() || 'Blaster';
-    try { localStorage.setItem('blast-name', name); } catch { /* storage unavailable */ }
-    audio.start(); // browsers only allow audio after a user gesture
-    applySettings();
-    ui.join.error.textContent = '';
-    ui.join.play.disabled = true;
-    const near = Number(params.get('near')) || 0;
-    connection.joinInfo = {
-      arena: selectedArena,
-      join: { name, token, hat: settings.get('hat'), trail: settings.get('trail'), near },
-    };
-    connection.reconnectTry = -1;
-    net.close();
-    net.connect(connection.joinInfo.arena, connection.joinInfo.join);
+    // The first time, the tutorial comes first (nothing can hit you while you read).
+    if (settings.get('tutorialDone')) join();
+    else showTutorial(join);
   });
+}
+
+/** Joins the selected arena with the name and cosmetics from the lobby. */
+function join(): void {
+  const name = ui.join.name.value.trim() || 'Blaster';
+  try { localStorage.setItem('blast-name', name); } catch { /* storage unavailable */ }
+  audio.start(); // browsers only allow audio after a user gesture
+  applySettings();
+  ui.join.error.textContent = '';
+  ui.join.play.disabled = true;
+  const near = Number(params.get('near')) || 0;
+  connection.joinInfo = {
+    arena: selectedArena,
+    join: { name, token, hat: settings.get('hat'), trail: settings.get('trail'), near },
+  };
+  connection.reconnectTry = -1;
+  net.close();
+  net.connect(connection.joinInfo.arena, connection.joinInfo.join);
 }

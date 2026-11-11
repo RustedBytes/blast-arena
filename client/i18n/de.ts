@@ -101,12 +101,35 @@ export const de: Strings = {
   },
   curses: ['', 'Verlangsamt', 'Keine Bomben', 'Vertauscht'],
   emotes: ['Hallo!', 'LOL', 'Grr!', 'Super!', 'Bumm!', 'Hilfe!', 'GG', 'Cool'],
-  tutorial: [
-    ['Bewegen', 'Benutze WASD oder die Pfeiltasten (oder zieh links auf dem Handy).'],
-    ['Bombe legen', 'Drück F und verschwinde aus der kreuzförmigen Explosion! Leertaste springt über Steinsäulen.'],
-    ['Power-ups sammeln', 'Spreng Kisten, um Power-ups zu finden. Lila Kisten sind Geheimboxen: ein Glücksspiel!'],
-    ['Gewinne die Runde', 'Punkte gibt es für Abschüsse und fürs Stehen auf leuchtenden Hügeln. Mausrad oder zwei Finger zum Zoomen, Esc für Einstellungen.'],
-  ],
-  tutorialNext: 'Weiter', tutorialSkip: 'Tutorial überspringen', tutorialDone: 'Los geht’s!',
+  howToPlay: 'So wird gespielt',
+  guideUi: { back: 'Zurück', next: 'Weiter', done: 'Los geht’s!', close: 'Schließen', slide: '{n} von {total}' },
+  guide: {
+    welcome: { title: 'Willkommen in der Blast Arena!', body: 'Spreng Kisten, schnapp dir Power-ups und überlebe alle anderen. Hier ist alles Wichtige in einer Minute.' },
+    move: { title: 'Bewegen', body: 'Lauf mit WASD oder den Pfeiltasten. Auf dem Handy ziehst du irgendwo auf der linken Seite. Halte eine zweite Richtung, um an der nächsten Lücke abzubiegen.' },
+    bomb: { title: 'Bomben legen', body: 'Drück F, um eine Bombe zu legen. Nach 2,5 s explodiert sie als Kreuz. Steinsäulen halten das Feuer auf, Kisten zerbrechen. Raus aus der Linie!' },
+    jump: { title: 'Springen', body: 'Drück die Leertaste, um über die Steinsäule vor dir zu hüpfen. In der Luft kann dir das Feuer nichts. Über Kisten kannst du nicht springen.' },
+    crates: { title: 'Kisten verstecken Power-ups', body: 'Jede vierte Kiste hinterlässt ein Power-up. Lauf darüber, um es zu nehmen. Wenn du stirbst, verlierst du einige deiner eigenen.' },
+    boosts: { title: 'Verstärkungen', body: 'Sammle sie, um stärker zu werden. Sie halten, bis du stirbst.' },
+    tricks: { title: 'Tricks', body: 'Neue Moves für deine Bomben. Fernzündung und Schlag laufen über E.' },
+    gadgets: { title: 'Gadgets (Q)', body: 'Einwegteile mit ein paar Ladungen. Du behältst die zuletzt aufgesammelte Sorte.' },
+    abilities: { title: 'Fähigkeiten (R)', body: 'Kräfte mit Ladungen, die sich mit der Zeit erholen. Eine neue Sorte ersetzt die alte.' },
+    secret: { title: 'Geheimbox und Atombombe', body: 'Eine Geheimbox ist ein Glücksspiel: ein Power-up, ein Jackpot, ein Fluch oder Bombenregen. Die seltene Atombombe verbrennt einen riesigen Kreis: lauf weit weg!' },
+    arena: {
+      title: 'Die Arena', body: 'Jede Region der Karte spielt sich ein bisschen anders.',
+      labels: ['Eis: du rutschst weiter', 'Förderbänder tragen dich und Bomben', 'Panzerkisten halten zwei Explosionen aus', 'Teleporter bringen dich quer über die Karte'],
+    },
+    dangers: {
+      title: 'Vorsicht', body: 'Ab und zu schlägt die Karte zurück. Warnungen zeigen, wo es gleich gefährlich wird.',
+      labels: ['Meteoritenschauer', 'Schneestürme bremsen alle', 'Lava und Erdbeben', 'Sudden Death: die Arena schrumpft'],
+    },
+    modes: {
+      title: 'Arenen', body: 'Wähl in der Lobby eine Arena. Jede hat ihren eigenen Dreh.',
+      labels: ['Teams: klau die gegnerische Flagge', 'Royale: nur einer bleibt übrig', 'Würmer: riesige Würmer jagen dich', 'Der Wächter bewacht einen Tresor voller Power-ups'],
+    },
+    scoring: {
+      title: 'Punkte sammeln', body: 'Halte Tab für die Bestenliste, Esc öffnet die Einstellungen. Viel Glück!',
+      labels: ['+1 für jede Explosion, die jemanden erwischt', 'Steh auf leuchtenden Hügeln', 'Erwisch den Anführer: +2 Kopfgeld', 'Selbst gesprengt: −1'],
+    },
+  },
   fullServer: 'Server ist voll, versuch es später noch einmal',
 };

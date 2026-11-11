@@ -3,7 +3,7 @@
 import { input, sendInput } from './controls.js';
 import { updateRoyaleHud, updateStatusAlerts } from './hud.js';
 import { net } from './messages.js';
-import { audio, particles, predictor, renderer, tutorial } from './services.js';
+import { audio, particles, predictor, renderer } from './services.js';
 import { state } from './session.js';
 import { isDraggingLook, stopLooking } from './view.js';
 import { ui } from './ui.js';
@@ -30,10 +30,8 @@ function frame(now: number): void {
   state.interpDelay += Math.sign(dd) * Math.min(Math.abs(dd), dt * (dd > 0 ? 2 : 0.6));
   // Local player: predicted. Dead: the camera follows whoever we watch.
   if (state.me?.alive && predictor.active) {
-    const px = state.self.x, py = state.self.y;
     predictor.render(state.self, input.current, state, dt);
     state.selfJump = predictor.jumpDir;
-    tutorial.notify('moved', Math.abs(state.self.x - px) + Math.abs(state.self.y - py));
     state.focus.x = state.self.x;
     state.focus.y = state.self.y;
   } else if (state.me && !state.me.alive && (state.me.spec || state.replay)) {

@@ -12,7 +12,7 @@ import { input } from './controls.js';
 import { gameEvent } from './events.js';
 import { toast, updateHud } from './hud.js';
 import { refreshLobbyLater } from './lobby.js';
-import { alerts, audio, predictor, renderer, settings, tutorial } from './services.js';
+import { alerts, audio, predictor, renderer, settings } from './services.js';
 import { connection, findSnapshot, rebuildItems, setState, SnapRing, state } from './session.js';
 import { applyVisualSettings } from './settings-ui.js';
 import { forgetLook, resize } from './view.js';
@@ -111,7 +111,6 @@ export const net = new Net({
     input.enabled = true;
     resize();
     if (m.resumed) toast(t('welcomeBack'), null, 'mystery');
-    if (!settings.get('tutorialDone')) tutorial.start();
   },
 
   s(raw) {
@@ -193,7 +192,6 @@ export const net = new Net({
 
     if (prevMe && m.me.active > prevMe.active) {
       audio.bombPlaced();
-      tutorial.notify('bomb');
     }
     // The music intensifies while a bomb is close.
     let nearest = Infinity;
@@ -233,7 +231,6 @@ export const net = new Net({
     if (curse) audio.curse();
     else if (m.m) audio.mystery();
     else audio.pickup();
-    tutorial.notify('pickup');
   },
 
   kill(m) {

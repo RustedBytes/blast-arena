@@ -8,6 +8,17 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- A new tutorial: an illustrated slide deck in a modal window, in every
+  language. 14 short slides, each with a picture drawn from the game's pixel
+  art (little scenes such as the blast cross or a hop over a pillar, and the
+  real power-up tokens with their names): moving, bombs, jumping, crates,
+  boosts, tricks, gadgets (Q), abilities (R), the secret box and atomic bomb,
+  the arena's regions, dangers, the arena modes and scoring. It opens the
+  first time you press Play, before joining, from the new **How to play**
+  button in the lobby, and from settings. Back/Next, dots, arrow keys and
+  swipes turn the pages, Esc closes it, and the game's controls are off
+  while it's open. It replaces the old four-step tips box.
+
 - The client ships as one minified file per page: esbuild bundles
   `client/` into `static/js/main.js` (the game, about 210 KB, 80 KB
   gzipped; it was 70 separate modules, 588 KB), `dashboard.js` and

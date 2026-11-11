@@ -7,7 +7,8 @@ import { getLanguage, LANGUAGES, setLanguage, t } from '../i18n.js';
 import { MINIMAP_MAX, MINIMAP_MIN } from '../settings.js';
 import { buildEmoteWheel, invalidateHud } from './hud.js';
 import { refreshLobbyLater } from './lobby.js';
-import { audio, renderer, settings, tutorial } from './services.js';
+import { audio, renderer, settings } from './services.js';
+import { showTutorial } from './controls.js';
 import { setZoom } from './view.js';
 import { ui } from './ui.js';
 
@@ -101,6 +102,6 @@ export function setupSettingsUi(): void {
   ui.hud.gear.addEventListener('click', () => toggleSettings(true));
   ui.settings.tutorialAgain.addEventListener('click', () => {
     toggleSettings(false);
-    tutorial.start();
+    showTutorial();
   });
 }

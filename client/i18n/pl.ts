@@ -101,12 +101,35 @@ export const pl: Strings = {
   },
   curses: ['', 'Spowolniony', 'Bez bomb', 'Odwrócone'],
   emotes: ['Cześć!', 'LOL', 'Grr!', 'Nieźle!', 'Bum!', 'Pomocy!', 'GG', 'Super'],
-  tutorial: [
-    ['Poruszaj się', 'Używaj WASD lub strzałek (albo przeciągaj po lewej na telefonie).'],
-    ['Połóż bombę', 'Naciśnij F i uciekaj z wybuchu w kształcie krzyża! Spacja przeskakuje kamienne filary.'],
-    ['Zbieraj bonusy', 'Wysadzaj skrzynie, aby znaleźć bonusy. Fioletowe skrzynki są tajemnicze: to hazard!'],
-    ['Wygraj rundę', 'Zdobywaj punkty, wysadzając innych i stojąc na świecących wzgórzach. Kółko lub uszczypnięcie do zoomu, Esc otwiera ustawienia.'],
-  ],
-  tutorialNext: 'Dalej', tutorialSkip: 'Pomiń samouczek', tutorialDone: 'Do dzieła!',
+  howToPlay: 'Jak grać',
+  guideUi: { back: 'Wstecz', next: 'Dalej', done: 'Gramy!', close: 'Zamknij', slide: '{n} z {total}' },
+  guide: {
+    welcome: { title: 'Witaj w Blast Arena!', body: 'Wysadzaj skrzynki, zbieraj bonusy i przetrwaj wszystkich. Oto najważniejsze rzeczy w minutę.' },
+    move: { title: 'Ruch', body: 'Chodź klawiszami WASD albo strzałkami. Na telefonie przeciągnij palcem w dowolnym miejscu po lewej. Przytrzymaj drugi kierunek, by skręcić przy najbliższym przejściu.' },
+    bomb: { title: 'Stawianie bomb', body: 'Naciśnij F, by postawić bombę. Po 2,5 s wybucha na krzyż. Kamienne filary zatrzymują ogień, skrzynki pękają. Uciekaj z linii ognia!' },
+    jump: { title: 'Skok', body: 'Naciśnij spację, by przeskoczyć kamienny filar przed sobą. W powietrzu ogień cię nie dosięgnie. Skrzynek nie da się przeskoczyć.' },
+    crates: { title: 'Skrzynki kryją bonusy', body: 'Co czwarta skrzynka zostawia bonus. Przejdź po nim, by go podnieść. Gdy giniesz, gubisz część swoich.' },
+    boosts: { title: 'Wzmocnienia', body: 'Zbieraj je, by stawać się silniejszym. Działają, dopóki żyjesz.' },
+    tricks: { title: 'Sztuczki', body: 'Nowe zagrania bombami. Zdalne bomby i cios używają klawisza E.' },
+    gadgets: { title: 'Gadżety (Q)', body: 'Przedmioty jednorazowe z kilkoma ładunkami. Masz ostatni podniesiony rodzaj.' },
+    abilities: { title: 'Umiejętności (R)', body: 'Moce z ładunkami, które odnawiają się z czasem. Nowy rodzaj zastępuje stary.' },
+    secret: { title: 'Tajemnicza skrzynka i bomba atomowa', body: 'Tajemnicza skrzynka to loteria: bonus, jackpot, klątwa albo deszcz bomb. Rzadka bomba atomowa wypala ogromne koło — uciekaj daleko!' },
+    arena: {
+      title: 'Arena', body: 'Każdy region mapy gra się trochę inaczej.',
+      labels: ['Lód: ślizgasz się dalej', 'Taśmociągi wiozą ciebie i bomby', 'Pancerne skrzynki wytrzymują dwa wybuchy', 'Teleporty przenoszą przez mapę'],
+    },
+    dangers: {
+      title: 'Uwaga', body: 'Co jakiś czas mapa się broni. Ostrzeżenia pokazują, gdzie nadchodzi zagrożenie.',
+      labels: ['Deszcze meteorów', 'Zamiecie spowalniają wszystkich', 'Lawa i trzęsienia ziemi', 'Nagła śmierć: arena się zaciska'],
+    },
+    modes: {
+      title: 'Areny', body: 'Wybierz arenę w lobby. Każda ma swój haczyk.',
+      labels: ['Drużyny: ukradnij flagę wroga', 'Royale: wygrywa ostatni na placu', 'Robaki: wielkie robaki na ciebie polują', 'Strażnik pilnuje skarbca pełnego bonusów'],
+    },
+    scoring: {
+      title: 'Zdobywaj punkty', body: 'Przytrzymaj Tab, by zobaczyć ranking, Esc otwiera ustawienia. Powodzenia!',
+      labels: ['+1 za każdy wybuch, który kogoś trafi', 'Stój na świecących wzgórzach', 'Dorwij lidera: +2 nagrody', 'Wysadzenie siebie: −1'],
+    },
+  },
   fullServer: 'serwer jest pełny, spróbuj później',
 };

@@ -101,12 +101,35 @@ export const fr: Strings = {
   },
   curses: ['', 'Ralenti', 'Pas de bombes', 'Inversé'],
   emotes: ['Salut !', 'MDR', 'Grr !', 'Bien joué !', 'Boum !', 'À l’aide !', 'GG', 'Cool'],
-  tutorial: [
-    ['Se déplacer', 'Utilise ZQSD, WASD ou les flèches (ou glisse à gauche sur mobile).'],
-    ['Poser une bombe', 'Appuie sur F, puis sors de l’explosion en croix ! Espace saute par-dessus les piliers.'],
-    ['Ramasser des bonus', 'Fais exploser des caisses pour trouver des bonus. Les boîtes violettes sont secrètes : un pari !'],
-    ['Gagner la manche', 'Marque des points en explosant les autres et en restant sur les collines lumineuses. Molette ou pincement pour zoomer, Échap pour les paramètres.'],
-  ],
-  tutorialNext: 'Suivant', tutorialSkip: 'Passer le tutoriel', tutorialDone: 'C’est parti !',
+  howToPlay: 'Comment jouer',
+  guideUi: { back: 'Retour', next: 'Suivant', done: 'On joue !', close: 'Fermer', slide: '{n} sur {total}' },
+  guide: {
+    welcome: { title: 'Bienvenue dans Blast Arena !', body: 'Fais sauter des caisses, ramasse des bonus et survis à tout le monde. Voici l’essentiel en une minute.' },
+    move: { title: 'Se déplacer', body: 'Avance avec ZQSD/WASD ou les flèches. Sur téléphone, glisse le doigt n’importe où à gauche. Maintiens une deuxième direction pour tourner au prochain passage.' },
+    bomb: { title: 'Poser des bombes', body: 'Appuie sur F pour poser une bombe. Après 2,5 s, elle explose en croix. Les piliers de pierre arrêtent le feu, les caisses se brisent. Sors de la ligne !' },
+    jump: { title: 'Sauter', body: 'Appuie sur Espace pour sauter par-dessus le pilier de pierre devant toi. En l’air, le feu ne peut pas te toucher. On ne saute pas par-dessus les caisses.' },
+    crates: { title: 'Les caisses cachent des bonus', body: 'Une caisse sur quatre laisse un bonus en se brisant. Marche dessus pour le prendre. Quand tu meurs, tu en perds une partie.' },
+    boosts: { title: 'Renforts', body: 'Ramasse-les pour devenir plus fort. Ils durent jusqu’à ta mort.' },
+    tricks: { title: 'Astuces', body: 'De nouveaux coups avec tes bombes. Les bombes télécommandées et le coup de poing utilisent E.' },
+    gadgets: { title: 'Gadgets (Q)', body: 'Des objets à usage unique avec quelques charges. Tu gardes le dernier type ramassé.' },
+    abilities: { title: 'Capacités (R)', body: 'Des pouvoirs dont les charges se rechargent avec le temps. Un nouveau type remplace l’ancien.' },
+    secret: { title: 'Boîte secrète et bombe atomique', body: 'Une boîte secrète, c’est un pari : un bonus, un jackpot, une malédiction ou une pluie de bombes. La rare bombe atomique brûle un immense cercle : fuis loin !' },
+    arena: {
+      title: 'L’arène', body: 'Chaque région de la carte se joue un peu différemment.',
+      labels: ['Glace : tu continues de glisser', 'Les tapis roulants t’emportent, toi et les bombes', 'Les caisses blindées encaissent deux explosions', 'Les téléporteurs traversent la carte'],
+    },
+    dangers: {
+      title: 'Attention', body: 'De temps en temps, la carte riposte. Des alertes montrent où le danger arrive.',
+      labels: ['Pluies de météores', 'Les blizzards ralentissent tout le monde', 'Lave et tremblements de terre', 'Mort subite : l’arène se resserre'],
+    },
+    modes: {
+      title: 'Arènes', body: 'Choisis une arène dans le salon. Chacune a sa particularité.',
+      labels: ['Équipes : vole le drapeau adverse', 'Royale : le dernier debout gagne', 'Vers : des vers géants te chassent', 'Le Gardien protège un trésor de bonus'],
+    },
+    scoring: {
+      title: 'Marquer des points', body: 'Maintiens Tab pour le classement, Échap pour les réglages. Bonne chance !',
+      labels: ['+1 par explosion qui touche quelqu’un', 'Reste sur les collines lumineuses', 'Touche le meneur : +2 de prime', 'Te faire sauter toi-même : −1'],
+    },
+  },
   fullServer: 'le serveur est plein, réessaie plus tard',
 };

@@ -18,7 +18,7 @@ export const assets = new Assets();
 export const particles = new Particles(2048);
 export const renderer = new Renderer(ui.game, ui.minimap, assets, particles);
 export const predictor = new Predictor();
-export const tutorial = new Tutorial(ui.tutorial, () => settings.set('tutorialDone', true));
+export const tutorial = new Tutorial(ui.tutorial, assets, () => settings.set('tutorialDone', true));
 
 // A persistent random token identifies this browser's profile.
 export const token = (() => {

@@ -150,12 +150,6 @@
       <button id="emote-btn" aria-label="Emote">😀</button>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
     </div>
-    <div id="tutorial" class="panel hidden">
-      <div class="tut-step"></div>
-      <div class="tut-title"></div>
-      <div class="tut-body"></div>
-      <div class="tut-buttons"><button class="tut-skip"></button><button class="tut-next primary"></button></div>
-    </div>
   </div>
 
   <div id="round-over" class="overlay hidden">
@@ -164,6 +158,24 @@
       <div id="round-winner"></div>
       <ol id="round-mvp"></ol>
       <p class="muted" data-i18n="nextRound">Next round starts now</p>
+    </div>
+  </div>
+
+  <div id="tutorial" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tut-title" aria-describedby="tut-body">
+    <div class="card tut-card">
+      <button type="button" class="tut-close" aria-label="Close">✕</button>
+      <div class="tut-slide">
+        <div class="tut-visual"></div>
+        <div class="tut-keys"></div>
+        <h2 class="tut-title" id="tut-title"></h2>
+        <p class="tut-body" id="tut-body"></p>
+      </div>
+      <div class="tut-dots"></div>
+      <div class="tut-nav">
+        <button type="button" class="tut-back secondary"></button>
+        <span class="tut-count"></span>
+        <button type="button" class="tut-next primary"></button>
+      </div>
     </div>
   </div>
 
@@ -226,6 +238,7 @@
         <div class="section-title" data-i18n="chooseArena">Choose an arena</div>
         <div id="arena-list"></div>
         <button type="submit" id="play" class="primary" data-i18n="play">Play</button>
+        <button type="button" id="how-to-play" class="secondary">📖 <span data-i18n="howToPlay">How to play</span></button>
         <p id="join-error" class="error"></p>
         <div class="help">
           <span><kbd>WASD</kbd> <span data-i18n="helpMove">move</span></span>

@@ -100,18 +100,45 @@ export const en = {
   },
   curses: ['', 'Slowed', 'No bombs', 'Reversed'],
   emotes: ['Hi!', 'LOL', 'Grr!', 'Nice!', 'Boom!', 'Help!', 'GG', 'Cool'],
-  tutorial: [
-    ['Move around', 'Use WASD or the arrow keys (or drag on the left on a phone).'],
-    ['Drop a bomb', 'Press F, then get out of the cross-shaped blast! Space jumps over stone pillars.'],
-    ['Grab power-ups', 'Blast crates to find power-ups. Purple boxes are secret boxes: a gamble!'],
-    ['Win the round', 'Score by blasting others and standing on glowing hills. Wheel or pinch to zoom, Esc for settings.'],
-  ],
-  tutorialNext: 'Next', tutorialSkip: 'Skip tutorial', tutorialDone: "Let's go!",
+  guideUi: { back: 'Back', next: 'Next', done: "Let's play!", close: 'Close', slide: '{n} of {total}' },
+  howToPlay: 'How to play',
+  guide: {
+    welcome: { title: 'Welcome to Blast Arena!', body: 'Blast crates, grab power-ups and outlast everyone. Here is everything you need, in one minute.' },
+    move: { title: 'Move', body: 'Walk with WASD or the arrow keys. On a phone, drag anywhere on the left side. Hold a second direction to turn at the next gap.' },
+    bomb: { title: 'Drop bombs', body: 'Press F to drop a bomb. After 2.5 s it blasts in a cross. Stone pillars stop the fire, crates break. Get out of the line!' },
+    jump: { title: 'Jump', body: 'Press Space to hop over the stone pillar in front of you. In the air the fire can\'t touch you. Crates can\'t be jumped.' },
+    crates: { title: 'Crates hide power-ups', body: 'One crate in four drops a power-up when it breaks. Walk over it to take it. When you die, you drop some of yours.' },
+    boosts: { title: 'Boosts', body: 'Pick these up to grow stronger. They last until you die.' },
+    tricks: { title: 'Tricks', body: 'New moves for your bombs. Remote bombs and punching use E.' },
+    gadgets: { title: 'Gadgets (Q)', body: 'One-shot items with a few charges. You hold the last kind you picked up.' },
+    abilities: { title: 'Abilities (R)', body: 'Powers with charges that come back over time. A new kind replaces the old one.' },
+    secret: { title: 'Secret box and atomic bomb', body: 'A secret box is a gamble: a power-up, a jackpot, a curse or bomb rain. The rare atomic bomb burns a huge circle: run far!' },
+    arena: {
+      title: 'The arena', body: 'Every region of the map plays a little differently.',
+      labels: ['Ice: you keep sliding', 'Conveyors carry you and bombs', 'Armored crates take two blasts', 'Pads teleport you across the map'],
+    },
+    dangers: {
+      title: 'Watch out', body: 'The map fights back now and then. Warnings show where trouble is coming.',
+      labels: ['Meteor showers', 'Blizzards slow everyone', 'Lava and earthquakes', 'Sudden death: the arena closes in'],
+    },
+    modes: {
+      title: 'Arenas', body: 'Pick an arena in the lobby. Each one has a twist.',
+      labels: ['Teams: steal the enemy flag', 'Royale: last one standing', 'Worms: giant worms hunt you', 'The Warden guards a vault of power-ups'],
+    },
+    scoring: {
+      title: 'Score points', body: 'Hold Tab for the leaderboard and press Esc for settings. Good luck!',
+      labels: ['+1 for every blast that gets someone', 'Stand on glowing hills', 'Get the leader: +2 bounty', 'Blowing yourself up: −1'],
+    },
+  },
   fullServer: 'server is full, try again later',
 };
 
 type En = typeof en;
+/** Tables keyed by item or ability code. */
+type NumberedTable = 'items' | 'abilityNames';
 /** Every UI string; tables keyed by item or ability code are open-ended. */
 export type Strings = {
-  [K in keyof En]: En[K] extends string ? string : En[K] extends readonly unknown[] ? En[K] : Record<number, string | undefined>;
+  [K in keyof En]: En[K] extends string ? string
+    : K extends NumberedTable ? Record<number, string | undefined>
+    : En[K];
 };

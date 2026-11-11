@@ -101,12 +101,35 @@ export const it: Strings = {
   },
   curses: ['', 'Rallentato', 'Niente bombe', 'Invertito'],
   emotes: ['Ciao!', 'LOL', 'Grr!', 'Bravo!', 'Bum!', 'Aiuto!', 'GG', 'Figo'],
-  tutorial: [
-    ['Muoviti', 'Usa WASD o le frecce (o trascina a sinistra sul telefono).'],
-    ['Piazza una bomba', 'Premi F, poi esci dall’esplosione a croce! Spazio salta i pilastri di pietra.'],
-    ['Raccogli potenziamenti', 'Fai saltare le casse per trovare potenziamenti. Le scatole viola sono segrete: un azzardo!'],
-    ['Vinci il round', 'Fai punti facendo saltare gli altri e restando sulle colline luminose. Rotellina o pizzico per lo zoom, Esc per le impostazioni.'],
-  ],
-  tutorialNext: 'Avanti', tutorialSkip: 'Salta il tutorial', tutorialDone: 'Andiamo!',
+  howToPlay: 'Come si gioca',
+  guideUi: { back: 'Indietro', next: 'Avanti', done: 'Giochiamo!', close: 'Chiudi', slide: '{n} di {total}' },
+  guide: {
+    welcome: { title: 'Benvenuto in Blast Arena!', body: 'Fai saltare le casse, raccogli i potenziamenti e sopravvivi a tutti. Ecco l’essenziale in un minuto.' },
+    move: { title: 'Muoversi', body: 'Cammina con WASD o con le frecce. Sul telefono trascina il dito in un punto qualsiasi a sinistra. Tieni premuta una seconda direzione per girare al prossimo varco.' },
+    bomb: { title: 'Piazzare bombe', body: 'Premi F per piazzare una bomba. Dopo 2,5 s esplode a croce. I pilastri di pietra fermano il fuoco, le casse si rompono. Esci dalla linea!' },
+    jump: { title: 'Saltare', body: 'Premi Spazio per saltare il pilastro di pietra davanti a te. In aria il fuoco non ti tocca. Le casse non si possono saltare.' },
+    crates: { title: 'Le casse nascondono potenziamenti', body: 'Una cassa su quattro lascia un potenziamento quando si rompe. Passaci sopra per prenderlo. Quando muori ne perdi alcuni.' },
+    boosts: { title: 'Potenziamenti', body: 'Raccoglili per diventare più forte. Durano finché non muori.' },
+    tricks: { title: 'Trucchi', body: 'Nuove mosse con le tue bombe. Le bombe a distanza e il pugno usano E.' },
+    gadgets: { title: 'Gadget (Q)', body: 'Oggetti monouso con qualche carica. Tieni l’ultimo tipo raccolto.' },
+    abilities: { title: 'Abilità (R)', body: 'Poteri con cariche che si ricaricano col tempo. Un tipo nuovo sostituisce quello vecchio.' },
+    secret: { title: 'Scatola segreta e bomba atomica', body: 'Una scatola segreta è una scommessa: un potenziamento, un jackpot, una maledizione o una pioggia di bombe. La rara bomba atomica brucia un cerchio enorme: scappa lontano!' },
+    arena: {
+      title: 'L’arena', body: 'Ogni regione della mappa si gioca in modo un po’ diverso.',
+      labels: ['Ghiaccio: continui a scivolare', 'I nastri trasportano te e le bombe', 'Le casse corazzate reggono due esplosioni', 'I teletrasporti attraversano la mappa'],
+    },
+    dangers: {
+      title: 'Attenzione', body: 'Ogni tanto la mappa reagisce. Gli avvisi mostrano dove arriva il pericolo.',
+      labels: ['Piogge di meteoriti', 'Le bufere rallentano tutti', 'Lava e terremoti', 'Morte improvvisa: l’arena si restringe'],
+    },
+    modes: {
+      title: 'Arene', body: 'Scegli un’arena nella lobby. Ognuna ha la sua particolarità.',
+      labels: ['Squadre: ruba la bandiera nemica', 'Royale: vince l’ultimo in piedi', 'Vermi: vermi giganti ti danno la caccia', 'Il Guardiano sorveglia un caveau di potenziamenti'],
+    },
+    scoring: {
+      title: 'Fai punti', body: 'Tieni premuto Tab per la classifica, Esc per le impostazioni. Buona fortuna!',
+      labels: ['+1 per ogni esplosione che colpisce qualcuno', 'Resta sulle colline luminose', 'Colpisci il leader: +2 di taglia', 'Farti saltare da solo: −1'],
+    },
+  },
   fullServer: 'il server è pieno, riprova più tardi',
 };

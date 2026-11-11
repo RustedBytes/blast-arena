@@ -65,7 +65,9 @@ Open the game with `?debug` to get `window.__blast` (state, predictor stats, net
 | Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom, right trigger ability, left trigger (hold) shake off a sticky bomb |
 | Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q), ability (R) and action buttons, ✋ (hold, while a sticky bomb is on you), pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart/` and sprites in `client/pixelsprites/`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart/` and sprites in `client/pixelsprites/`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art.
+
+**How to play** is a short illustrated tutorial: 14 slides, each a picture drawn with the game's own pixel art (a blast cross, a hop over a pillar, every power-up token) and a sentence or two, covering moving, bombs, jumping, power-ups, gadgets and abilities, the arena, dangers, the modes and scoring. It opens the first time you press Play (before you join, so nothing can hit you while you read), from the lobby's **How to play** button, and from settings. Next/Back, the dots, the arrow keys or a swipe turn the pages; Esc closes it.
 
 The pixel art follows a few rules:
 - **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).

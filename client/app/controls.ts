@@ -22,7 +22,6 @@ export const input = new Input({
   onEmote: (e) => sendEmote(e),
   onZoom: (factor) => {
     setZoom((state?.zoomTarget ?? settings.get('zoom')) * factor);
-    tutorial.notify('zoom');
   },
   onAction(name, down) {
     if (name === 'board') ui.hud.leaderboard.classList.toggle('expanded', down);
@@ -42,4 +41,18 @@ export const sendInput = (d: number, s: number, j: boolean, q: number): void => 
 export function sendEmote(e: number): void {
   net.send({ t: 'emote', e });
   ui.hud.emoteWheel.classList.add('hidden');
+}
+
+/**
+ * Opens the tutorial with the game's controls switched off (so arrow keys
+ * turn pages instead of moving), and back on when it closes; then `after`.
+ */
+export function showTutorial(after?: () => void): void {
+  const wasEnabled = input.enabled;
+  input.enabled = false;
+  input.clear();
+  tutorial.open(() => {
+    input.enabled = wasEnabled && state !== null;
+    after?.();
+  });
 }
