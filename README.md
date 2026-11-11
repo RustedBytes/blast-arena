@@ -1,15 +1,22 @@
 # Blast Arena
 
-<img src="./screenshots/1.png" alt="Screenshot 1">
-<img src="./screenshots/2.png" alt="Screenshot 1">
-<img src="./screenshots/3.png" alt="Screenshot 1">
-
 A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
+
+![Two blasts going off in the volcano region of the main arena, with bots, bombs and armored crates around](screenshots/gameplay.png)
+
+| | |
+|---|---|
+| ![A worm crawling after the player in the Worms arena](screenshots/worms.png) | ![The battle royale storm closing in on a fight](screenshots/battle-royale.png) |
+| **Worms:** giant worms hunt everyone along the lanes. | **Battle royale:** the safe zone shrinks; the blue storm hurts. |
+| ![The vault, full of power-ups and guarded by the Warden, next to snow, desert and conveyor belts](screenshots/vault-warden.png) | ![The lobby: arenas with live player counts, profile and cosmetics](screenshots/lobby.png) |
+| **The vault and its Warden** in the Teams arena, among snow, desert and conveyor belts. | **The lobby:** pick an arena, see your level and unlock hats and trails. |
 
 - **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
 - **Client:** TypeScript on a plain HTML5 canvas (no framework, no bundler) with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, German, French, Spanish, Italian, Polish and Ukrainian. The language follows your browser and can be changed in the lobby or settings.
 
 ## Run
+
+You need [Rust](https://rustup.rs) 1.88 or newer and [Node.js](https://nodejs.org) 22 or newer.
 
 ```bash
 npm ci && npm run build   # compile the TypeScript client (client/) into static/js
@@ -19,6 +26,23 @@ cargo run --release
 Open http://localhost:3000, pick an arena, enter a nickname and play.
 
 The live server dashboard is at http://localhost:3000/dashboard.html, and Prometheus metrics at `/metrics`.
+
+The release build embeds the compiled client in the binary, so `target/release/blast-arena` runs on its own. If you skip `npm run build`, `cargo build` stops and tells you to run it.
+
+### Development
+
+```bash
+npm run watch   # recompile the client on every save
+cargo run       # debug server: serves static/ from disk, so a reload picks up client changes
+```
+
+| Command | What it does |
+|---|---|
+| `npm run check` | Type-checks the client (strict) and lints it (typescript-eslint's strict rules) |
+| `cargo test` | Server tests (game rules, protocol, abilities, worms, the Warden, map generation) |
+| `cargo clippy --all-targets` | Rust lints |
+
+Open the game with `?debug` to get `window.__blast` (state, predictor stats, network) in the browser console. The Tile Lab (below) previews the pixel art.
 
 ### Controls
 
@@ -175,6 +199,14 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 - **Capture the flag** in the Teams arena: each team has a flag at its base. Walk over the enemy flag to take it and bring it to your base while your own flag is home: +5 points. Carriers can't jump or drop bombs. A carrier who dies drops the flag; touching your own dropped flag sends it home, and it goes home by itself after 15 s. You respawn near your base.
 - **Battle royale** (the Royale arena): last player standing. Everyone starts spread over an open map and the whole map is safe; then the safe zone shrinks in five phases. Each phase first shows the next, smaller circle (white dashed line, also on the minimap) for a while, then the zone closes in on it. Outside the zone is the blue storm: the HUD shows how long you can stay in it (5 s early on, down to 1 s at the end), and time inside lets you recover. No respawns during a match: you watch the nearest survivor, and a new match starts 6 s after a winner is decided (+5 points), with everyone back and power-ups reset. Joining is open until the zone first moves. Royale maps are built to be run across: fewer crates, a crate-free road every 8 cells, and no pocket that can't be walked out of.
 - **Worms** (the Worms arena): a free-for-all where giant worms crawl the lanes and hunt everyone, bots included. A worm is a head and a body that follows the head's path; it smells players up to 12 steps away along the lanes and crawls after the nearest one (yellow eyes while roaming, red while hunting, slower than you on foot). Touching any part of a worm on the ground eats you, unless you are shielded or jumping over it, and makes the worm a segment longer. Fire destroys the segments it touches: the end with the head crawls on, a cut-off piece of two or more segments becomes a worm of its own, and a worm that loses its head or is left too short dies. Ending a worm scores +1 for whoever's fire did it. New worms burrow out of the ground (a trembling mound, harmless for a second) away from players, about one per 550 cells of map. The minimap shows every worm. Worms maps are open, like Royale's, so worms and players have room to move. All the numbers are in `WormTuning` in `src/game/worms.rs`.
+- **The vault and its Warden**: every arena has a walled vault near the middle, with a gate in each side and up to 16 strong power-ups on its gilded floor (one more every 8 s). The **Warden**, a stone golem with 8 hit points, guards it and crushes whoever it touches. It never strays more than 6 cells from the vault, and every attack is telegraphed:
+  - **Slam:** next to you, a red square fills in, then it crushes everyone on the ground within 2 cells. Jump to dodge it.
+  - **Charge:** lined up with it in a clear lane, chevrons mark the lane, then it charges a cell a tick.
+  - **Lob:** farther off, it drops bombs on you.
+  - **Stone skin:** at half health it's immune for 4 s, once.
+  - **Enraged:** on its last 3 hit points it gets faster and lobs bombs in threes.
+
+  Only players' blasts hurt it, one hit per blast. Bringing it down is worth 5 points and 40 XP; it's back a minute later with the vault restocked.
 - **Death replay**: after you die, the last moments play again in slow motion from the killer's side until you respawn.
 - **Scoring:**
   - +1 per kill.
@@ -223,10 +255,13 @@ DOMAIN=play.example.com docker compose up -d
 Tested with Docker 29 and `docker-compose` 1.29 (in WSL), running `DOMAIN=localhost docker-compose up -d --build`:
 - The image builds, and the server starts all arenas as a non-root user.
 - Caddy serves the page and API over HTTPS, and redirects plain HTTP to HTTPS (308).
-- Shared links show a preview card (Open Graph and X/Twitter tags, `static/og-image.jpg`, 1200×630). The page also has a description, a canonical link, schema.org `VideoGame` data, a web app manifest and icons, and the server answers `/robots.txt` and `/sitemap.xml`. `docker-compose.yml` sets `PUBLIC_URL` from `DOMAIN`.
 - The WebSocket upgrade over `wss://` returns 101.
 - `/metrics` returns 404 from outside but works inside the Docker network.
 - The profile database is written to the `blast-data` volume.
+
+### Link previews and search
+
+Shared links show a preview card through Open Graph and X/Twitter tags, using `static/og-image.jpg` (1200×630). The page also has a description, a canonical link, schema.org `VideoGame` data and a web app manifest with icons, and the server answers `/robots.txt` and `/sitemap.xml`. These need the site's absolute address: set `--public-url` (`docker-compose.yml` sets `PUBLIC_URL` from `DOMAIN`), or the server takes it from each request.
 
 ## Benchmarks
 
@@ -256,7 +291,6 @@ Prediction was also tested in the browser with every message delayed by 100 ms e
 | Prediction error over 171 reconciliations while turning constantly | 0.001 tiles on average, 0.005 at most |
 | Corrections larger than a quarter tile | none |
 
-Open the game with `?debug` to get `window.__blast` (state, predictor stats, network) in the browser console.
 
 ## How it scales
 
@@ -320,30 +354,41 @@ src/game/worms.rs     the worms of the Worms arena (tuning, crawling, hunting,
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
 src/bin/mapview.rs    prints generated maps as text, with their quality scores
+src/page.rs           the game page with the site's address filled in, robots.txt, sitemap.xml
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
-client/               the browser client in TypeScript. main.ts wires up app/:
-                      ui (every page element, looked up once and typed),
-                      services (shared singletons), session (the game in
-                      progress), messages (server messages), events (game
-                      events), controls, view (camera and minimap watching),
-                      hud, settings-ui, lobby, loop. render/ holds the
-                      renderer's layers (tiles, objects, players, worms,
-                      warden, effects, events, minimap, interpolation);
-                      protocol/ the wire format (types, snapshot and welcome
-                      decoding, encoding); i18n/ one file per language;
-                      pixelart/ and pixelsprites/ the pixel-art generators.
-                      Plus prediction, input, audio, particles, alerts,
-                      tutorial, settings, net, msgpack, dom, state, dashboard
-                      and tilelab;
-                      `npm run build` compiles it into static/js (generated, not
-                      committed), `npm run watch` recompiles on save, and
-                      `npm run check` type-checks (strict) and lints it
-                      (typescript-eslint strict rules)
 static/assets/        SVG art
+static/js/            the compiled client (generated by `npm run build`, not committed)
+static/               also the link-preview image, icons and web app manifest
 config/abilities.json default ability tuning (embedded in the binary)
 docs/ABILITIES.md     design of the ability system and how to add one
+screenshots/          the pictures in this README
 Dockerfile, docker-compose.yml, Caddyfile   deployment
+package.json, tsconfig.json, eslint.config.js   client build, compiler and lint settings
+```
+
+The browser client (`client/`, TypeScript):
+
+```
+main.ts               entry point: wires up the modules in app/
+app/                  the game page: ui (every page element, looked up once and
+                      typed), services (shared singletons), session (the game in
+                      progress), messages (server messages), events (game events),
+                      controls, view (camera, minimap watching), hud, settings-ui,
+                      lobby, loop
+render/               the renderer, one layer per kind of thing: tiles, objects,
+                      players, worms, warden, effects, events, minimap, plus the
+                      interpolation of snapshots into the frame they draw
+protocol/             the wire format: message types, flags, snapshot and welcome
+                      decoding, encoding
+prediction.ts         client-side movement prediction (mirrors the server's rules)
+input.ts              keyboard, gamepad and touch input
+i18n/                 UI text, one file per language (checked against English)
+pixelart/, pixelsprites/   the pixel-art generators, sharing pixelkit.ts
+assets.ts             loads and rasterises the art
+audio.ts              procedural music and sound effects
+alerts.ts, tutorial.ts, settings.ts, particles.ts, net.ts, msgpack.ts, dom.ts, state.ts
+dashboard.ts, tilelab.ts   the server monitor and the Tile Lab pages
 ```
 
 ## License

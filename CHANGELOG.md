@@ -8,6 +8,11 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- README: new screenshots (gameplay, worms, battle royale, the vault and its
+  Warden, the lobby) with captions, build prerequisites, a development
+  section, the vault and Warden under Gameplay, and a map of the client's
+  modules.
+
 - Client type safety: stricter compiler settings (`exactOptionalPropertyTypes`,
   unused code, implicit returns) and typescript-eslint's strict type-aware
   rules, run by `npm run check` and in the release workflow. No `!`
