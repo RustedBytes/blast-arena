@@ -39,6 +39,9 @@ const ROCKET_SIGHT: i32 = 12;
 const ROCKET_CRATE_SIGHT: i32 = 5;
 /// What hitting an enemy is worth to a bot, against 1 for a crate.
 const ROCKET_ENEMY: u32 = 4;
+/// What a bomb spot is worth per enemy it traps, on top of the hit itself:
+/// once the bomb is down, that enemy can't reach any cell the fire spares.
+const TRAP_VALUE: f32 = 12.0;
 /// Level of detail: in an arena with at least this many bots, a bot no
 /// human can see (farther than the widest view plus `WATCH_MARGIN` cells
 /// from every human) plans every `FAR_THINK` ticks instead of every 2 to
@@ -170,6 +173,48 @@ impl Search {
     }
 }
 
+/// A player bots may hunt, as the trap check sees it.
+#[derive(Clone, Copy)]
+struct Prey {
+    id: u32,
+    cell: (i32, i32),
+    /// Tiles travelled per tick.
+    spt: f32,
+    team: u8,
+    /// Can kick or punch a bomb out of the way, so can't be sealed in.
+    shoves: bool,
+}
+
+/// Working memory for the trap check: the planned bomb's fire times laid
+/// over the danger map (valid where `stamp` is the current generation, so
+/// it never needs clearing), and a search of its own, since it runs while
+/// the bot's own search results are still being read.
+#[derive(Default)]
+struct TrapScratch {
+    fire: Vec<u16>,
+    stamp: Vec<u32>,
+    generation: u32,
+    search: Search,
+}
+
+impl TrapScratch {
+    fn new(cells: usize) -> Self {
+        TrapScratch {
+            fire: vec![SAFE; cells],
+            stamp: vec![0; cells],
+            generation: 0,
+            // Assume the prey can hop pillars: better to miss a trap than
+            // to count one that isn't.
+            search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4), jumps: true },
+        }
+    }
+
+    /// When fire reaches cell `i`: the danger map, or the planned bomb.
+    fn at(&self, danger: &[u16], i: usize) -> u16 {
+        if self.stamp[i] == self.generation { danger[i].min(self.fire[i]) } else { danger[i] }
+    }
+}
+
 /// A bomb as the danger map sees it: where, what blast, and ticks until it
 /// goes off (chain reactions included).
 #[derive(Clone, Copy)]
@@ -204,6 +249,9 @@ pub struct AiScratch {
     bombs: Vec<DangerBomb>,
     bomb_index: HashMap<u32, usize>,
     search: Search,
+    /// Players bots may hunt, refreshed every tick.
+    prey: Vec<Prey>,
+    trap: TrapScratch,
     /// Per player bucket (see `World::buckets`): whether a human can see
     /// into it; empty when every bot thinks at full rate.
     watched: Vec<bool>,
@@ -220,6 +268,8 @@ impl AiScratch {
             bombs: Vec::with_capacity(256),
             bomb_index: HashMap::with_capacity(256),
             search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4), jumps: true },
+            prey: Vec::with_capacity(64),
+            trap: TrapScratch::new(cells),
             watched: Vec::new(),
         }
     }
@@ -235,6 +285,7 @@ impl Me {
 /// What a bot knows about itself while deciding.
 #[allow(clippy::struct_excessive_bools, reason = "independent facts a bot weighs")]
 struct Me {
+    id: u32,
     cur: (i32, i32),
     /// Tiles travelled per tick.
     spt: f32,
@@ -334,11 +385,14 @@ impl World {
             t.fill(0);
         }
         sc.occupied.fill(0);
+        sc.prey.clear();
+        let slow = self.weather_slow() * DT;
         for p in self.players.values().filter(|p| p.alive) {
             let (x, y) = p.cell();
             let i = self.map.idx(x, y);
             sc.occupied[i] = sc.occupied[i].saturating_add(1);
             if p.invulnerable_until <= self.tick {
+                sc.prey.push(Prey { id: p.id, cell: (x, y), spt: p.speed(self.tick) * slow, team: p.team, shoves: p.kick || p.punch });
                 for (team, t) in sc.targets.iter_mut().enumerate() {
                     if team == 0 || p.team != team as u8 {
                         t[i] = t[i].saturating_add(1);
@@ -630,23 +684,7 @@ impl World {
         // Plan hops only with a jump ready (flag carriers can't jump at all).
         sc.search.jumps = p.carrying == 0 && p.jump_ready_at <= self.tick && p.stunned_until <= self.tick;
         let mut trapped = false;
-        let me = Me {
-            cur: p.cell(),
-            spt: p.speed(self.tick) * self.weather_slow() * DT,
-            range: p.range,
-            pierce: p.pierce,
-            nuke: p.nukes > 0,
-            can_bomb: p.can_bomb(self.tick) && self.bomb_at(p.cell().0, p.cell().1).is_none(),
-            team: p.team as usize,
-            remote_out: p.remote && p.active_bombs > 0,
-            vulnerable: p.invulnerable_until <= self.tick,
-            max_bombs: p.max_bombs,
-            speed_lvl: p.speed_lvl,
-            kick: p.kick,
-            shielded: p.invulnerable_until > self.tick + 20,
-            // Cosmos blasters fire bolts, which fly like rockets.
-            rockets: matches!(self.mode, super::Mode::Rockets | super::Mode::Cosmos),
-        };
+        let me = self.bot_self(p);
         let cur = me.cur;
         while brain.path.last() == Some(&cur) {
             brain.path.pop();
@@ -731,6 +769,28 @@ impl World {
         // Safely clear of its remote bombs: set them off.
         if me.remote_out && !in_danger && !want_bomb && !brain.escaping {
             p.want_act = true;
+        }
+    }
+
+    /// What a bot knows about itself right now.
+    fn bot_self(&self, p: &super::player::Player) -> Me {
+        Me {
+            id: p.id,
+            cur: p.cell(),
+            spt: p.speed(self.tick) * self.weather_slow() * DT,
+            range: p.range,
+            pierce: p.pierce,
+            nuke: p.nukes > 0,
+            can_bomb: p.can_bomb(self.tick) && self.bomb_at(p.cell().0, p.cell().1).is_none(),
+            team: p.team as usize,
+            remote_out: p.remote && p.active_bombs > 0,
+            vulnerable: p.invulnerable_until <= self.tick,
+            max_bombs: p.max_bombs,
+            speed_lvl: p.speed_lvl,
+            kick: p.kick,
+            shielded: p.invulnerable_until > self.tick + 20,
+            // Cosmos blasters fire bolts, which fly like rockets.
+            rockets: matches!(self.mode, super::Mode::Rockets | super::Mode::Cosmos),
         }
     }
 
@@ -909,6 +969,59 @@ impl World {
         (crates, hit)
     }
 
+    /// How many enemies a bomb this bot drops at `spot`, `head_start` ticks
+    /// from now (its walk there), would leave with no way out: every cell
+    /// they could still reach before it burns, burns. Each enemy gets the
+    /// benefit of the doubt (it runs flat out the moment it sees the bomb
+    /// coming, hops pillars, and other bombs aren't set off any sooner), so
+    /// a trap counted here is one that really holds.
+    fn trapped_prey(&self, spot: (i32, i32), me: &Me, head_start: f32, danger: &[u16], prey: &[Prey], trap: &mut TrapScratch) -> u32 {
+        trap.generation = trap.generation.wrapping_add(1);
+        if trap.generation == 0 {
+            trap.stamp.fill(0);
+            trap.generation = 1;
+        }
+        let g = trap.generation;
+        // Ticks from now until the bomb goes off: its fuse after the walk,
+        // or sooner if other fire reaches it first.
+        let fuse = if me.nuke { NUKE_FUSE_TICKS } else { FUSE_TICKS } as f32;
+        let si = self.map.idx(spot.0, spot.1);
+        let t = ((head_start + fuse).min(f32::from(SAFE - 1)) as u16).min(danger[si]);
+        trap.stamp[si] = g;
+        trap.fire[si] = t;
+        self.blast_footprint(spot, me.blast(), false, |x, y, delay| {
+            let i = self.map.idx(x, y);
+            let at = t.saturating_add(delay);
+            if trap.stamp[i] != g || trap.fire[i] > at {
+                trap.stamp[i] = g;
+                trap.fire[i] = at;
+            }
+        });
+
+        let mut count = 0;
+        for p in prey {
+            let hostile = me.team == 0 || p.team as usize != me.team;
+            // Outside the blast it's already safe; with kick or punch it
+            // can knock the bomb aside.
+            if p.id == me.id || !hostile || p.shoves || trap.stamp[self.map.idx(p.cell.0, p.cell.1)] != g {
+                continue;
+            }
+            let prey_spt = p.spt.max(0.01);
+            let mut search = std::mem::take(&mut trap.search);
+            // The new bomb blocks its own cell.
+            search.explore(self, p.cell, |c, dist| {
+                let d = trap.at(danger, self.map.idx(c.0, c.1));
+                c != spot && (d == SAFE || f32::from(d) > f32::from(dist) / prey_spt)
+            });
+            // A search cut short at its limit proves nothing.
+            let escapes = search.nodes.len() >= SEARCH_LIMIT
+                || search.nodes.iter().any(|n| trap.at(danger, self.map.idx(n.cell.0, n.cell.1)) == SAFE);
+            trap.search = search;
+            count += u32::from(!escapes);
+        }
+        count
+    }
+
     /// Rockets arena: which way to fire right now (0: hold fire). A rocket
     /// flies off and spares its shooter, so unlike a bomb it needs no way
     /// out, just a clear shot at an enemy (or, with `crates`, at a crate).
@@ -1010,7 +1123,14 @@ impl World {
                     }
                 } else {
                     let (crates, enemies) = self.blast_value(n.cell, &sc.targets[me.team], me);
-                    consider(crates as f32 + 4.0 * enemies as f32, true);
+                    // Only a spot whose blast hits someone can trap them.
+                    let trapped = if enemies > 0 {
+                        let head_start = f32::from(n.dist) / me.spt.max(0.01);
+                        self.trapped_prey(n.cell, me, head_start, &sc.danger, &sc.prey, &mut sc.trap)
+                    } else {
+                        0
+                    };
+                    consider(crates as f32 + 4.0 * enemies as f32 + TRAP_VALUE * trapped as f32, true);
                 }
             }
         }
@@ -1147,6 +1267,69 @@ mod tests {
         let d = w.danger_map();
         assert_eq!(d[w.map.idx(5, 1)], 20, "b's blast inherits a's earlier timer");
         assert_eq!(d[w.map.idx(9, 9)], SAFE);
+    }
+
+    /// Enemies a bomb by `bot` at `spot`, dropped `head_start` ticks from
+    /// now, would trap.
+    fn traps(w: &World, bot: u32, spot: (i32, i32), head_start: f32) -> u32 {
+        let mut sc = AiScratch::new((w.map.w * w.map.h) as usize);
+        w.fill_senses(&mut sc);
+        let mut me = w.bot_self(&w.players[&bot]);
+        me.range = 2;
+        w.trapped_prey(spot, &me, head_start, &sc.danger, &sc.prey, &mut sc.trap)
+    }
+
+    /// A dead end at (1,1): crates below it and below the pillar next to
+    /// it, so its only way out is east along row 1.
+    fn dead_end_world() -> World {
+        let mut map = Map::empty(15, 15);
+        map.set(1, 2, Tile::Crate);
+        map.set(2, 3, Tile::Crate);
+        test_world(map)
+    }
+
+    #[test]
+    fn bomb_at_the_mouth_of_a_dead_end_traps() {
+        let mut w = dead_end_world();
+        let bot = w.spawn_test_bot(9.5, 9.5);
+        let enemy = w.spawn_test_player(1.5, 1.5);
+        w.players.get_mut(&enemy).unwrap().invulnerable_until = 0;
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 1, "sealed in at (1,1)");
+        // However long the bot takes to get there, there's nowhere to go.
+        assert_eq!(traps(&w, bot, (3, 1), 20.0), 1);
+        // A blast that doesn't reach it traps nothing.
+        assert_eq!(traps(&w, bot, (5, 1), 0.0), 0);
+    }
+
+    #[test]
+    fn open_ground_or_a_kick_is_no_trap() {
+        let mut w = test_world(Map::empty(15, 15));
+        let bot = w.spawn_test_bot(9.5, 9.5);
+        let enemy = w.spawn_test_player(1.5, 1.5);
+        w.players.get_mut(&enemy).unwrap().invulnerable_until = 0;
+        // (1,2) and on down column 1 stay clear of the blast.
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 0);
+
+        let mut w = dead_end_world();
+        let bot = w.spawn_test_bot(9.5, 9.5);
+        let enemy = w.spawn_test_player(1.5, 1.5);
+        let p = w.players.get_mut(&enemy).unwrap();
+        p.invulnerable_until = 0;
+        p.kick = true;
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 0, "can kick the bomb away");
+    }
+
+    #[test]
+    fn a_teammate_is_never_counted_as_trapped() {
+        let mut w = dead_end_world();
+        let bot = w.spawn_test_bot(9.5, 9.5);
+        let mate = w.spawn_test_player(1.5, 1.5);
+        w.players.get_mut(&mate).unwrap().invulnerable_until = 0;
+        w.players.get_mut(&mate).unwrap().team = 1;
+        w.players.get_mut(&bot).unwrap().team = 1;
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 0);
+        w.players.get_mut(&mate).unwrap().team = 2;
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 1, "the other team's player is");
     }
 
     #[test]
