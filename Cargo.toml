@@ -31,6 +31,8 @@ wtransport = { version = "0.7.2", optional = true }
 # musl's allocator is slow under many threads; the Alpine image (a musl
 # build) uses mimalloc instead. Other targets keep the system allocator.
 [target.'cfg(target_env = "musl")'.dependencies]
+# Builds mimalloc v3 (the crate's default since it added v3; the `v2`
+# feature would select the older v2).
 mimalloc = "0.1.52"
 
 [dev-dependencies]
