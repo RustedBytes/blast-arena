@@ -104,6 +104,10 @@ pub struct MonsterTuning {
     pub recoil_ticks: u64,
     /// A lost heart comes back after this long without a bite.
     pub heal_ticks: u64,
+    /// Share of crate drops, and of monster drops, that are a heart
+    /// (restores every heart) in the dungeon.
+    pub heart_crate_share: f32,
+    pub heart_monster_share: f32,
 }
 
 impl Default for MonsterTuning {
@@ -163,6 +167,8 @@ impl Default for MonsterTuning {
             bite_immune_ticks: 2 * SEC,
             recoil_ticks: SEC,
             heal_ticks: 8 * SEC,
+            heart_crate_share: 0.08,
+            heart_monster_share: 0.35,
         }
     }
 }
@@ -475,8 +481,12 @@ impl World {
         self.broadcast_event(ev::MONSTER, &[news::SLAIN, i64::from(x), i64::from(y), killer.map_or(0, |id| i64::from(id) + 1), monster.kind as i64]);
         let i = self.map.idx(x, y);
         if killer.is_some() && !self.map.is_solid(x, y) && self.items[i] == 0 && self.bomb_at(x, y).is_none() && self.rng.chance(self.monsters.tuning.drop_chance) {
-            let tuning = &self.tuning;
-            let item = (0..4).map(|_| Item::random(&mut self.rng)).find(|&it| tuning.item_enabled(it)).unwrap_or(Item::ExtraBomb);
+            let item = if self.rng.chance(self.monsters.tuning.heart_monster_share) {
+                Item::Heart
+            } else {
+                let tuning = &self.tuning;
+                (0..4).map(|_| Item::random(&mut self.rng)).find(|&it| tuning.item_enabled(it)).unwrap_or(Item::ExtraBomb)
+            };
             self.set_item(x, y, item as u8);
         }
         self.monsters.next_spawn = self.monsters.next_spawn.max(self.tick + self.monsters.tuning.respawn_ticks);
@@ -679,6 +689,11 @@ impl World {
         m.dir = d;
         m.cell = to;
         m.last_step = tick;
+    }
+
+    /// A crate's drop in the dungeon: now and then a heart instead.
+    pub(super) fn dungeon_drop(&mut self, item: Item) -> Item {
+        if self.monsters.enabled && self.rng.chance(self.monsters.tuning.heart_crate_share) { Item::Heart } else { item }
     }
 
     /// Lost hearts come back one at a time while nothing bites.

@@ -24,6 +24,8 @@ impl World {
             Item::Nuke => p.nukes = (p.nukes + 1).min(MAX_NUKES),
             Item::Freeze => p.freeze = true,
             Item::Stomp => p.stomp = true,
+            // Every lost heart back.
+            Item::Heart => p.wounds = 0,
             Item::Mine | Item::Rocket | Item::Swap | Item::Drone | Item::Swarm => {
                 let charges = item.gadget_charges().unwrap_or(1);
                 // A new kind of gadget replaces the one held.

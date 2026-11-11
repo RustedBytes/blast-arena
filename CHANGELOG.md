@@ -6,6 +6,15 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A Heart power-up (item 27) in the dungeon arena: picking it up brings
+  back every heart lost to monster bites. It comes from about 8% of
+  crate drops and a third of slain monsters' drops there, and nowhere
+  else (never from secret boxes). A heart coming back, over time or from
+  the power-up, now sparkles on your player, and healing over time shows
+  a "+1 heart" notice.
+
 ### Changed
 
 - Dungeon arena: players have three hearts against monsters. A bite takes

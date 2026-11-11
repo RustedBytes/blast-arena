@@ -51,9 +51,12 @@ pub enum Item {
     PortalPair = 25,
     /// Ability: a quick burst of movement.
     Dash = 26,
+    /// Restores every heart lost to monster bites (dungeon arena only:
+    /// see `World::dungeon_drop`).
+    Heart = 27,
 }
 
-pub const ALL_ITEMS: u8 = 26;
+pub const ALL_ITEMS: u8 = 27;
 /// Gadget charges given by one pick-up.
 pub const MINE_CHARGES: u8 = 3;
 pub const ROCKET_CHARGES: u8 = 3;
@@ -169,6 +172,7 @@ impl Item {
             24 => Item::StickyBomb,
             25 => Item::PortalPair,
             26 => Item::Dash,
+            27 => Item::Heart,
             _ => return None,
         })
     }
@@ -267,7 +271,8 @@ mod tests {
                 Mystery::BombRain => other[4] += 1,
             }
         }
-        let missing: Vec<usize> = (1..=ALL_ITEMS as usize).filter(|&i| i != 8 && !items[i]).collect();
+        // Not the box itself, nor the dungeon-only heart.
+        let missing: Vec<usize> = (1..=ALL_ITEMS as usize).filter(|&i| i != 8 && i != Item::Heart as usize && !items[i]).collect();
         assert!(missing.is_empty(), "missing power-ups: {missing:?}");
         assert!(other.iter().all(|&n| n > 150), "{other:?}");
     }
@@ -279,7 +284,9 @@ mod tests {
         for _ in 0..10000 {
             seen[Item::random(&mut rng) as usize] = true;
         }
-        assert!(seen[1..].iter().all(|&s| s));
+        // Everything but the dungeon-only heart.
+        assert!(seen[1..].iter().enumerate().all(|(i, &s)| s || i + 1 == Item::Heart as usize));
+        assert!(!seen[Item::Heart as usize]);
         assert!((1..=ALL_ITEMS).all(|v| Item::from_u8(v).is_some()));
     }
 }

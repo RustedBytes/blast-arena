@@ -960,8 +960,9 @@ impl World {
             Item::Kick if !me.kick => 5.0,
             Item::Pierce if !me.pierce => 5.0,
             Item::Shield if !me.shielded => 4.0,
-            // A gamble: usually good, sometimes a curse.
-            Item::Mystery => 4.0,
+            // A gamble (usually good, sometimes a curse), and hearts back
+            // in the dungeon.
+            Item::Mystery | Item::Heart => 4.0,
             Item::Nuke => 5.0,
             Item::Remote
             | Item::Punch

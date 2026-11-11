@@ -470,6 +470,7 @@ impl World {
                         self.stats.crates_destroyed += 1;
                         let tuning = &self.tuning;
                         if let Some(item) = Item::crate_drop(&mut self.rng, |i| tuning.item_enabled(i)) {
+                            let item = self.dungeon_drop(item);
                             drops.push((x, y, item));
                         }
                     }

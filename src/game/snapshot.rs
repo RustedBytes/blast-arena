@@ -78,8 +78,7 @@ impl World {
                 | u16::from(o.carrying != 0) << 7
                 | u16::from(o.dashing()) << 8
                 | u16::from(o.gassed_until > tick) << 9
-                | u16::from(o.hurt_until > tick) << 10
-                | u16::from(o.wounds > 0) << 11;
+                | u16::from(o.hurt_until > tick) << 10 | u16::from(o.wounds > 0) << 11;
             (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
         }));
         cur.players.sort_unstable_by_key(|e| e.0);

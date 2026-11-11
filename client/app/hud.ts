@@ -62,8 +62,17 @@ export function updateStatusAlerts(now: number): void {
 
 let hudKey = '';
 
+/** Hearts at the last update, to notice them coming back (0 while dead). */
+let lastHp = 0;
+
 export function updateHud(me: Me): void {
   const state = game();
+  // A heart came back (healing over time, or a heart power-up): sparkle.
+  if (me.alive && me.hp_max && lastHp > 0 && me.hp > lastHp) {
+    renderer.effects.sparkle(state.self.x, state.self.y, me.hp - lastHp > 1);
+    if (me.hp - lastHp === 1) alerts.toast(t('healed'), { icon: '❤️', tone: 'good', key: 'heal' });
+  }
+  lastHp = me.alive ? me.hp : 0;
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
     me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying, me.storm,

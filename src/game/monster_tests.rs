@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::ai::SAFE;
 use super::bomb::FUSE_TICKS;
+use super::items::Item;
 use super::map::{Biome, Map, Tile};
 use super::monsters::{Kind, Monster, flag};
 use super::rng::Rng;
@@ -372,4 +373,43 @@ fn the_dungeon_arena_mode() {
         assert_eq!(s[2].as_u64().unwrap() & u64::from(flag::RISING) != 0, m.rising(w.tick));
         assert_eq!(s[9], m.hp);
     }
+}
+
+#[test]
+fn a_heart_restores_every_heart() {
+    let mut w = quiet(test_world(Map::empty(15, 15)));
+    w.monsters.enabled = true;
+    let p = w.spawn_test_player(5.5, 5.5);
+    w.players.get_mut(&p).unwrap().wounds = 2;
+    assert_eq!(w.hearts(&w.players[&p]), 1);
+    w.set_item(6, 5, Item::Heart as u8);
+    w.hold(p, 2, 0);
+    for _ in 0..10 {
+        w.step();
+    }
+    assert_eq!(w.hearts(&w.players[&p]), w.monsters.tuning.player_hp, "all hearts back");
+    assert_eq!(w.items[w.map.idx(6, 5)], 0, "picked up");
+}
+
+#[test]
+fn hearts_drop_only_in_the_dungeon() {
+    let mut dungeon = quiet(test_world(Map::empty(15, 15)));
+    dungeon.monsters.enabled = true;
+    dungeon.monsters.tuning.heart_crate_share = 1.0;
+    assert_eq!(dungeon.dungeon_drop(Item::Range), Item::Heart);
+    let mut ffa = test_world(Map::empty(15, 15));
+    ffa.monsters.tuning.heart_crate_share = 1.0;
+    assert_eq!(ffa.dungeon_drop(Item::Range), Item::Range, "no monsters, no hearts");
+    // Slain monsters drop hearts too.
+    let mut w = quiet(test_world(Map::empty(15, 15)));
+    w.monsters.tuning.drop_chance = 1.0;
+    w.monsters.tuning.heart_monster_share = 1.0;
+    let id = w.place_monster(Kind::Slime, (5, 1));
+    w.freeze_monster(id);
+    bomb_from(&mut w, (3, 1), 3);
+    for _ in 0..FUSE_TICKS + 2 {
+        w.step();
+    }
+    assert!(w.monster(id).is_none());
+    assert_eq!(w.items[w.map.idx(5, 1)], Item::Heart as u8);
 }

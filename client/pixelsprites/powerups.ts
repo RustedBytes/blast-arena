@@ -299,5 +299,18 @@ export function powerUps(): Pix[] {
       '          ',
       '          ',
     ], { c: '#bfe6ff', y: '#ffd34a', o: '#16162a' }),
+    // Heart (dungeon): every lost heart back.
+    token('red', [
+      ' oo  oo   ',
+      'o+#oo##o  ',
+      'o+w####o  ',
+      'o+######o ',
+      'o#######o ',
+      ' o#####-o ',
+      '  o###-o  ',
+      '   o#-o   ',
+      '    oo    ',
+      '          ',
+    ], { o: '#3a0610', '#': '#ff3a4a', '+': '#ff9aa2', '-': '#a8101e', w: '#ffffff' }),
   ];
 }
