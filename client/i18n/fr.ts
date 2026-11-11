@@ -61,6 +61,7 @@ export const fr: Strings = {
   nextRound: 'La manche suivante commence',
   settings: 'Paramètres', music: 'Musique', sfx: 'Effets sonores', zoom: 'Zoom',
   tileStyle: 'Style graphique', stylePixel: 'Pixel art', styleClassic: 'Classique',
+  bombKey: 'Touche bombe / roquette', bombKeyF: 'F (Espace pour sauter)', bombKeySpace: 'Espace (F pour sauter)', keySpace: 'Espace',
   showMinimap: 'Afficher la mini-carte', minimapSize: 'Taille de la mini-carte',
   wardenName: 'Gardien', wasCrushed: '{v} a été écrasé par le Gardien', youWereCrushed: 'Écrasé par le Gardien !', wardenSlainByYou: 'Vous avez terrassé le Gardien ! +5', wardenSlain: '{name} a terrassé le Gardien !', wardenFell: 'Le Gardien est tombé !', wardenBack: 'Le Gardien garde de nouveau le trésor', wardenReturns: 'Retour du Gardien dans {n} s',
   lookTitle: 'Vue de la carte', lookHint: 'Bougez ou cliquez ici pour revenir', lookTip: 'Faites glisser le cadre de la mini-carte pour regarder ailleurs',
@@ -113,8 +114,8 @@ export const fr: Strings = {
   guide: {
     welcome: { title: 'Bienvenue dans Blast Arena !', body: 'Fais sauter des caisses, ramasse des bonus et survis à tout le monde. Voici l’essentiel en une minute.' },
     move: { title: 'Se déplacer', body: 'Avance avec ZQSD/WASD ou les flèches. Sur téléphone, glisse le doigt n’importe où à gauche. Maintiens une deuxième direction pour tourner au prochain passage.' },
-    bomb: { title: 'Poser des bombes', body: 'Appuie sur F pour poser une bombe. Après 2,5 s, elle explose en croix. Les piliers de pierre arrêtent le feu, les caisses se brisent. Sors de la ligne !' },
-    jump: { title: 'Sauter', body: 'Appuie sur Espace pour sauter par-dessus le pilier de pierre devant toi. En l’air, le feu ne peut pas te toucher. On ne saute pas par-dessus les caisses.' },
+    bomb: { title: 'Poser des bombes', body: 'Appuie sur {bomb} pour poser une bombe. Après 2,5 s, elle explose en croix. Les piliers de pierre arrêtent le feu, les caisses se brisent. Sors de la ligne !' },
+    jump: { title: 'Sauter', body: 'Appuie sur {jump} pour sauter par-dessus le pilier de pierre devant toi. En l’air, le feu ne peut pas te toucher. On ne saute pas par-dessus les caisses.' },
     crates: { title: 'Les caisses cachent des bonus', body: 'Une caisse sur quatre laisse un bonus en se brisant. Marche dessus pour le prendre. Quand tu meurs, tu en perds une partie.' },
     boosts: { title: 'Renforts', body: 'Ramasse-les pour devenir plus fort. Ils durent jusqu’à ta mort.' },
     tricks: { title: 'Astuces', body: 'De nouveaux coups avec tes bombes. Les bombes télécommandées et le coup de poing utilisent E.' },

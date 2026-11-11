@@ -61,6 +61,7 @@ export const it: Strings = {
   nextRound: 'Il prossimo round inizia ora',
   settings: 'Impostazioni', music: 'Musica', sfx: 'Effetti sonori', zoom: 'Zoom',
   tileStyle: 'Stile grafico', stylePixel: 'Pixel art', styleClassic: 'Classico',
+  bombKey: 'Tasto bomba / razzo', bombKeyF: 'F (Spazio salta)', bombKeySpace: 'Spazio (F salta)', keySpace: 'Spazio',
   showMinimap: 'Mostra minimappa', minimapSize: 'Dimensione minimappa',
   wardenName: 'Guardiano', wasCrushed: '{v} è stato schiacciato dal Guardiano', youWereCrushed: 'Schiacciato dal Guardiano!', wardenSlainByYou: 'Hai abbattuto il Guardiano! +5', wardenSlain: '{name} ha abbattuto il Guardiano!', wardenFell: 'Il Guardiano è caduto!', wardenBack: 'Il Guardiano è di nuovo a guardia del caveau', wardenReturns: 'Il Guardiano torna tra {n} s',
   lookTitle: 'Guardi la mappa', lookHint: 'Muoviti o clicca qui per tornare', lookTip: 'Trascina il riquadro sulla minimappa per guardarti intorno',
@@ -113,8 +114,8 @@ export const it: Strings = {
   guide: {
     welcome: { title: 'Benvenuto in Blast Arena!', body: 'Fai saltare le casse, raccogli i potenziamenti e sopravvivi a tutti. Ecco l’essenziale in un minuto.' },
     move: { title: 'Muoversi', body: 'Cammina con WASD o con le frecce. Sul telefono trascina il dito in un punto qualsiasi a sinistra. Tieni premuta una seconda direzione per girare al prossimo varco.' },
-    bomb: { title: 'Piazzare bombe', body: 'Premi F per piazzare una bomba. Dopo 2,5 s esplode a croce. I pilastri di pietra fermano il fuoco, le casse si rompono. Esci dalla linea!' },
-    jump: { title: 'Saltare', body: 'Premi Spazio per saltare il pilastro di pietra davanti a te. In aria il fuoco non ti tocca. Le casse non si possono saltare.' },
+    bomb: { title: 'Piazzare bombe', body: 'Premi {bomb} per piazzare una bomba. Dopo 2,5 s esplode a croce. I pilastri di pietra fermano il fuoco, le casse si rompono. Esci dalla linea!' },
+    jump: { title: 'Saltare', body: 'Premi {jump} per saltare il pilastro di pietra davanti a te. In aria il fuoco non ti tocca. Le casse non si possono saltare.' },
     crates: { title: 'Le casse nascondono potenziamenti', body: 'Una cassa su quattro lascia un potenziamento quando si rompe. Passaci sopra per prenderlo. Quando muori ne perdi alcuni.' },
     boosts: { title: 'Potenziamenti', body: 'Raccoglili per diventare più forte. Durano finché non muori.' },
     tricks: { title: 'Trucchi', body: 'Nuove mosse con le tue bombe. Le bombe a distanza e il pugno usano E.' },

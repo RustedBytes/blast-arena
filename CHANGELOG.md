@@ -6,6 +6,13 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A "Bomb / rocket key" setting: F drops bombs (and fires rockets) and
+  Space jumps, as before, or the two are swapped so Space drops bombs and
+  F jumps. Enter always drops a bomb. The key caps in the lobby help, the
+  controls list and the tutorial follow the setting.
+
 ### Changed
 
 - Less CPU for big bot crowds (back-pressure on the arena task):

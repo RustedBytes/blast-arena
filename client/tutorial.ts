@@ -6,9 +6,13 @@
 import type { Assets } from './assets.js';
 import { query, setChildren } from './dom.js';
 import { t } from './i18n.js';
+import { bombLabel, jumpLabel } from './keymap.js';
 import { drawIcon, drawScene, hasFire } from './tutorial/scene.js';
 import { SLIDES } from './tutorial/slides.js';
 import type { Icon, Slide } from './tutorial/slides.js';
+
+/** A key's name inside a sentence: the space bar is translated. */
+const keyName = (label: string): string => (label === 'Space' ? t('keySpace') : label);
 
 /** Fire flickers at this many ms per frame. */
 const FLICKER_MS = 140;
@@ -114,9 +118,11 @@ export class Tutorial {
     const slide = SLIDES[this.index];
     const text = t('guide')[slide.id];
     this.titleEl.textContent = text.title;
-    this.bodyEl.textContent = text.body;
+    this.bodyEl.textContent = text.body.replace('{bomb}', keyName(bombLabel())).replace('{jump}', keyName(jumpLabel()));
     this.renderVisual(slide, 'labels' in text ? text.labels : []);
-    setChildren(this.keysEl, ...(slide.keys ?? []).map((k) => {
+    // The bomb and jump keys follow the settings.
+    const keys = slide.id === 'bomb' ? [bombLabel(), 'Enter'] : slide.id === 'jump' ? [jumpLabel()] : slide.keys;
+    setChildren(this.keysEl, ...(keys ?? []).map((k) => {
       const kbd = document.createElement('kbd');
       kbd.textContent = k;
       return kbd;

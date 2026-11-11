@@ -4,6 +4,7 @@
 import { ITEM_SPRITES } from '../assets.js';
 import { escapeHtml } from '../dom.js';
 import { getLanguage, LANGUAGES, setLanguage, t } from '../i18n.js';
+import { bombLabel, isBombKey, jumpLabel, setBombKey } from '../keymap.js';
 import { MINIMAP_MAX, MINIMAP_MIN } from '../settings.js';
 import { buildEmoteWheel, invalidateHud } from './hud.js';
 import { refreshLobbyLater } from './lobby.js';
@@ -63,7 +64,16 @@ export function applySettings() {
   ui.settings.colorblind.checked = settings.get('colorblind');
   ui.settings.contrast.checked = settings.get('highContrast');
   ui.settings.style.value = settings.get('tileStyle');
+  applyBombKey();
   applyVisualSettings();
+}
+
+/** The bomb / jump keys: input, and every key cap that names them. */
+function applyBombKey(): void {
+  setBombKey(settings.get('bombKey'));
+  ui.settings.bombKey.value = settings.get('bombKey');
+  for (const el of document.querySelectorAll<HTMLElement>('kbd[data-key="bomb"]')) el.textContent = bombLabel();
+  for (const el of document.querySelectorAll<HTMLElement>('kbd[data-key="jump"]')) el.textContent = jumpLabel();
 }
 
 export function applyLanguage(lang: string): void {
@@ -96,6 +106,7 @@ export function setupSettingsUi(): void {
   control(ui.settings.colorblind, 'change', (el) => settings.set('colorblind', el.checked));
   control(ui.settings.contrast, 'change', (el) => settings.set('highContrast', el.checked));
   control(ui.settings.style, 'change', (el) => settings.set('tileStyle', el.value === 'classic' ? 'classic' : 'pixel'));
+  control(ui.settings.bombKey, 'change', (el) => { if (isBombKey(el.value)) settings.set('bombKey', el.value); });
   control(ui.settings.language, 'change', (el) => applyLanguage(el.value));
   control(ui.join.language, 'change', (el) => applyLanguage(el.value));
   ui.settings.close.addEventListener('click', () => toggleSettings(false));

@@ -1,5 +1,8 @@
 // Player preferences, persisted in localStorage when available.
 
+import { isBombKey } from './keymap.js';
+import type { BombKey } from './keymap.js';
+
 export type TileStyle = 'pixel' | 'classic';
 
 export interface SettingValues {
@@ -19,6 +22,8 @@ export interface SettingValues {
   showMinimap: boolean;
   /** CSS px, MINIMAP_MIN..MINIMAP_MAX. */
   minimapSize: number;
+  /** The bomb / rocket key: F (Space jumps) or Space (F jumps). */
+  bombKey: BombKey;
 }
 
 export type SettingKey = keyof SettingValues;
@@ -35,6 +40,7 @@ const DEFAULTS: Readonly<SettingValues> = {
   tileStyle: 'pixel',
   showMinimap: true,
   minimapSize: 170,
+  bombKey: 'f',
 };
 
 const isTileStyle = (v: unknown): v is TileStyle => v === 'pixel' || v === 'classic';
@@ -61,6 +67,7 @@ function restore(saved: unknown): SettingValues {
   out.tileStyle = isTileStyle(raw.tileStyle) ? raw.tileStyle : out.tileStyle;
   out.showMinimap = bool(raw.showMinimap, out.showMinimap);
   out.minimapSize = num(raw.minimapSize, out.minimapSize);
+  out.bombKey = isBombKey(raw.bombKey) ? raw.bombKey : out.bombKey;
   return out;
 }
 

@@ -61,6 +61,7 @@ export const de: Strings = {
   nextRound: 'Die nächste Runde beginnt jetzt',
   settings: 'Einstellungen', music: 'Musik', sfx: 'Soundeffekte', zoom: 'Zoom',
   tileStyle: 'Grafikstil', stylePixel: 'Pixelart', styleClassic: 'Klassisch',
+  bombKey: 'Taste für Bombe / Rakete', bombKeyF: 'F (Leertaste springt)', bombKeySpace: 'Leertaste (F springt)', keySpace: 'die Leertaste',
   showMinimap: 'Minikarte anzeigen', minimapSize: 'Größe der Minikarte',
   wardenName: 'Wächter', wasCrushed: '{v} wurde vom Wächter zerquetscht', youWereCrushed: 'Vom Wächter zerquetscht!', wardenSlainByYou: 'Du hast den Wächter besiegt! +5', wardenSlain: '{name} hat den Wächter besiegt!', wardenFell: 'Der Wächter ist gefallen!', wardenBack: 'Der Wächter bewacht wieder den Tresor', wardenReturns: 'Wächter zurück in {n} s',
   lookTitle: 'Kartenansicht', lookHint: 'Bewege dich oder klicke hier, um zurückzukehren', lookTip: 'Ziehe den Rahmen auf der Minikarte, um dich umzusehen',
@@ -113,8 +114,8 @@ export const de: Strings = {
   guide: {
     welcome: { title: 'Willkommen in der Blast Arena!', body: 'Spreng Kisten, schnapp dir Power-ups und überlebe alle anderen. Hier ist alles Wichtige in einer Minute.' },
     move: { title: 'Bewegen', body: 'Lauf mit WASD oder den Pfeiltasten. Auf dem Handy ziehst du irgendwo auf der linken Seite. Halte eine zweite Richtung, um an der nächsten Lücke abzubiegen.' },
-    bomb: { title: 'Bomben legen', body: 'Drück F, um eine Bombe zu legen. Nach 2,5 s explodiert sie als Kreuz. Steinsäulen halten das Feuer auf, Kisten zerbrechen. Raus aus der Linie!' },
-    jump: { title: 'Springen', body: 'Drück die Leertaste, um über die Steinsäule vor dir zu hüpfen. In der Luft kann dir das Feuer nichts. Über Kisten kannst du nicht springen.' },
+    bomb: { title: 'Bomben legen', body: 'Drück {bomb}, um eine Bombe zu legen. Nach 2,5 s explodiert sie als Kreuz. Steinsäulen halten das Feuer auf, Kisten zerbrechen. Raus aus der Linie!' },
+    jump: { title: 'Springen', body: 'Drück {jump}, um über die Steinsäule vor dir zu hüpfen. In der Luft kann dir das Feuer nichts. Über Kisten kannst du nicht springen.' },
     crates: { title: 'Kisten verstecken Power-ups', body: 'Jede vierte Kiste hinterlässt ein Power-up. Lauf darüber, um es zu nehmen. Wenn du stirbst, verlierst du einige deiner eigenen.' },
     boosts: { title: 'Verstärkungen', body: 'Sammle sie, um stärker zu werden. Sie halten, bis du stirbst.' },
     tricks: { title: 'Tricks', body: 'Neue Moves für deine Bomben. Fernzündung und Schlag laufen über E.' },

@@ -61,6 +61,7 @@ export const es: Strings = {
   nextRound: 'La siguiente ronda empieza ya',
   settings: 'Ajustes', music: 'Música', sfx: 'Efectos de sonido', zoom: 'Zoom',
   tileStyle: 'Estilo gráfico', stylePixel: 'Pixel art', styleClassic: 'Clásico',
+  bombKey: 'Tecla de bomba / cohete', bombKeyF: 'F (Espacio salta)', bombKeySpace: 'Espacio (F salta)', keySpace: 'Espacio',
   showMinimap: 'Mostrar minimapa', minimapSize: 'Tamaño del minimapa',
   wardenName: 'Guardián', wasCrushed: '{v} fue aplastado por el Guardián', youWereCrushed: '¡Aplastado por el Guardián!', wardenSlainByYou: '¡Derribaste al Guardián! +5', wardenSlain: '¡{name} derribó al Guardián!', wardenFell: '¡El Guardián ha caído!', wardenBack: 'El Guardián vuelve a vigilar la cámara', wardenReturns: 'El Guardián vuelve en {n} s',
   lookTitle: 'Mirando el mapa', lookHint: 'Muévete o haz clic aquí para volver', lookTip: 'Arrastra el recuadro del minimapa para mirar alrededor',
@@ -113,8 +114,8 @@ export const es: Strings = {
   guide: {
     welcome: { title: '¡Bienvenido a Blast Arena!', body: 'Revienta cajas, consigue potenciadores y sobrevive a todos. Aquí tienes lo esencial en un minuto.' },
     move: { title: 'Moverse', body: 'Camina con WASD o las flechas. En el móvil, arrastra en cualquier parte del lado izquierdo. Mantén una segunda dirección para girar en el siguiente hueco.' },
-    bomb: { title: 'Poner bombas', body: 'Pulsa F para poner una bomba. A los 2,5 s explota en cruz. Los pilares de piedra detienen el fuego y las cajas se rompen. ¡Sal de la línea!' },
-    jump: { title: 'Saltar', body: 'Pulsa Espacio para saltar el pilar de piedra que tienes delante. En el aire el fuego no te toca. Las cajas no se pueden saltar.' },
+    bomb: { title: 'Poner bombas', body: 'Pulsa {bomb} para poner una bomba. A los 2,5 s explota en cruz. Los pilares de piedra detienen el fuego y las cajas se rompen. ¡Sal de la línea!' },
+    jump: { title: 'Saltar', body: 'Pulsa {jump} para saltar el pilar de piedra que tienes delante. En el aire el fuego no te toca. Las cajas no se pueden saltar.' },
     crates: { title: 'Las cajas esconden potenciadores', body: 'Una de cada cuatro cajas suelta un potenciador al romperse. Pasa por encima para cogerlo. Al morir, pierdes algunos de los tuyos.' },
     boosts: { title: 'Mejoras', body: 'Recógelas para hacerte más fuerte. Duran hasta que mueres.' },
     tricks: { title: 'Trucos', body: 'Nuevos movimientos con tus bombas. Las bombas remotas y el puñetazo usan E.' },

@@ -61,6 +61,7 @@ export const pl: Strings = {
   nextRound: 'Następna runda zaczyna się teraz',
   settings: 'Ustawienia', music: 'Muzyka', sfx: 'Efekty dźwiękowe', zoom: 'Zoom',
   tileStyle: 'Styl grafiki', stylePixel: 'Pixel art', styleClassic: 'Klasyczny',
+  bombKey: 'Klawisz bomby / rakiety', bombKeyF: 'F (spacja – skok)', bombKeySpace: 'Spacja (F – skok)', keySpace: 'spację',
   showMinimap: 'Pokaż minimapę', minimapSize: 'Rozmiar minimapy',
   wardenName: 'Strażnik', wasCrushed: '{v} – zmiażdżony przez Strażnika', youWereCrushed: 'Zmiażdżony przez Strażnika!', wardenSlainByYou: 'Pokonałeś Strażnika! +5', wardenSlain: '{name} pokonał Strażnika!', wardenFell: 'Strażnik padł!', wardenBack: 'Strażnik znów pilnuje skarbca', wardenReturns: 'Strażnik wróci za {n} s',
   lookTitle: 'Podgląd mapy', lookHint: 'Rusz się lub kliknij tutaj, aby wrócić', lookTip: 'Przeciągnij ramkę na minimapie, aby się rozejrzeć',
@@ -113,8 +114,8 @@ export const pl: Strings = {
   guide: {
     welcome: { title: 'Witaj w Blast Arena!', body: 'Wysadzaj skrzynki, zbieraj bonusy i przetrwaj wszystkich. Oto najważniejsze rzeczy w minutę.' },
     move: { title: 'Ruch', body: 'Chodź klawiszami WASD albo strzałkami. Na telefonie przeciągnij palcem w dowolnym miejscu po lewej. Przytrzymaj drugi kierunek, by skręcić przy najbliższym przejściu.' },
-    bomb: { title: 'Stawianie bomb', body: 'Naciśnij F, by postawić bombę. Po 2,5 s wybucha na krzyż. Kamienne filary zatrzymują ogień, skrzynki pękają. Uciekaj z linii ognia!' },
-    jump: { title: 'Skok', body: 'Naciśnij spację, by przeskoczyć kamienny filar przed sobą. W powietrzu ogień cię nie dosięgnie. Skrzynek nie da się przeskoczyć.' },
+    bomb: { title: 'Stawianie bomb', body: 'Naciśnij {bomb}, by postawić bombę. Po 2,5 s wybucha na krzyż. Kamienne filary zatrzymują ogień, skrzynki pękają. Uciekaj z linii ognia!' },
+    jump: { title: 'Skok', body: 'Naciśnij {jump}, by przeskoczyć kamienny filar przed sobą. W powietrzu ogień cię nie dosięgnie. Skrzynek nie da się przeskoczyć.' },
     crates: { title: 'Skrzynki kryją bonusy', body: 'Co czwarta skrzynka zostawia bonus. Przejdź po nim, by go podnieść. Gdy giniesz, gubisz część swoich.' },
     boosts: { title: 'Wzmocnienia', body: 'Zbieraj je, by stawać się silniejszym. Działają, dopóki żyjesz.' },
     tricks: { title: 'Sztuczki', body: 'Nowe zagrania bombami. Zdalne bomby i cios używają klawisza E.' },

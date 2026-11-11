@@ -1,9 +1,12 @@
 // Keyboard, gamepad and touch input. Movement is sent as the newest held
 // direction plus the previously held one (`s`), which the server uses for
 // turn buffering: hold Right, tap Up early, and the turn happens at the next
-// gap. The jump key (Space) is held state too (`j`): while it's down you hop
+// gap. The jump key (Space, or F with the keys swapped; see keymap.ts) is
+// held state too (`j`): while it's down you hop
 // over a stone pillar in front of you. The detach key (C, held) shakes off a
 // sticky bomb and is held state too (`h`). Only changes are sent.
+
+import { bombCode, jumpCode } from './keymap.js';
 
 const KEY_DIRS: Record<string, number> = {
   ArrowUp: 1, KeyW: 1,
@@ -93,12 +96,14 @@ export class Input {
       this.update();
       return;
     }
-    switch (e.code) {
-      case 'Space':
+    // F and Space can be swapped in the settings.
+    const code = e.code === bombCode() ? 'bomb' : e.code === jumpCode() ? 'jump' : e.code;
+    switch (code) {
+      case 'jump':
         e.preventDefault();
         if (!this.keyJump) { this.keyJump = true; this.update(); }
         break;
-      case 'KeyF': case 'Enter':
+      case 'bomb': case 'Enter':
         e.preventDefault();
         if (!e.repeat) this.h.onBomb();
         break;
@@ -137,7 +142,7 @@ export class Input {
     if (d) {
       this.held = this.held.filter((x) => x !== d);
       this.update();
-    } else if (e.code === 'Space') {
+    } else if (e.code === jumpCode()) {
       this.keyJump = false;
       this.update();
     } else if (e.code === 'KeyC') {

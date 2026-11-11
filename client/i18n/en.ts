@@ -60,6 +60,7 @@ export const en = {
   nextRound: 'Next round starts now',
   settings: 'Settings', music: 'Music', sfx: 'Sound effects', zoom: 'Zoom',
   tileStyle: 'Art style', stylePixel: 'Pixel art', styleClassic: 'Classic',
+  bombKey: 'Bomb / rocket key', bombKeyF: 'F (Space jumps)', bombKeySpace: 'Space (F jumps)', keySpace: 'Space',
   showMinimap: 'Show minimap', minimapSize: 'Minimap size',
   wardenName: 'Warden', wasCrushed: '{v} was crushed by the Warden', youWereCrushed: 'Crushed by the Warden!', wardenSlainByYou: 'You brought down the Warden! +5', wardenSlain: '{name} brought down the Warden!', wardenFell: 'The Warden has fallen!', wardenBack: 'The Warden is back on guard at the vault', wardenReturns: 'Warden returns in {n}s',
   lookTitle: 'Watching the map', lookHint: 'Move, or click here, to come back', lookTip: 'Drag the view box on the minimap to look around',
@@ -112,8 +113,8 @@ export const en = {
   guide: {
     welcome: { title: 'Welcome to Blast Arena!', body: 'Blast crates, grab power-ups and outlast everyone. Here is everything you need, in one minute.' },
     move: { title: 'Move', body: 'Walk with WASD or the arrow keys. On a phone, drag anywhere on the left side. Hold a second direction to turn at the next gap.' },
-    bomb: { title: 'Drop bombs', body: 'Press F to drop a bomb. After 2.5 s it blasts in a cross. Stone pillars stop the fire, crates break. Get out of the line!' },
-    jump: { title: 'Jump', body: 'Press Space to hop over the stone pillar in front of you. In the air the fire can\'t touch you. Crates can\'t be jumped.' },
+    bomb: { title: 'Drop bombs', body: 'Press {bomb} to drop a bomb. After 2.5 s it blasts in a cross. Stone pillars stop the fire, crates break. Get out of the line!' },
+    jump: { title: 'Jump', body: 'Press {jump} to hop over the stone pillar in front of you. In the air the fire can\'t touch you. Crates can\'t be jumped.' },
     crates: { title: 'Crates hide power-ups', body: 'One crate in four drops a power-up when it breaks. Walk over it to take it. When you die, you drop some of yours.' },
     boosts: { title: 'Boosts', body: 'Pick these up to grow stronger. They last until you die.' },
     tricks: { title: 'Tricks', body: 'New moves for your bombs. Remote bombs and punching use E.' },

@@ -107,6 +107,7 @@ export const ui = {
     colorblind: byId('set-colorblind', HTMLInputElement),
     contrast: byId('set-contrast', HTMLInputElement),
     style: byId('set-style', HTMLSelectElement),
+    bombKey: byId('set-bomb-key', HTMLSelectElement),
     language: byId('set-lang', HTMLSelectElement),
     legend: byId('legend'),
     tutorialAgain: byId('tutorial-again'),

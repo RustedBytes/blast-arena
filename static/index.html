@@ -197,6 +197,12 @@
           <option value="classic" data-i18n="styleClassic">Classic</option>
         </select>
       </label>
+      <label class="row"><span data-i18n="bombKey">Bomb / rocket key</span>
+        <select id="set-bomb-key">
+          <option value="f" data-i18n="bombKeyF">F (Space jumps)</option>
+          <option value="space" data-i18n="bombKeySpace">Space (F jumps)</option>
+        </select>
+      </label>
       <label class="row check"><input type="checkbox" id="set-muted"> <span data-i18n="mute">Mute all sound</span> <kbd>M</kbd></label>
       <label class="row check"><input type="checkbox" id="set-fps"> <span data-i18n="showFps">Show FPS</span> <kbd>P</kbd></label>
       <label class="row check"><input type="checkbox" id="set-minimap"> <span data-i18n="showMinimap">Show minimap</span> <kbd>N</kbd></label>
@@ -207,8 +213,8 @@
       <h3 data-i18n="controls">Controls</h3>
       <div class="controls">
         <span><kbd>WASD</kbd> <kbd>Arrows</kbd></span><span data-i18n="ctlMove"></span>
-        <span><kbd>F</kbd> <kbd>Enter</kbd></span><span data-i18n="ctlBomb"></span>
-        <span><kbd>Space</kbd></span><span data-i18n="ctlJump"></span>
+        <span><kbd data-key="bomb">F</kbd> <kbd>Enter</kbd></span><span data-i18n="ctlBomb"></span>
+        <span><kbd data-key="jump">Space</kbd></span><span data-i18n="ctlJump"></span>
         <span><kbd>E</kbd> <kbd>Shift</kbd></span><span data-i18n="ctlAct"></span>
         <span><kbd>Q</kbd></span><span data-i18n="ctlGadget"></span>
         <span><kbd>R</kbd></span><span data-i18n="ctlAbility"></span>
@@ -243,8 +249,8 @@
         <p id="join-error" class="error"></p>
         <div class="help">
           <span><kbd>WASD</kbd> <span data-i18n="helpMove">move</span></span>
-          <span><kbd>F</kbd> <span data-i18n="helpBomb">bomb</span></span>
-          <span><kbd>Space</kbd> <span data-i18n="helpJump">jump</span></span>
+          <span><kbd data-key="bomb">F</kbd> <span data-i18n="helpBomb">bomb</span></span>
+          <span><kbd data-key="jump">Space</kbd> <span data-i18n="helpJump">jump</span></span>
           <span><kbd>E</kbd> <span data-i18n="helpAct">action</span></span>
           <span><kbd>Wheel</kbd> <span data-i18n="helpZoom">zoom</span></span>
           <span><kbd>Esc</kbd> <span data-i18n="helpMenu">settings</span></span>
