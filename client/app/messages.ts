@@ -9,7 +9,7 @@ import { BOMB_FLAG, hasFlag, meObject, PLAYER_FLAG } from '../protocol.js';
 import { NUKE_SHOW_TICKS } from '../render.js';
 import type { BombView, GameSnapshot, GameState, RosterInfo } from '../state.js';
 import { input } from './controls.js';
-import { gameEvent } from './events.js';
+import { gameEvent, MONSTER_ICONS } from './events.js';
 import { toast, updateHud } from './hud.js';
 import { refreshLobbyLater } from './lobby.js';
 import { alerts, audio, predictor, renderer, settings } from './services.js';
@@ -86,6 +86,8 @@ export const net = new Net({
       eatenByWorm: false,
       wardenMeals: new Set(), // players the Warden just crushed (likewise)
       crushedByWarden: false,
+      monsterMeals: new Map(), // players a monster just bit, by kind (likewise)
+      bittenBy: 0,
       lastLb: '',
       roundSecs: m.round,
       movedAt: null,
@@ -256,11 +258,17 @@ export const net = new Net({
     // So is the Warden's (EV.GUARD).
     const crushed = state.wardenMeals.delete(m.v);
     if (m.v === state.myId) state.crushedByWarden = crushed;
+    // And a monster's bite (EV.MONSTER), with the monster's kind.
+    const bitten = state.monsterMeals.get(m.v) ?? 0;
+    state.monsterMeals.delete(m.v);
+    if (m.v === state.myId) state.bittenBy = bitten;
     const el = document.createElement('div');
     el.className = 'kill';
     if (m.k === state.myId || m.v === state.myId) el.classList.add('mine');
     el.innerHTML = crushed
       ? `🗿 ${t('wasCrushed', { v: `<b class="v">${name(m.v)}</b>` })}`
+      : bitten
+      ? `${MONSTER_ICONS[bitten - 1] ?? '👹'} ${(t('monsterBitFeed')[bitten - 1] ?? '{v}').replace('{v}', `<b class="v">${name(m.v)}</b>`)}`
       : eaten
       ? `🪱 ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
       : m.k === null

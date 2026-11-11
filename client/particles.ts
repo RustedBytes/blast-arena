@@ -22,6 +22,9 @@ export const COLORS: readonly string[] = [
   '#4affc8',                                  // 16 dash
   '#c94a66', '#ff9a8a',                       // 17-18 worm
   '#c9b48a',                                  // 19 footstep dust
+  '#7ee05a', '#c8ff8a',                       // 20-21 slime
+  '#e8e2cf', '#a8a08a',                       // 22-23 bone
+  '#4a3a6a', '#8a6ab0',                       // 24-25 bat
 ];
 
 

@@ -8,7 +8,7 @@ use super::bomb::NUKE_RADIUS;
 use super::clone::{F_DASHING, F_JUMPING, F_MOVING};
 use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
-use super::{BUCKET, LEADERBOARD_EVERY, World, worms};
+use super::{BUCKET, LEADERBOARD_EVERY, World, monsters, worms};
 
 impl World {
     pub(super) fn rebuild_buckets(&mut self) {
@@ -300,6 +300,7 @@ impl World {
         let portals = || self.portals.iter().filter(|p| inside(p.x, p.y, 0));
         let clones = || self.clones.iter().filter(|c| inside(c.x as i32, c.y as i32, 1));
         let decoys = || self.decoys.iter().filter(|d| inside(d.x, d.y, 0));
+        let monsters = || self.monsters.list.iter().filter(|m| inside(m.cell.0, m.cell.1, 1) || inside(m.from.0, m.from.1, 1));
         let stuck = || self.sticky.iter().filter_map(|id| self.bombs.get(id)).filter(|b| b.attached != 0 && inside(b.x, b.y, 0));
         let mut parts = 0;
         for (n, bit) in [
@@ -310,6 +311,7 @@ impl World {
             (stuck().count(), snap::STUCK),
             (self.worms.list.len(), snap::WORMS),
             (usize::from(self.guard.vault.is_some()), snap::GUARD),
+            (monsters().count(), snap::MONSTERS),
         ] {
             if n > 0 {
                 parts |= bit;
@@ -378,6 +380,20 @@ impl World {
                     let (x, y) = worm.head();
                     w.len(1).coord(x).coord(y);
                 }
+            }
+        }
+        if parts & snap::MONSTERS != 0 {
+            w.len(monsters().count());
+            for m in monsters() {
+                let rising = m.rising(tick);
+                let flags = (u8::from(m.chasing) * monsters::flag::CHASING)
+                    | (u8::from(rising) * monsters::flag::RISING)
+                    | (u8::from(m.hurt_until > tick) * monsters::flag::HURT);
+                // While it rises, the "step" is the whole rise.
+                let step = if rising { self.monsters.tuning.rise_ticks } else { m.step_ticks };
+                let max = self.monsters.tuning.of(m.kind).hp;
+                w.id(m.id).u8(m.kind as u8).u8(flags).coord(m.cell.0).coord(m.cell.1).coord(m.from.0).coord(m.from.1);
+                w.uvar(step).uvar(tick.saturating_sub(m.last_step)).u8(m.hp).u8(max);
             }
         }
         true

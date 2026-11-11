@@ -1,7 +1,8 @@
-// Seamless floors per biome: meadow grass, snow, desert sand and volcanic ash.
+// Seamless floors per biome: meadow grass, snow, desert sand, volcanic ash
+// and dungeon flagstones.
 
-import { at, field, int, LAVA, N, pick, Pix, relief, rng, wrap } from '../pixelkit.js';
-import { ASH, FLOWERS, GRASS, SAND, SANDSTONE, SNOW, STONE } from './palette.js';
+import { at, crack, field, int, LAVA, N, pick, Pix, relief, rng, wrap } from '../pixelkit.js';
+import { ASH, FLAGSTONE, FLOWERS, GRASS, SAND, SANDSTONE, SNOW, STONE } from './palette.js';
 
 // ------------------------------------------------------------------- floors
 
@@ -146,6 +147,53 @@ export function ash(seed: number, kind: number) {
   }
   if (kind === 0) {
     for (let i = 0; i < 2; i++) p.wset(int(rand, N), int(rand, N), LAVA[2]);
+  }
+  return p;
+}
+
+/**
+ * Dungeon flagstones: worn slabs in staggered courses with dark joints.
+ * Kind 1 has a crack and a scatter of bone; kind 2 a patch of damp moss.
+ */
+export function crypt(seed: number, kind: number) {
+  const rand = rng(seed), f = field(rand), p = new Pix();
+  // Two courses of 8 rows; the lower course is shifted half a slab.
+  const slab = (x: number, y: number): number => {
+    const row = Math.floor(wrap(y) / 8);
+    return row * 2 + Math.floor(wrap(x + row * 4) / 8);
+  };
+  const tone = [rand(), rand(), rand(), rand()];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const joint = wrap(y) % 8 === 7 || wrap(x + Math.floor(wrap(y) / 8) * 4) % 8 === 7;
+      if (joint) {
+        p.set(x, y, FLAGSTONE[1]);
+        continue;
+      }
+      // Slab edges catch the light top-left and fall into shade bottom-right.
+      const rimTop = wrap(y - 1) % 8 === 7 || wrap(x - 1 + Math.floor(wrap(y) / 8) * 4) % 8 === 7;
+      const v = 0.45 + tone[slab(x, y)] * 0.2 + relief(f, x, y) * 0.7 + (at(f, x, y) - 0.5) * 0.2 + (rimTop ? 0.14 : 0);
+      p.set(x, y, pick(FLAGSTONE, v, x, y, 3, 5, 0.6));
+    }
+  }
+  if (kind === 1) {
+    crack(rand, 2 + int(rand, 6), 1 + int(rand, 4), 6, (x: number, y: number) => p.wset(x, y, FLAGSTONE[1]));
+    // A little bone and a skull-pale pebble.
+    const bx = int(rand, N), by = int(rand, N);
+    for (let k = 0; k < 3; k++) p.wset(bx + k, by, '#cfc6ae');
+    p.wset(bx - 1, by - 1, '#cfc6ae');
+    p.wset(bx - 1, by + 1, '#cfc6ae');
+    p.wset(bx + 3, by - 1, '#cfc6ae');
+    p.wset(bx + 3, by + 1, '#cfc6ae');
+    p.wset(bx + 1, by + 1, FLAGSTONE[1]);
+  }
+  if (kind === 2) {
+    const mx = int(rand, N), my = int(rand, N);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        if (dx * dx / 9 + dy * dy / 4 <= 1 && rand() < 0.7) p.wset(mx + dx, my + dy, rand() < 0.5 ? '#25402e' : '#2f5236');
+      }
+    }
   }
   return p;
 }

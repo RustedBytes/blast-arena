@@ -202,6 +202,112 @@ impl Map {
         })
     }
 
+    /// A dungeon for the dungeon arena: rooms of open floor joined by
+    /// narrow, winding corridors, all in crypt stone. Rooms sit on the lane
+    /// grid with their pillars cleared out; the rest of the map is walled
+    /// into a maze between them, with a few loops so fights don't stall in
+    /// dead ends, and every room gets more than one door. Crates are thick
+    /// in the rooms and rare in the corridors.
+    pub fn generate_dungeon(w: i32, h: i32, rng: &mut Rng) -> Self {
+        let mut style = MapStyle::roll(w, h, 0.3, rng);
+        style.pillars = Pillars::Maze;
+        style.symmetry = Symmetry::None;
+        style.crate_density = rng.range(0.3, 0.42);
+        style.armored = rng.range(0.1, 0.25);
+        style.ice = 0.0;
+        style.conveyors = 0.0;
+        style.teleport_pairs = ((w * h) / 2500).clamp(1, 3) as usize;
+        Self::best_of(rng, |rng| Self::build_dungeon(w, h, style, rng))
+    }
+
+    fn build_dungeon(w: i32, h: i32, style: MapStyle, rng: &mut Rng) -> Self {
+        let mut map = Map::empty(w, h);
+        map.style = style;
+        map.biomes = vec![BiomeSeed { x: 0.5, y: 0.5, biome: Biome::Crypt }];
+        let rooms = map.place_rooms(rng);
+        let in_room = |x: i32, y: i32| rooms.iter().any(|&(x0, y0, x1, y1)| x >= x0 && x <= x1 && y >= y0 && y <= y1);
+        // Wall every gap outside the rooms, clear the pillars inside them.
+        map.wall_gaps(rng, |_, x, y| !in_room(x, y));
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                if in_room(x, y) {
+                    map.set(x, y, Tile::Floor);
+                }
+            }
+        }
+        map.connect_gaps(rng);
+        let loops = rng.range(0.06, 0.12);
+        map.open_gaps(rng, loops);
+        // A second (and sometimes third) door for every room.
+        for &(x0, y0, x1, y1) in &rooms {
+            let mut doors: Vec<(i32, i32)> = Vec::new();
+            for x in (x0..=x1).step_by(2) {
+                doors.extend([(x, y0 - 1), (x, y1 + 1)]);
+            }
+            for y in (y0..=y1).step_by(2) {
+                doors.extend([(x0 - 1, y), (x1 + 1, y)]);
+            }
+            doors.retain(|&(x, y)| map.get(x, y) == Tile::Wall && map.gap_sides(x, y).is_some());
+            for _ in 0..rng.between(1, 2) {
+                if doors.is_empty() {
+                    break;
+                }
+                let (x, y) = doors.swap_remove(rng.below(doors.len() as u32) as usize);
+                map.set(x, y, Tile::Floor);
+            }
+        }
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                if map.get(x, y) != Tile::Floor {
+                    continue;
+                }
+                let chance = if in_room(x, y) { style.crate_density } else { 0.1 };
+                if rng.chance(chance) {
+                    map.set(x, y, if rng.chance(style.armored) { Tile::Armored } else { Tile::Crate });
+                }
+            }
+        }
+        map.add_teleports(rng);
+        map.carve_spawn_pockets(rng);
+        debug_assert_eq!(map.validate(), Ok(()));
+        map
+    }
+
+    /// Rooms on the lane grid, as inclusive interiors (x0, y0, x1, y1) with
+    /// odd corners, at least a corridor apart. About half the map ends up
+    /// in rooms.
+    fn place_rooms(&self, rng: &mut Rng) -> Vec<(i32, i32, i32, i32)> {
+        let (w, h) = (self.w, self.h);
+        let mut rooms: Vec<(i32, i32, i32, i32)> = Vec::new();
+        let (lanes_x, lanes_y) = ((w - 1) / 2, (h - 1) / 2);
+        let big = (w.min(h) / 12).clamp(3, 5);
+        let mut area = 0;
+        let want = (w - 2) * (h - 2) / 2;
+        for _ in 0..400 {
+            if area >= want {
+                break;
+            }
+            // Sizes in lanes: a room k lanes wide is 2k - 1 cells.
+            let (kw, kh) = (rng.between(2, big), rng.between(2, big));
+            if kw >= lanes_x - 1 || kh >= lanes_y - 1 {
+                continue;
+            }
+            let (lx, ly) = (rng.between(0, lanes_x - kw), rng.between(0, lanes_y - kh));
+            let (x0, y0) = (2 * lx + 1, 2 * ly + 1);
+            let (x1, y1) = (x0 + 2 * kw - 2, y0 + 2 * kh - 2);
+            if x1 > w - 2 || y1 > h - 2 {
+                continue;
+            }
+            // A corridor's width (two cells) between rooms.
+            if rooms.iter().any(|&(a0, b0, a1, b1)| x0 <= a1 + 2 && x1 + 2 >= a0 && y0 <= b1 + 2 && y1 + 2 >= b0) {
+                continue;
+            }
+            area += (x1 - x0 + 1) * (y1 - y0 + 1);
+            rooms.push((x0, y0, x1, y1));
+        }
+        rooms
+    }
+
     /// Clears crates along every `ROAD_EVERY`-th row and column (odd lanes,
     /// so the pillar grid stays intact).
     fn clear_roads(&mut self) {

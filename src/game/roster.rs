@@ -225,7 +225,7 @@ impl World {
             return false;
         }
         // A nuke's disc is wider than `danger_near` looks, and its fuse outlasts the spawn shield.
-        if self.danger_near(x, y, 4) || self.worm_near(x, y, 3) || self.in_nuke_zone(x, y) || self.in_vault(x, y, 2) {
+        if self.danger_near(x, y, 4) || self.worm_near(x, y, 3) || self.monster_near(x, y, 3) || self.in_nuke_zone(x, y) || self.in_vault(x, y, 2) {
             return false;
         }
         if avoid_players && self.players_in_rect(x - 3, y - 3, x + 3, y + 3).any(|p| p.alive) {

@@ -1,7 +1,7 @@
 // Blocks in 3/4 view: biome pillars and the two kinds of crate.
 
 import { at, clamp, crack, field, int, LAVA, line, N, pick, Pix, relief, rng, STEEL } from '../pixelkit.js';
-import { HAZARD, ICE, LIMESTONE, MOSS, OBSIDIAN, SNOW, STONE, TOP, WOOD } from './palette.js';
+import { CRYPT, HAZARD, ICE, LIMESTONE, MOSS, OBSIDIAN, SNOW, STONE, TOP, WOOD } from './palette.js';
 import type { Shade } from './palette.js';
 
 // ------------------------------------------------------------------- blocks
@@ -150,6 +150,38 @@ export function obsidianPillar(seed: number, kind: number) {
   if (kind === 0) {
     for (let y = TOP; y < N - 1; y++) p.set(vx, y, y === N - 2 ? LAVA[1] : LAVA[3]);
     p.set(vx + 1, N - 2, LAVA[2]);
+  }
+  return p;
+}
+
+/**
+ * Dungeon brick: a dark block of mortared bricks. Kind 1 holds a wall
+ * sconce with a flickering flame on its front; kind 2 is cracked.
+ */
+export function cryptPillar(seed: number, kind: number) {
+  const rand = rng(seed), f = field(rand);
+  const brick = (x: number, y: number): boolean => {
+    const row = Math.floor((y - 2) / 3);
+    return (y - 2) % 3 === 2 || (x + (row % 2) * 3) % 6 === 0;
+  };
+  const top = (x: number, y: number) => (brick(x, y) ? CRYPT[2] : pick(CRYPT, 0.55 + relief(f, x, y) * 1.2 + (at(f, x, y) - 0.5) * 0.3, x, y, 4, 6, 0.6));
+  const front = (x: number, y: number) => ((x + 3) % 6 === 0 && y > TOP ? CRYPT[1] : y === TOP ? CRYPT[4] : CRYPT[3]);
+  const p = block(CRYPT, top, front);
+  if (kind === 1) {
+    // A torch in an iron bracket on the front face.
+    p.set(7, TOP + 2, '#3c3640');
+    p.set(8, TOP + 2, '#3c3640');
+    p.set(7, TOP + 1, LAVA[3]);
+    p.set(8, TOP + 1, LAVA[4]);
+    p.set(7, TOP, LAVA[2]);
+    p.set(8, TOP - 1, LAVA[5]);
+  }
+  if (kind === 2) {
+    crack(rand, 3 + int(rand, 6), 2, 6, (x: number, y: number) => {
+      if (!onTop(x, y)) return;
+      p.set(x, y, CRYPT[0]);
+      if (onTop(x + 1, y + 1)) p.set(x + 1, y + 1, CRYPT[6]);
+    });
   }
   return p;
 }

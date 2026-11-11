@@ -11,13 +11,19 @@ export const BOMB_FLAG = {
 /** True when `bit` is set in `flags`. */
 export const hasFlag = (flags: number, bit: number): boolean => (flags & bit) !== 0;
 /** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
-export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11, WORM: 12, GUARD: 13 } as const;
+export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11, WORM: 12, GUARD: 13, MONSTER: 14 } as const;
 /** What a worm event reports (values: [what, x, y, player id + 1]); mirrors `game::worms::news`. */
 export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 } as const;
 /** What a Warden event reports (values: [what, x, y, player id + 1]); mirrors `game::guard::news`. */
 export const GUARD_NEWS = { CRUSHED: 1, KILLED: 2, BACK: 3, SLAM: 4, LOB: 5 } as const;
 /** Warden flags in snapshots; mirrors `game::guard::flag`. */
 export const GUARD_FLAG = { HUNTING: 1, SLAM: 2, CHARGE_WINDUP: 4, CHARGING: 8, SKIN: 16, ENRAGED: 32, HURT: 64 } as const;
+/** What a monster event reports (values: [what, x, y, player id + 1, kind]); mirrors `game::monsters::news`. */
+export const MONSTER_NEWS = { BIT: 1, SLAIN: 2, HIT: 3 } as const;
+/** Monster kinds; mirrors `game::monsters::Kind`. */
+export const MONSTER_KIND = { SLIME: 1, SKELETON: 2, BAT: 3 } as const;
+/** Monster flags in snapshots; mirrors `game::monsters::flag`. */
+export const MONSTER_FLAG = { CHASING: 1, RISING: 2, HURT: 4 } as const;
 /** Worm flags in snapshots; mirrors `game::worms::flag`. */
 export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4, LUNGE: 8, LURK: 16 } as const;
 /** Sub-kinds of ability events (values: [kind, tick, ...]); mirrors `game::abilities::ab`. */

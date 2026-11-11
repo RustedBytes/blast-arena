@@ -4,7 +4,7 @@
 import type { Tone } from '../alerts.js';
 import { ITEM_SPRITES } from '../assets.js';
 import { t } from '../i18n.js';
-import { AB, EV, GUARD_NEWS, WORM_NEWS } from '../protocol.js';
+import { AB, EV, GUARD_NEWS, MONSTER_NEWS, WORM_NEWS } from '../protocol.js';
 import type { EventMsg } from '../protocol.js';
 import { updateCaptures } from './hud.js';
 import { alerts, audio, renderer } from './services.js';
@@ -98,6 +98,9 @@ export function gameEvent(m: EventMsg): void {
     case EV.GUARD:
       guardEvent(v);
       break;
+    case EV.MONSTER:
+      monsterEvent(v);
+      break;
     case EV.SWAP:
       for (const id of v) {
         const f = renderer.frame;
@@ -137,6 +140,36 @@ function guardEvent([what, x, y, who]: number[]): void {
       break;
     case GUARD_NEWS.BACK:
       alerts.toast(t('wardenBack'), { icon: '🗿', tone: 'info', key: 'warden' });
+      break;
+  }
+}
+
+/** Icons of the monster kinds (slime, skeleton, bat), for the kill feed and notices. */
+export const MONSTER_ICONS = ['🟢', '💀', '🦇'] as const;
+
+/** Dungeon monster news (EV.MONSTER): effects, sounds and notices. */
+function monsterEvent([what, x, y, who, kind]: number[]): void {
+  if (!state) return;
+  const id = who - 1;
+  const near = Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y) < 14;
+  const icon = MONSTER_ICONS[kind - 1] ?? '👹';
+  switch (what) {
+    case MONSTER_NEWS.BIT:
+      state.monsterMeals.set(id, kind);
+      renderer.effects.wormGulp(x, y);
+      break;
+    case MONSTER_NEWS.SLAIN:
+      renderer.effects.monsterBurst(x, y, kind);
+      if (near) audio.kick();
+      if (id === state.myId) {
+        const line = t('monsterSlain')[kind - 1];
+        if (line) alerts.toast(line, { icon, tone: 'good', key: 'monster-news' });
+      }
+      break;
+    case MONSTER_NEWS.HIT:
+      renderer.effects.monsterBurst(x, y, kind, true);
+      if (near) audio.kick();
+      if (id === state.myId) alerts.toast(t('monsterHit'), { icon, tone: 'info', key: 'monster-news' });
       break;
   }
 }

@@ -130,6 +130,11 @@ pub mod ev {
     /// on guard, 4 a slam landed, 5 a bomb lobbed), x, y, then the player
     /// (the one crushed, or who brought it down) + 1, or 0.
     pub const GUARD: u8 = 13;
+    /// Dungeon monster news: what (1 bit a player, 2 slain, 3 hit and
+    /// still standing), x, y, the player (the one bitten, or whose fire
+    /// did it) id + 1 or 0, then the monster kind (1 slime, 2 skeleton,
+    /// 3 bat). A bite arrives just before the victim's kill message.
+    pub const MONSTER: u8 = 14;
 }
 
 /// Snapshot layout (opcode [`op::SNAP`]):
@@ -162,6 +167,11 @@ pub mod ev {
 ///                skill goes off, u8 skill direction). Flags: 1 hunting,
 ///                2 slam wind-up, 4 charge wind-up, 8 charging, 16 stone
 ///                skin, 32 enraged, 64 just hit.
+///   [MONSTERS]   n, n × (id, u8 kind, u8 flags, x, y, from x, from y,
+///                ticks per step, ticks since the last step, u8 hp, u8 max
+///                hp): the monsters in view. Kinds: 1 slime, 2 skeleton,
+///                3 bat. Flags: 1 hunting, 2 rising (the step is then the
+///                whole rise), 4 just hit.
 /// [ME]           changed-field mask, one ivar per set bit (see ME_FIELDS)
 /// ```
 ///
@@ -191,6 +201,7 @@ pub mod snap {
     pub const STUCK: u8 = 16;
     pub const WORMS: u8 = 32;
     pub const GUARD: u8 = 64;
+    pub const MONSTERS: u8 = 128;
 
     pub const DX: u64 = 1;
     pub const DY: u64 = 2;
@@ -920,6 +931,15 @@ pub mod testing {
                         let (id, flags, step, since) = (r.uvar().unwrap(), r.u8().unwrap(), r.uvar().unwrap(), r.uvar().unwrap());
                         let cells = (0..r.uvar().unwrap()).map(|_| json!([r.uvar().unwrap(), r.uvar().unwrap()])).collect::<Vec<_>>();
                         json!([id, flags, step, since, cells])
+                    }));
+                }
+                if parts & snap::MONSTERS != 0 {
+                    let n = r.uvar().unwrap() as usize;
+                    extra["monsters"] = json!(list(&mut r, n, &|r| {
+                        let (id, kind, flags) = (r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
+                        let (x, y, fx, fy) = (r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap(), r.uvar().unwrap());
+                        let (step, since, hp, max) = (r.uvar().unwrap(), r.uvar().unwrap(), r.u8().unwrap(), r.u8().unwrap());
+                        json!([id, kind, flags, x, y, fx, fy, step, since, hp, max])
                     }));
                 }
             }

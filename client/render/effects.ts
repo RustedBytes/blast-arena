@@ -6,7 +6,7 @@ import { context2d, makeCanvas } from '../dom.js';
 import { P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
 import type { Arms, FlameEntry } from '../protocol.js';
 import type { GameMap } from '../state.js';
-import { ARM_DIRS, C_WORM, DECAL_LIFE, DECALS, NUKE_FLAME_S, NUKE_LIFE_S, NUKE_WAVE_CPS, T_ARMORED, T_BUILT, T_CRATE, T_WALL, WARDEN_SLAM_RADIUS } from './constants.js';
+import { ARM_DIRS, C_BAT, C_BONE, C_SLIME, C_WORM, DECAL_LIFE, DECALS, NUKE_FLAME_S, NUKE_LIFE_S, NUKE_WAVE_CPS, T_ARMORED, T_BUILT, T_CRATE, T_WALL, WARDEN_SLAM_RADIUS } from './constants.js';
 import type { PlayerLayer } from './players.js';
 import type { Stage } from './stage.js';
 import type { Effect, NukeShow, Puffs } from './types.js';
@@ -314,6 +314,13 @@ export class EffectsLayer {
   wormSplat(x: number, y: number, big: boolean) {
     this.s.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, big ? 18 : 9, big ? 4 : 2.5, 0.8, 0.16, C_WORM, 2);
     this.s.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 3, 0.8, 0.8, 0.3, 5, 1);
+  }
+
+  /** A monster at cell (x, y) bursting (slain) or chipped (hit): slime goo, bone shards or bat fluff. */
+  monsterBurst(x: number, y: number, kind: number, hit = false) {
+    const color = kind === 1 ? C_SLIME : kind === 2 ? C_BONE : C_BAT;
+    this.s.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, hit ? 7 : 16, hit ? 2.4 : 3.8, 0.8, 0.15, color, 2);
+    if (!hit) this.s.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 4, 0.9, 0.9, 0.3, 5, 1);
   }
 
   /** The Warden's slam landing at cell (x, y): a shockwave, dust and a shake. */

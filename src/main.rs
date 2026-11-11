@@ -67,11 +67,12 @@ struct Args {
     #[arg(long, env = "BOTS", default_value_t = 10)]
     bots: usize,
     /// Arenas to run, each as NAME:MODE:SIZE:BOTS (mode is ffa, teams,
-    /// royale, worms or rockets). Repeat the flag for several arenas.
+    /// royale, worms, rockets or dungeon). Repeat the flag for several arenas.
     /// Default: a main free-for-all built from --map-size/--bots, plus
     /// "Teams:teams:61:8", "Mini:ffa:31:4", "Royale:royale:81:15" (battle
     /// royale), "Worms:worms:61:6" (worms hunt everyone), "Rockets:rockets:51:8"
-    /// (the bomb key fires rockets), "Horde:ffa:321:1000" (a thousand bots)
+    /// (the bomb key fires rockets), "Dungeon:dungeon:61:6" (rooms and
+    /// corridors full of monsters), "Horde:ffa:321:1000" (a thousand bots)
     /// and "Humans:ffa:51:0" (no bots).
     #[arg(long = "arena", env = "ARENAS", value_delimiter = ',')]
     arenas: Vec<String>,
@@ -115,7 +116,7 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
     let [name, mode, size, bots] = parts[..] else {
         return Err(format!("arena {spec:?} must look like NAME:MODE:SIZE:BOTS"));
     };
-    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa, teams, royale, worms or rockets"))?;
+    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa, teams, royale, worms, rockets or dungeon"))?;
     let size: i32 = size.parse().map_err(|_| format!("arena {spec:?}: bad size"))?;
     let bots: usize = bots.parse().map_err(|_| format!("arena {spec:?}: bad bot count"))?;
     let size = size.max(15) | 1; // odd, so the pillar grid lines up with the border
@@ -163,6 +164,8 @@ async fn main() {
             "Royale:royale:81:15".into(),
             "Worms:worms:61:6".into(),
             "Rockets:rockets:51:8".into(),
+            // Rooms and corridors, haunted by monsters.
+            "Dungeon:dungeon:61:6".into(),
             // A thousand bots, with about 100 cells each to play in.
             "Horde:ffa:321:1000".into(),
             "Humans:ffa:51:0".into(),

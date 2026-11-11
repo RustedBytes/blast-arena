@@ -19,10 +19,10 @@
 //
 // The parts live in client/pixelart/.
 
-import { armoredCrate, crate, obsidianPillar, sandPillar, snowPillar, stonePillar } from './pixelart/blocks.js';
-import { ash, grass, sand, snow } from './pixelart/floors.js';
+import { armoredCrate, crate, cryptPillar, obsidianPillar, sandPillar, snowPillar, stonePillar } from './pixelart/blocks.js';
+import { ash, crypt, grass, sand, snow } from './pixelart/floors.js';
 import { fringe, shadow } from './pixelart/overlays.js';
-import { ASH, GRASS, SAND, SNOW } from './pixelart/palette.js';
+import { ASH, CRYPT, GRASS, SAND, SNOW } from './pixelart/palette.js';
 import { conveyor, ice, teleport } from './pixelart/specials.js';
 import { Pix } from './pixelkit.js';
 
@@ -30,9 +30,9 @@ import { Pix } from './pixelkit.js';
 
 /**
  * Which biome's floor spills over a border, by biome index (0 meadow,
- * 1 snow, 2 desert, 3 volcano): the higher rank covers the lower.
+ * 1 snow, 2 desert, 3 volcano, 4 crypt): the higher rank covers the lower.
  */
-export const FRINGE_RANK = [2, 3, 1, 0];
+export const FRINGE_RANK = [2, 3, 1, 0, 4];
 
 /**
  * Builds the pixel-art tile set from a seed. Returns canvases keyed like
@@ -48,14 +48,16 @@ export function buildPixelTiles(seed = 1) {
     [snow(s(4), 0), snow(s(5), 1)],
     [sand(s(6), 0), sand(s(7), 1)],
     [ash(s(8), 0), ash(s(9), 1)],
+    [crypt(s(40), 0), crypt(s(41), 0), crypt(s(42), 1), crypt(s(43), 2)],
   ];
   const pillars = [
     [stonePillar(s(10), 0), stonePillar(s(11), 1), stonePillar(s(12), 2)],
     [snowPillar(s(13)), snowPillar(s(14))],
     [sandPillar(s(15), 0), sandPillar(s(16), 1)],
     [obsidianPillar(s(17), 0), obsidianPillar(s(18), 1)],
+    [cryptPillar(s(44), 0), cryptPillar(s(45), 0), cryptPillar(s(46), 1), cryptPillar(s(47), 2)],
   ];
-  const borders = [GRASS[1], SNOW[2], SAND[2], ASH[1]];
+  const borders = [GRASS[1], SNOW[2], SAND[2], ASH[1], CRYPT[1]];
   const cv = (p: Pix): HTMLCanvasElement => p.canvas();
   return {
     floor: cv(floors[0][0]),

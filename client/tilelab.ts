@@ -26,7 +26,7 @@ const ui = {
 
 const SIZE = 49;
 const CHUNK = 8;
-const BIOMES = ['meadow', 'snow', 'desert', 'volcano'];
+const BIOMES = ['meadow', 'snow', 'desert', 'volcano', 'crypt'];
 
 /** Small seeded generator for the sample map (separate from the art seed). */
 function rng(seed: number): () => number {
@@ -157,6 +157,8 @@ function drawSprites(px: PixelSet): void {
   section('Players (red team, blue team, two solo colours)', players);
   const hats = ['cap', 'party hat', 'horns', 'halo', 'crown', 'top hat'];
   section('Hats', px.hats.flatMap((h, id) => (h ? [figure(h.canvas, hats[id - 1] ?? `hat ${id}`, grass)] : [])));
+  const monsters = ['slime', 'skeleton', 'bat'];
+  section('Dungeon monsters (on flagstones)', px.monsters.flatMap((frames, k) => frames.map((c, i) => figure(c, `${monsters[k]} ${i + 1}`, px.floors[4][0]))));
 }
 
 // ------------------------------------------------------------- live scene

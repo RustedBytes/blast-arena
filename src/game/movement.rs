@@ -49,7 +49,7 @@ impl World {
             let (mut cx, mut cy) = p.cell();
 
             // Teleporters: stepping onto a pad's centre moves you to its twin.
-            // Never into fire, a worm or an atomic bomb's red zone, though.
+            // Never into fire, a worm, a monster or an atomic bomb's red zone, though.
             if self.map.get(cx, cy) == Tile::Teleport && p.teleport_ready_at <= self.tick {
                 let near_centre = (p.x - (cx as f32 + 0.5)).abs() + (p.y - (cy as f32 + 0.5)).abs() < 0.35;
                 let partner = self.map.teleport_partner(cx, cy).filter(|&(tx, ty)| !self.map.is_solid(tx, ty) && self.safe_arrival(tx, ty));

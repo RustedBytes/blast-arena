@@ -189,7 +189,7 @@ impl World {
         }
         let Some((tx, ty)) = self.portal_exit(cell.0, cell.1) else { return false };
         if !self.exit_free(tx, ty, id) || !self.safe_arrival(tx, ty) {
-            return false; // blocked or deadly (fire, worm, nuke): stay, no cooldown, no other exit
+            return false; // blocked or deadly (fire, worm, monster, nuke): stay, no cooldown, no other exit
         }
         let cd = self.tuning.teleport_cooldown;
         let p = self.players.get_mut(&id).unwrap();

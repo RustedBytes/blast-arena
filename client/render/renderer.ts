@@ -18,6 +18,7 @@ import { Stage } from './stage.js';
 import { TileLayer } from './tiles.js';
 import type { Frame, FrameBomb } from './types.js';
 import { WardenLayer } from './warden.js';
+import { MonsterLayer } from './monsters.js';
 import { WormLayer } from './worms.js';
 
 export class Renderer {
@@ -34,6 +35,7 @@ export class Renderer {
   readonly players: PlayerLayer;
   private readonly s: Stage;
   private readonly worms: WormLayer;
+  private readonly monsters: MonsterLayer;
   private readonly warden: WardenLayer;
   private readonly minimapLayer: Minimap;
   private readonly interpolator: Interpolator;
@@ -46,6 +48,7 @@ export class Renderer {
     this.events = new EventLayer(s);
     this.objects = new ObjectLayer(s);
     this.worms = new WormLayer(s);
+    this.monsters = new MonsterLayer(s);
     this.warden = new WardenLayer(s);
     this.minimapLayer = new Minimap(s, minimap, this.warden, this.events);
     this.interpolator = new Interpolator(s);
@@ -161,6 +164,7 @@ export class Renderer {
     this.effects.drawNukeGround(now, camX, camY, T);
     this.objects.drawGas(state, camX, camY, T, sec, dt);
     this.worms.drawWorms(camX, camY, T, sec, W, H);
+    this.monsters.drawMonsters(camX, camY, T, sec, W, H);
     this.warden.drawWarden(state, camX, camY, T, sec);
 
     // Players, back to front.

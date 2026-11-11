@@ -2,7 +2,7 @@
 //! rolled and the generator's quality report, so layout changes can be
 //! judged without starting a server.
 //!
-//! Usage: cargo run --release --bin mapview -- [--size 41] [--seed 1] [--count 3] [--open]
+//! Usage: cargo run --release --bin mapview -- [--size 41] [--seed 1] [--count 3] [--open | --dungeon]
 //!
 //! Legend: `#` wall, `+` crate, `%` armored crate, `~` ice, `^>v<` conveyor,
 //! `@` teleporter, `.` floor.
@@ -25,6 +25,9 @@ struct Args {
     /// Generate battle royale (open) maps.
     #[arg(long)]
     open: bool,
+    /// Generate dungeon maps (rooms and corridors).
+    #[arg(long)]
+    dungeon: bool,
     /// Print only the summary lines, not the maps.
     #[arg(long)]
     quiet: bool,
@@ -50,7 +53,11 @@ fn main() {
     for k in 0..args.count {
         let seed = derive_seed(args.seed, k);
         let mut rng = Rng::new(seed);
-        let map = if args.open { Map::generate_open(args.size, args.size, &mut rng) } else { Map::generate(args.size, args.size, 0.45, &mut rng) };
+        let map = if args.dungeon {
+            Map::generate_dungeon(args.size, args.size, &mut rng)
+        } else if args.open {
+            Map::generate_open(args.size, args.size, &mut rng)
+        } else { Map::generate(args.size, args.size, 0.45, &mut rng) };
         let s = &map.style;
         println!(
             "seed {seed}: {:?} {:?}, crates {:.2}, teleports {}, regions {:?}",

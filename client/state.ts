@@ -103,6 +103,10 @@ export interface GameState {
   /** Players the Warden just crushed (likewise). */
   wardenMeals: Set<number>;
   crushedByWarden: boolean;
+  /** Players a monster just bit, by monster kind (likewise). */
+  monsterMeals: Map<number, number>;
+  /** The kind of monster that got us last, or 0. */
+  bittenBy: number;
   lastLb: string;
   roundSecs: number;
   movedAt: number | null;

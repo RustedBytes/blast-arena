@@ -12,7 +12,7 @@ export const WARDEN_SLAM_WINDUP = 14, WARDEN_SLAM_RADIUS = 2, WARDEN_CHARGE_WIND
 
 /** Tiles walked per step of the walk cycle. */
 export const STRIDE = 0.55;
-export const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16, C_WORM = 17, C_DUST = 19;
+export const C_GAS = 14, C_GAS_DARK = 15, C_DASH = 16, C_WORM = 17, C_DUST = 19, C_SLIME = 20, C_BONE = 22, C_BAT = 24;
 export const CONVEYOR_DIR = [0, 0, 0, 0, 1, 2, 3, 4];
 // Rotation for flame arms / conveyors, indexed by direction code - 1.
 export const ARM_ANGLES = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
@@ -35,6 +35,7 @@ export const METEOR_WARN_MS = 1500;
 export const EVENT_BLIZZARD = 2;
 export const EVENT_EARTHQUAKE = 5;
 export const BIOME_VOLCANO = 3;
+export const BIOME_CRYPT = 4;
 // Atomic bomb, mirroring the server (src/game/bomb.rs): fuse, how long each
 // cell burns after the shockwave reaches it, how long the blast is shown,
 // and shockwave speed in cells per second.

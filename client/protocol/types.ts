@@ -24,6 +24,11 @@ export type DecoyEntry = [id: number, x: number, y: number, fuse: number];
 export type StuckEntry = [bomb: number, carrier: number];
 /** [id, flags, ticks per step, ticks since the last step, [x0, y0, x1, y1, ...]] */
 export type WormEntry = [id: number, flags: number, step: number, since: number, cells: number[]];
+/** [id, kind, flags, x, y, from x, from y, ticks per step, ticks since the last step, hp, max hp] */
+export type MonsterEntry = [
+  id: number, kind: number, flags: number, x: number, y: number, fromX: number, fromY: number,
+  step: number, since: number, hp: number, maxHp: number,
+];
 /** [id, x, y, from x, from y, flags, ticks per step, ticks since the last step, hp, max hp, ticks until the wound-up skill, skill direction] */
 export type WardenEntry = [
   id: number, x: number, y: number, fromX: number, fromY: number, flags: number,
@@ -42,6 +47,7 @@ export interface Extras {
   decoys: DecoyEntry[];
   stuck: StuckEntry[];
   worms: WormEntry[];
+  monsters: MonsterEntry[];
   guard?: GuardInfo;
 }
 
@@ -63,7 +69,7 @@ export type Me = Readonly<
 >;
 
 /** Arena modes; mirrors `game::Mode`. */
-export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'worms' | 'rockets';
+export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'worms' | 'rockets' | 'dungeon';
 
 /** A full snapshot rebuilt from a delta. */
 export interface Snapshot {

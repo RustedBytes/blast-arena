@@ -302,6 +302,13 @@ impl World {
                 t[i] = t[i].saturating_add(1);
             }
         }
+        // So are monsters.
+        for m in &self.monsters.list {
+            let i = self.map.idx(m.cell.0, m.cell.1);
+            for t in &mut sc.targets {
+                t[i] = t[i].saturating_add(1);
+            }
+        }
         // Worms are fair game for everyone: blowing one up scores.
         for w in &self.worms.list {
             for &(x, y) in &w.body {
@@ -416,6 +423,7 @@ impl World {
         }
         if worms {
             self.worm_danger(danger);
+            self.monster_danger(danger);
             self.warden_danger(danger);
         }
     }
@@ -481,6 +489,23 @@ impl World {
                 }
             }
             Skill::None => {}
+        }
+    }
+
+    /// Monsters bite: their cells are deadly now, and the cells next to
+    /// one from when it could step there.
+    fn monster_danger(&self, danger: &mut [u16]) {
+        for m in &self.monsters.list {
+            let (x, y) = m.cell;
+            danger[self.map.idx(x, y)] = 0;
+            let next = m.next_step.max(m.rise_until).saturating_sub(self.tick).min(u64::from(SAFE) - 1) as u16;
+            for &(dx, dy) in &DIRS[1..] {
+                let (nx, ny) = (x + dx, y + dy);
+                if self.map.in_bounds(nx, ny) && !self.map.is_solid(nx, ny) {
+                    let i = self.map.idx(nx, ny);
+                    danger[i] = danger[i].min(next);
+                }
+            }
         }
     }
 

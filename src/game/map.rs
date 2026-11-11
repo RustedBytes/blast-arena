@@ -69,6 +69,8 @@ pub enum Biome {
     Desert,
     /// Armored crates.
     Volcano,
+    /// Dungeon flagstones and brick (the dungeon arena).
+    Crypt,
 }
 
 /// A biome region centre, as fractions of the map size; a cell belongs to

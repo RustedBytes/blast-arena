@@ -43,7 +43,8 @@ impl World {
         // contract): commands and abilities, movement with portal trips and
         // dashes, sticky bombs following their carriers, fuses and blasts,
         // gas (which this tick's fire may ignite), damage, worms (cut by this
-        // tick's fire, then crawling and biting), then timers.
+        // tick's fire, then crawling and biting), monsters (likewise), then
+        // timers.
         self.read_inputs();
         self.update_bots();
         self.update_players();
@@ -56,6 +57,7 @@ impl World {
         self.update_gas();
         self.apply_flame_damage();
         self.update_worms();
+        self.update_monsters();
         self.update_guard();
         self.update_clones();
         self.update_walls();

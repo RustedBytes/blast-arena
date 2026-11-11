@@ -13,6 +13,7 @@ import { antenna, bomb, flames, IRON, nukeBomb, RED_IRON, scorch } from './pixel
 import { hat, HATS, player } from './pixelsprites/players.js';
 import type { PixelHat, PlayerView } from './pixelsprites/players.js';
 import { powerUps } from './pixelsprites/powerups.js';
+import { monsterSprites } from './pixelsprites/monsters.js';
 import { warden } from './pixelsprites/warden.js';
 import { wormHead, wormMound, wormSegment, wormTail } from './pixelsprites/worms.js';
 
@@ -59,6 +60,8 @@ export function buildPixelSprites() {
     worm_mound: big(wormMound()),
     warden: big(warden(false)),
     warden_rage: big(warden(true)),
+    /** Dungeon monsters as [kind - 1][frame]: slime, skeleton, bat. */
+    monsters: monsterSprites().map((frames) => frames.map(big)),
   };
 }
 

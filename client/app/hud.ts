@@ -124,6 +124,7 @@ export function updateHud(me: Me): void {
       ? t('youBlewUp')
       : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle')
         : state.crushedByWarden ? t('youWereCrushed')
+          : state.bittenBy ? t('monsterBit')[state.bittenBy - 1] ?? t('youWereBlasted')
           : state.eatenByWorm ? t('youWereEaten') : t('youWereBlasted');
     ui.dead.timer.textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');

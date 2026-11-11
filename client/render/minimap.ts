@@ -2,9 +2,9 @@
 // (view box, hills, zone, players) redrawn every MINIMAP_MS.
 
 import { context2d } from '../dom.js';
-import { GUARD_FLAG, WORM_FLAG } from '../protocol.js';
+import { GUARD_FLAG, MONSTER_FLAG, WORM_FLAG } from '../protocol.js';
 import type { GameState } from '../state.js';
-import { CONVEYOR_DIR, EVENT_BLIZZARD, MINIMAP_MS, NUKE_RADIUS, T_ARMORED, T_BUILT, T_CRATE, T_ICE, T_TELEPORT, T_WALL, TEAM_COLORS } from './constants.js';
+import { biome, BIOME_CRYPT, CONVEYOR_DIR, EVENT_BLIZZARD, MINIMAP_MS, NUKE_RADIUS, T_ARMORED, T_BUILT, T_CRATE, T_ICE, T_TELEPORT, T_WALL, TEAM_COLORS } from './constants.js';
 import type { EventLayer } from './events.js';
 import type { Stage } from './stage.js';
 import type { WardenLayer } from './warden.js';
@@ -65,7 +65,8 @@ export class Minimap {
       const data = this.mapPixels.data;
       for (let i = 0; i < map.tiles.length; i++) {
         const t = map.tiles[i], o = i * 4;
-        let r = 70, g = 135, b = 50;
+        // Grass, or dungeon flagstones in the crypt.
+        let [r, g, b] = biome(map, i % map.w, Math.floor(i / map.w)) === BIOME_CRYPT ? [92, 84, 74] : [70, 135, 50];
         if (t === T_WALL) { r = 120; g = 128; b = 138; }
         else if (t === T_CRATE) { r = 150; g = 100; b = 52; }
         else if (t === T_ARMORED) { r = 95; g = 80; b = 70; }
@@ -179,6 +180,12 @@ export class Minimap {
         c.fillStyle = flags & WORM_FLAG.CHASING ? '#ff5a8a' : '#e070ff';
         c.fillRect(x, y, s, s);
       }
+    }
+    // Monsters in view.
+    for (const [, , flags, mx, my] of state.snaps.latest().x.monsters) {
+      const s = Math.max(dot * 2, scale);
+      c.fillStyle = flags & MONSTER_FLAG.CHASING ? '#ff5a8a' : '#c070ff';
+      c.fillRect((mx + 0.5) * scale - s / 2, (my + 0.5) * scale - s / 2, s, s);
     }
     for (let i = 0; i < f.nPlayers; i++) {
       const p = f.players[i];

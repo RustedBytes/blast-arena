@@ -12,6 +12,7 @@ pub mod clone;
 pub mod dash;
 pub mod gas;
 pub mod guard;
+pub mod monsters;
 pub mod portal;
 pub mod sticky;
 pub mod worms;
@@ -45,6 +46,8 @@ mod tests;
 mod worm_tests;
 #[cfg(test)]
 mod guard_tests;
+#[cfg(test)]
+mod monster_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -120,6 +123,9 @@ pub enum Mode {
     /// Free-for-all where the bomb key fires a rocket instead of dropping a
     /// bomb (see `World::fire_bomb_rocket`).
     Rockets,
+    /// Free-for-all in a dungeon of rooms and corridors, haunted by
+    /// monsters that hunt everyone (see `monsters`).
+    Dungeon,
 }
 
 impl Mode {
@@ -131,6 +137,7 @@ impl Mode {
             Mode::Royale => "royale",
             Mode::Worms => "worms",
             Mode::Rockets => "rockets",
+            Mode::Dungeon => "dungeon",
         }
     }
 
@@ -142,6 +149,7 @@ impl Mode {
             "royale" => Some(Mode::Royale),
             "worms" => Some(Mode::Worms),
             "rockets" => Some(Mode::Rockets),
+            "dungeon" => Some(Mode::Dungeon),
             _ => None,
         }
     }
@@ -284,6 +292,8 @@ pub struct World {
     pub royale: royale::Royale,
     /// Worms hunting players in the worms arena (see `worms`).
     pub worms: worms::Worms,
+    /// Monsters roaming the dungeon arena (see `monsters`).
+    pub monsters: monsters::Monsters,
     /// The loot vault and its Warden (see `guard`).
     pub guard: guard::Guard,
     /// Tile and item changes made during the current tick, sent to everyone.
@@ -341,6 +351,8 @@ pub struct WorldStats {
     pub worm_bites: u64,
     pub wardens_killed: u64,
     pub warden_crushes: u64,
+    pub monsters_killed: u64,
+    pub monster_bites: u64,
 }
 
 impl World {
@@ -349,6 +361,8 @@ impl World {
         // to crawl and hunt: an open, connected map.
         let map = if matches!(cfg.mode, Mode::Royale | Mode::Worms) {
             Map::generate_open(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
+        } else if cfg.mode == Mode::Dungeon {
+            Map::generate_dungeon(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
         } else {
             Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed))
         };
@@ -379,6 +393,9 @@ impl World {
         world.init_events();
         if cfg.mode == Mode::Worms {
             world.enable_worms();
+        }
+        if cfg.mode == Mode::Dungeon {
+            world.enable_monsters();
         }
         world.set_target_bots(cfg.bots);
         world
@@ -423,6 +440,7 @@ impl World {
             blizzard_until: 0,
             royale: royale::Royale::default(),
             worms: worms::Worms::new(n),
+            monsters: monsters::Monsters::new(n),
             guard: guard::Guard::default(),
             tile_changes: Vec::new(),
             item_changes: Vec::new(),

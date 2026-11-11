@@ -6,7 +6,22 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-11
+
 ### Added
+
+- A Dungeon arena (`dungeon` mode, `Dungeon:dungeon:61:6` in the default
+  list): a free-for-all on a new dungeon map of crate-filled rooms joined
+  by narrow, winding corridors, in a new crypt region (flagstone floors,
+  dark brick walls with torches; `mapview --dungeon` previews them).
+  Monsters roam it and hunt players: slow slimes that never see a bomb
+  coming, two-blast skeletons that dodge fire, and erratic bats that fly
+  over crates and bombs. Touching one kills you; blowing one up scores and
+  may drop a power-up. Monsters are sent in a new MONSTERS part of the
+  snapshot EXTRA section and as monster news events (ev kind 14); the
+  client draws them in pixel and classic styles, on the minimap and in the
+  kill feed, and bots treat them as danger and targets. Tuning lives in
+  `MonsterTuning` (src/game/monsters.rs).
 
 - A Horde arena (`Horde:ffa:321:1000` in the default list): a
   free-for-all with a thousand bots on a 321×321 map, about 100 cells
@@ -537,6 +552,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.9.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.9.0
 [0.8.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.8.0
 [0.7.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.7.0
 [0.6.1]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.6.1

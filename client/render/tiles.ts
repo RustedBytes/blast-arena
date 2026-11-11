@@ -108,7 +108,8 @@ export class TileLayer {
     // Pixel art has variants per biome, block shadows and blended borders.
     const pix = style === 'pixel' ? a.pixel : null;
     const grass = [sprite('floor'), sprite('floor_b'), sprite('floor_c')];
-    const biomeFloor = [grass, [sprite('floor_snow')], [sprite('floor_sand')], [sprite('floor_ash')]];
+    // The crypt has no classic art of its own: volcanic ash is the closest.
+    const biomeFloor = [grass, [sprite('floor_snow')], [sprite('floor_sand')], [sprite('floor_ash')], [sprite('floor_ash')]];
     const floors = pix ? pix.floors : biomeFloor;
     const tileAt = (x: number, y: number): number => (x < 0 || y < 0 || x >= map.w || y >= map.h ? T_WALL : map.tiles[y * map.w + x]);
     const raised = (x: number, y: number): boolean => {

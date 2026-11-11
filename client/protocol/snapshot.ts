@@ -3,11 +3,11 @@
 
 import { BOMB_FLAG, hasFlag, ME_FIELDS } from './constants.js';
 import { Reader } from './reader.js';
-import type { BombEntry, CloneEntry, DecoyEntry, DroneEntry, Extras, FlameEntry, GasEntry, GuardInfo, Me, MeField, MeFlag, PlayerEntry, PortalEntry, Snapshot, SnapshotBase, StuckEntry, WardenEntry, WormEntry } from './types.js';
+import type { BombEntry, CloneEntry, DecoyEntry, DroneEntry, Extras, FlameEntry, GasEntry, GuardInfo, Me, MeField, MeFlag, MonsterEntry, PlayerEntry, PortalEntry, Snapshot, SnapshotBase, StuckEntry, WardenEntry, WormEntry } from './types.js';
 
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
 const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 } as const;
-const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32, GUARD: 64 } as const;
+const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32, GUARD: 64, MONSTERS: 128 } as const;
 const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 } as const;
 
 const ME_EMPTY: readonly number[] = new Array<number>(ME_FIELDS.length).fill(0);
@@ -85,7 +85,7 @@ export function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | nul
     : [];
 
   // Ability objects in view, sent whole every snapshot (see protocol::snap).
-  const x: Extras = { gas: [], portals: [], clones: [], decoys: [], stuck: [], worms: [] };
+  const x: Extras = { gas: [], portals: [], clones: [], decoys: [], stuck: [], worms: [], monsters: [] };
   if (sections & SECTION.EXTRA) {
     const parts = r.u8();
     // [id, x, y, arms, ticks left]
@@ -121,6 +121,10 @@ export function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | nul
       const cells = r.list(r.uvar(), () => [r.uvar(), r.uvar()]).flat();
       return [id, flags, step, since, cells];
     });
+    // [id, kind, flags, x, y, from x, from y, ticks per step, ticks since the last step, hp, max hp]
+    if (parts & EXTRA.MONSTERS) x.monsters = r.list(r.uvar(), (): MonsterEntry => [
+      r.uvar(), r.u8(), r.u8(), r.uvar(), r.uvar(), r.uvar(), r.uvar(), r.uvar(), r.uvar(), r.u8(), r.u8(),
+    ]);
   }
 
   const rawMe = (base?.rawMe ?? ME_EMPTY).slice();
