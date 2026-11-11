@@ -10,6 +10,10 @@ export type PlayerScene = Pick<GameState, 'myId' | 'rosterInfo' | 'emotes' | 'ma
 export interface FramePlayer {
   id: number; x: number; y: number; facing: number; moving: boolean; shield: boolean; cursed: boolean; ghost: boolean;
   bounty: boolean; jumpDir: number; lift: number; stunned: boolean; carrying: boolean; dashing: boolean; gassed: boolean;
+  /** Just bitten by a monster: blinks while immune. */
+  hurt: boolean;
+  /** Missing hearts (dungeon): leaves a trail of blood. */
+  wounded: boolean;
   /** Owner id when this is a clone, else 0. */
   clone: number;
   /** Key of the walk animation state. */

@@ -14,6 +14,8 @@ impl World {
         self.carrier_lost(victim, cell);
         let Some(dead) = self.players.get_mut(&victim) else { return };
         dead.alive = false;
+        // A new life starts unhurt.
+        (dead.wounds, dead.hurt_until) = (0, 0);
         (dead.jump_left, dead.jump_dir, dead.stunned_until) = (0, 0, 0);
         dead.moving = false;
         dead.deaths += 1;

@@ -152,6 +152,6 @@ export function meObject(raw: readonly number[]): Me {
     carrying: n('carrying'), storm: n('storm'), storm_max: n('storm_max'), ability: n('ability'), ability_n: n('ability_n'),
     ability_max: n('ability_max'), ability_cd: n('ability_cd'), gas_bombs: n('gas_bombs'), sticky_bombs: n('sticky_bombs'),
     stuck: n('stuck'), detach: n('detach'), gassed: n('gassed'), dash: n('dash'), dash_dir: n('dash_dir'),
-    portal_wait: n('portal_wait'),
+    portal_wait: n('portal_wait'), hp: n('hp'), hp_max: n('hp_max'),
   };
 }

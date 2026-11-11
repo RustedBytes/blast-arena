@@ -6,6 +6,21 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Dungeon arena: players have three hearts against monsters. A bite takes
+  one (the last one kills) and makes you blink for 2 s: no monster can
+  bite you and they all lose interest, and the one that bit you staggers
+  for a second, so you can get away from a bat or a slime. Hearts come
+  back one every 8 s without a bite; fire still kills in one go. The HUD
+  shows your hearts, and other players see a bitten player blink. Bats
+  now chase a little slower than a player walks. The player's own state
+  gains `hp` and `hp_max`, player flags a "just bitten" bit (1024) and a
+  "wounded" bit (2048), and monster news a "wounded" event (4, with the
+  hearts left). The monster that bit is knocked back a cell. A wounded
+  player leaves a trail of blood drops while walking (more of them while
+  blinking), which dry darker and fade after a few seconds.
+
 ### Added
 
 - A "Bomb / rocket key" setting: F drops bombs (and fires rockets) and

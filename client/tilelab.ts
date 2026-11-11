@@ -198,7 +198,7 @@ const bombs: Frame = {
 };
 const player = (o: Partial<FramePlayer> & { id: number }): FramePlayer => ({
   x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0, lift: 0,
-  stunned: false, carrying: false, dashing: false, gassed: false, clone: 0, anim: o.id, ...o,
+  stunned: false, carrying: false, dashing: false, gassed: false, hurt: false, wounded: false, clone: 0, anim: o.id, ...o,
 });
 let sceneLast = performance.now();
 

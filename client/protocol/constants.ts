@@ -2,7 +2,7 @@
 
 /** Bits of a player entry's flags; mirrors the server's snapshot encoding. */
 export const PLAYER_FLAG = {
-  MOVING: 1, SHIELD: 2, CURSED: 4, GHOST: 8, BOUNTY: 16, JUMPING: 32, STUNNED: 64, CARRYING: 128, DASHING: 256, GASSED: 512,
+  MOVING: 1, SHIELD: 2, CURSED: 4, GHOST: 8, BOUNTY: 16, JUMPING: 32, STUNNED: 64, CARRYING: 128, DASHING: 256, GASSED: 512, HURT: 1024, WOUNDED: 2048,
 } as const;
 /** Bits of a bomb entry's flags; mirrors `game::snapshot::bomb_flags` (mines are 32). */
 export const BOMB_FLAG = {
@@ -18,8 +18,8 @@ export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 } as const;
 export const GUARD_NEWS = { CRUSHED: 1, KILLED: 2, BACK: 3, SLAM: 4, LOB: 5 } as const;
 /** Warden flags in snapshots; mirrors `game::guard::flag`. */
 export const GUARD_FLAG = { HUNTING: 1, SLAM: 2, CHARGE_WINDUP: 4, CHARGING: 8, SKIN: 16, ENRAGED: 32, HURT: 64 } as const;
-/** What a monster event reports (values: [what, x, y, player id + 1, kind]); mirrors `game::monsters::news`. */
-export const MONSTER_NEWS = { BIT: 1, SLAIN: 2, HIT: 3 } as const;
+/** What a monster event reports (values: [what, x, y, player id + 1, kind, hearts left]); mirrors `game::monsters::news`. */
+export const MONSTER_NEWS = { BIT: 1, SLAIN: 2, HIT: 3, WOUNDED: 4 } as const;
 /** Monster kinds; mirrors `game::monsters::Kind`. */
 export const MONSTER_KIND = { SLIME: 1, SKELETON: 2, BAT: 3 } as const;
 /** Monster flags in snapshots; mirrors `game::monsters::flag`. */
@@ -38,4 +38,4 @@ export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
   'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying', 'storm', 'storm_max',
   'ability', 'ability_n', 'ability_max', 'ability_cd', 'gas_bombs', 'sticky_bombs', 'stuck', 'detach', 'gassed', 'dash',
-  'dash_dir', 'portal_wait'] as const;
+  'dash_dir', 'portal_wait', 'hp', 'hp_max'] as const;

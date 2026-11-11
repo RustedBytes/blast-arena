@@ -8,7 +8,12 @@
 //! - **Bats** flutter over crates and bombs, fast but erratic.
 //!
 //! A monster steps from cell to cell. Anyone on the ground and unshielded
-//! sharing its cell is bitten and dies. Fire takes a hit point (then a
+//! sharing its cell is bitten. Players have `player_hp` hearts here: a bite
+//! takes one (the last one kills), then for `bite_immune_ticks` the player
+//! can't be bitten and monsters lose interest in them, and the monster
+//! that bit staggers for `recoil_ticks`, so there's always time to get
+//! away. Hearts heal one every `heal_ticks` without a bite. Fire still
+//! kills in one go. Fire takes a hit point (then a
 //! moment of immunity, so one blast is one hit); whoever's fire lands the
 //! last hit scores, and the monster may leave a power-up behind. Monsters
 //! keep out of fire to come, rise out of the ground away from players
@@ -91,6 +96,14 @@ pub struct MonsterTuning {
     pub spawn_reach: i32,
     /// Chance that a slain monster leaves a power-up.
     pub drop_chance: f32,
+    /// Hearts a player has against bites (1: a bite kills).
+    pub player_hp: u8,
+    /// After a bite: the player can't be bitten (and isn't hunted) this
+    /// long, and the monster that bit holds still this long.
+    pub bite_immune_ticks: u64,
+    pub recoil_ticks: u64,
+    /// A lost heart comes back after this long without a bite.
+    pub heal_ticks: u64,
 }
 
 impl Default for MonsterTuning {
@@ -127,8 +140,8 @@ impl Default for MonsterTuning {
             },
             bat: KindTuning {
                 hp: 1,
-                wander_step_ticks: 6,
-                chase_step_ticks: 5,
+                wander_step_ticks: 7,
+                chase_step_ticks: 6,
                 sense_range: 8,
                 path_limit: 14,
                 erratic: 0.35,
@@ -146,6 +159,10 @@ impl Default for MonsterTuning {
             spawn_clearance: 7,
             spawn_reach: 16,
             drop_chance: 0.3,
+            player_hp: 3,
+            bite_immune_ticks: 2 * SEC,
+            recoil_ticks: SEC,
+            heal_ticks: 8 * SEC,
         }
     }
 }
@@ -173,12 +190,15 @@ pub mod flag {
 
 /// What a monster event ([`ev::MONSTER`]) reports.
 pub mod news {
-    /// A monster bit a player: (x, y, victim id + 1, kind).
+    /// A monster's bite killed a player: (x, y, victim id + 1, kind).
     pub const BIT: i64 = 1;
     /// A monster was slain: (x, y, killer id + 1, kind).
     pub const SLAIN: i64 = 2;
     /// A monster was hit and lives on: (x, y, hitter id + 1, kind).
     pub const HIT: i64 = 3;
+    /// A monster bit a player who lives on: (x, y, victim id + 1, kind,
+    /// hearts left).
+    pub const WOUNDED: i64 = 4;
 }
 
 pub struct Monster {
@@ -380,6 +400,7 @@ impl World {
             return;
         }
         self.hurt_monsters();
+        self.heal_players();
         let target = self.monster_target();
         if self.monsters.list.len() < target && self.tick >= self.monsters.next_spawn {
             let gap = if self.spawn_monster() { self.monsters.tuning.spawn_gap_ticks } else { SEC };
@@ -473,9 +494,9 @@ impl World {
         }
     }
 
-    /// Players a monster goes for: alive and unshielded.
+    /// Players a monster goes for: alive, unshielded, and not just bitten.
     fn monster_prey(&self, p: &Player) -> bool {
-        p.alive && p.invulnerable_until <= self.tick
+        p.alive && p.invulnerable_until <= self.tick && p.hurt_until <= self.tick
     }
 
     fn refresh_monster_danger(&mut self) {
@@ -660,7 +681,25 @@ impl World {
         m.last_step = tick;
     }
 
-    /// Anyone on the ground and unshielded on a monster's cell is bitten.
+    /// Lost hearts come back one at a time while nothing bites.
+    fn heal_players(&mut self) {
+        let (tick, heal) = (self.tick, self.monsters.tuning.heal_ticks);
+        for p in self.players.values_mut() {
+            if p.wounds > 0 && p.alive && tick >= p.heal_at {
+                p.wounds -= 1;
+                p.heal_at = tick + heal;
+            }
+        }
+    }
+
+    /// Hearts a player has left against bites.
+    #[must_use]
+    pub fn hearts(&self, p: &Player) -> u8 {
+        self.monsters.tuning.player_hp.saturating_sub(p.wounds)
+    }
+
+    /// Anyone on the ground and unshielded on a monster's cell is bitten:
+    /// a heart lost, or the last one.
     pub(super) fn monster_bites(&mut self) {
         let tick = self.tick;
         let mut victims = std::mem::take(&mut self.monsters.victims);
@@ -671,7 +710,7 @@ impl World {
             }
             let (x, y) = m.cell;
             for p in self.players_in_rect(x, y, x, y) {
-                if p.alive && p.jump_left == 0 && p.invulnerable_until <= tick && p.cell() == (x, y) {
+                if p.alive && p.jump_left == 0 && p.invulnerable_until <= tick && p.hurt_until <= tick && p.cell() == (x, y) {
                     victims.push((p.id, k));
                 }
             }
@@ -682,6 +721,36 @@ impl World {
             let (x, y) = self.players[&id].cell();
             let kind = self.monsters.list[k].kind as i64;
             self.stats.monster_bites += 1;
+            let tuning = &self.monsters.tuning;
+            let (hp, immune, recoil, heal) = (tuning.player_hp.max(1), tuning.bite_immune_ticks, tuning.recoil_ticks, tuning.heal_ticks);
+            let victim = self.players.get_mut(&id).unwrap();
+            victim.wounds = victim.wounds.saturating_add(1);
+            if victim.wounds < hp {
+                // Hurt, not dead: a moment to get away.
+                (victim.hurt_until, victim.heal_at) = (tick + immune, tick + heal);
+                let left = i64::from(hp - victim.wounds);
+                // The biter staggers, knocked back off the player's cell
+                // (to where it came from, or any free neighbour).
+                let (bkind, at, from) = {
+                    let m = &self.monsters.list[k];
+                    (m.kind, m.cell, m.from)
+                };
+                let back = std::iter::once(from)
+                    .chain((1..=4u8).map(|d| (at.0 + DIRS[d as usize].0, at.1 + DIRS[d as usize].1)))
+                    .find(|&c| c != at && c != (x, y) && self.monster_can_enter(bkind, c.0, c.1));
+                if let Some(to) = back {
+                    let (ai, ti) = (self.map.idx(at.0, at.1), self.map.idx(to.0, to.1));
+                    self.monsters.occupied[ai] = self.monsters.occupied[ai].saturating_sub(1);
+                    self.monsters.occupied[ti] = self.monsters.occupied[ti].saturating_add(1);
+                    let m = &mut self.monsters.list[k];
+                    (m.from, m.cell, m.last_step, m.step_ticks) = (at, to, tick, 4);
+                }
+                let biter = &mut self.monsters.list[k];
+                biter.next_step = biter.next_step.max(tick + recoil);
+                biter.memory = None;
+                self.broadcast_event(ev::MONSTER, &[news::WOUNDED, i64::from(x), i64::from(y), i64::from(id) + 1, kind, left]);
+                continue;
+            }
             // The news goes first, so clients know what the kill was.
             self.broadcast_event(ev::MONSTER, &[news::BIT, i64::from(x), i64::from(y), i64::from(id) + 1, kind]);
             self.kill(id, None);

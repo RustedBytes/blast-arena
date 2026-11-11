@@ -44,6 +44,7 @@ export const pl: Strings = {
   monsterBitFeed: ['{v} — pochłonięty przez szlam', '{v} — dopadnięty przez szkielet', '{v} — ugryziony przez nietoperza'],
   monsterSlain: ['Szlam rozbryzgany! +1', 'Szkielet roztrzaskany! +2', 'Nietoperz strącony! +1'],
   monsterHit: 'Trafienie! Jeszcze jeden wybuch go wykończy',
+  hearts: 'Serca chroniące przed ugryzieniami potworów', monsterWounded: 'Ugryzienie! Zostały {n} serca: uciekaj!', monsterWoundedLast: 'Ugryzienie! Ostatnie serce: uciekaj!',
   respawning: 'Odrodzenie za {n}…',
   watching: 'Obserwujesz: {name}',
   disconnected: 'Rozłączono z serwerem.',

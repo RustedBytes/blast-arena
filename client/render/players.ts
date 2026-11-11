@@ -187,6 +187,10 @@ export class PlayerLayer {
         this.s.particles.emit(P_CURSE, p.x + (Math.random() - 0.5) * 0.6, p.y + 0.2, 0, -0.8, 0.9, 0.06, 12 + (Math.random() < 0.5 ? 1 : 0));
       }
     }
+    // Wounded (dungeon): blood drips while walking, more so on the last heart's blink.
+    if (p.wounded && p.moving && !p.jumpDir && Math.random() < dt * (p.hurt ? 14 : 7)) {
+      this.s.blood.add(p.x, p.y + 0.3, performance.now());
+    }
     // Cosmetic trail.
     const trail = info?.trail ?? 0;
     if (trail && p.moving && Math.random() < dt * 25) {
@@ -220,6 +224,8 @@ export class PlayerLayer {
     }
     py -= p.lift;
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
+    // Just bitten: blinks while the bite immunity lasts.
+    else if (p.hurt) ctx.globalAlpha = Math.floor(sec * 12) % 2 ? 0.3 : 1;
     this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites, lean);
     ctx.globalAlpha = 1;
     if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);

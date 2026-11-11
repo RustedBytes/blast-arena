@@ -43,6 +43,7 @@ export const en = {
   monsterBitFeed: ['{v} was slimed', '{v} was caught by a skeleton', '{v} was bitten by a bat'],
   monsterSlain: ['Slime splatted! +1', 'Skeleton smashed! +2', 'Bat downed! +1'],
   monsterHit: 'Hit! One more blast finishes it',
+  hearts: 'Hearts against monster bites', monsterWounded: 'Bitten! {n} hearts left: get away!', monsterWoundedLast: 'Bitten! Last heart: run!',
   respawning: 'Respawning in {n}…',
   watching: 'Watching {name}',
   disconnected: 'Disconnected from server.',

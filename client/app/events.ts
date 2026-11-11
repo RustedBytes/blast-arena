@@ -148,7 +148,7 @@ function guardEvent([what, x, y, who]: number[]): void {
 export const MONSTER_ICONS = ['🟢', '💀', '🦇'] as const;
 
 /** Dungeon monster news (EV.MONSTER): effects, sounds and notices. */
-function monsterEvent([what, x, y, who, kind]: number[]): void {
+function monsterEvent([what, x, y, who, kind, v5]: number[]): void {
   if (!state) return;
   const id = who - 1;
   const near = Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y) < 14;
@@ -158,6 +158,15 @@ function monsterEvent([what, x, y, who, kind]: number[]): void {
       state.monsterMeals.set(id, kind);
       renderer.effects.wormGulp(x, y);
       break;
+    case MONSTER_NEWS.WOUNDED: {
+      renderer.effects.wormGulp(x, y);
+      if (id === state.myId) {
+        audio.curse();
+        const left = v5;
+        alerts.toast(left <= 1 ? t('monsterWoundedLast') : t('monsterWounded', { n: left }), { icon, tone: left <= 1 ? 'danger' : 'warn', key: 'monster-news' });
+      }
+      break;
+    }
     case MONSTER_NEWS.SLAIN:
       renderer.effects.monsterBurst(x, y, kind);
       if (near) audio.kick();

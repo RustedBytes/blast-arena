@@ -73,6 +73,17 @@ body.in-gas #gas-tint { display: block; }
   }
   &.curse { --ring-color: var(--curse); color: var(--curse); }
 
+  // Hearts against monster bites (dungeon arena).
+  &.hearts {
+    color: #ff4a5a;
+    font-size: 22px;
+    letter-spacing: 1px;
+    line-height: 1;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+    @include phone { font-size: 18px; }
+    &.low { animation: hearts-low 0.6s ease-in-out infinite alternate; }
+  }
+
   &.score {
     color: var(--muted);
     font-weight: 600;
@@ -101,6 +112,7 @@ body.in-gas #gas-tint { display: block; }
   }
 }
 
+@keyframes hearts-low { to { filter: drop-shadow(0 0 6px #ff4a5a); transform: scale(1.08); } }
 @keyframes nuke-armed { to { filter: drop-shadow(0 0 6px #ffd23f); } }
 
 // ---------------------------------------------------------------- round bar

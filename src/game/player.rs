@@ -169,6 +169,11 @@ pub struct Player {
     pub dash_portal: bool,
     /// Slowed by gas until this tick.
     pub gassed_until: u64,
+    /// Monster bites taken this life (dungeon arena; see `monsters`), the
+    /// tick the next one heals, and the moment of immunity after a bite.
+    pub wounds: u8,
+    pub heal_at: u64,
+    pub hurt_until: u64,
     /// After a portal trip: the exit cell, which must be left before the
     /// next trip, and the earliest tick of that trip.
     pub portal_lock: Option<(i32, i32)>,
@@ -265,6 +270,9 @@ impl Player {
             dash_left: 0,
             dash_portal: false,
             gassed_until: 0,
+            wounds: 0,
+            heal_at: 0,
+            hurt_until: 0,
             portal_lock: None,
             portal_ready_at: 0,
             history: History::default(),

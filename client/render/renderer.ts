@@ -121,6 +121,7 @@ export class Renderer {
     this.minimapLayer.invalidate();
     this.players.forgetLooks();
     this.effects.reset();
+    this.s.blood.reset();
   }
 
   draw(state: GameState, now: number, dt: number): void {
@@ -152,6 +153,7 @@ export class Renderer {
     this.events.drawHills(state.hills, camX, camY, T, sec);
     this.warden.drawVault(state, camX, camY, T, sec);
     this.effects.drawDecals(map, now, camX, camY, T);
+    s.blood.draw(ctx, now, camX, camY, T, W, H);
     this.events.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
 
     // Objects on the ground.

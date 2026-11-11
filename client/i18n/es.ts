@@ -44,6 +44,7 @@ export const es: Strings = {
   monsterBitFeed: ['Un limo atrapó a {v}', 'Un esqueleto atrapó a {v}', 'Un murciélago mordió a {v}'],
   monsterSlain: ['¡Limo reventado! +1', '¡Esqueleto destrozado! +2', '¡Murciélago derribado! +1'],
   monsterHit: '¡Tocado! Una explosión más y cae',
+  hearts: 'Corazones contra mordiscos de monstruos', monsterWounded: '¡Mordido! Te quedan {n} corazones: ¡aléjate!', monsterWoundedLast: '¡Mordido! Último corazón: ¡corre!',
   respawning: 'Reapareces en {n}…',
   watching: 'Observando a {name}',
   disconnected: 'Desconectado del servidor.',

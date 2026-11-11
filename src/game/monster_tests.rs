@@ -76,18 +76,20 @@ fn dungeon_maps_are_valid_rooms_and_corridors() {
 #[test]
 fn a_skeleton_hunts_down_and_bites_a_player() {
     let mut w = quiet(test_world(Map::empty(21, 21)));
+    w.monsters.enabled = true;
     let id = w.place_monster(Kind::Skeleton, (3, 9));
     let p = w.spawn_test_player(11.5, 9.5);
     w.players.get_mut(&p).unwrap().invulnerable_until = 0;
     for _ in 0..400 {
         w.step();
-        if !w.players[&p].alive {
+        if w.stats.monster_bites > 0 {
             break;
         }
         assert!(w.monster(id).unwrap().chasing, "it sees the player");
     }
-    assert!(!w.players[&p].alive, "bitten");
+    assert!(w.players[&p].alive, "a bite costs a heart, not a life");
     assert_eq!(w.stats.monster_bites, 1);
+    assert_eq!(w.hearts(&w.players[&p]), w.monsters.tuning.player_hp - 1);
 }
 
 #[test]
@@ -135,7 +137,97 @@ fn shielded_jumping_or_rising_are_safe() {
     assert!(w.players[&p].alive, "still rising out of the ground");
     w.monsters.list[0].rise_until = 0;
     w.monster_bites();
-    assert!(!w.players[&p].alive, "bitten");
+    assert_eq!(w.stats.monster_bites, 1, "bitten");
+}
+
+#[test]
+fn bites_take_hearts_and_the_last_one_kills() {
+    let mut w = quiet(test_world(Map::empty(15, 15)));
+    let id = w.place_monster(Kind::Bat, (5, 5));
+    w.freeze_monster(id);
+    let p = w.spawn_test_player(5.5, 5.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    let hp = w.monsters.tuning.player_hp;
+    assert_eq!(hp, 3);
+    for left in (1..hp).rev() {
+        w.monster_bites();
+        let pl = &w.players[&p];
+        assert!(pl.alive);
+        assert_eq!(w.hearts(pl), left);
+        assert!(pl.hurt_until > w.tick, "a moment of immunity");
+        assert!(w.monster(id).unwrap().next_step >= w.tick + w.monsters.tuning.recoil_ticks, "the bat staggers");
+        assert_ne!(w.monster(id).unwrap().cell, (5, 5), "knocked back off the player");
+        // Put it back on the player for the next bite.
+        let m = w.monsters.list.iter_mut().find(|m| m.id == id).unwrap();
+        let old = m.cell;
+        m.cell = (5, 5);
+        let (oi, ni) = (w.map.idx(old.0, old.1), w.map.idx(5, 5));
+        w.monsters.occupied[oi] -= 1;
+        w.monsters.occupied[ni] += 1;
+        // No second bite while immune.
+        w.monster_bites();
+        assert_eq!(w.hearts(&w.players[&p]), left);
+        w.players.get_mut(&p).unwrap().hurt_until = 0;
+        w.freeze_monster(id);
+    }
+    w.monster_bites();
+    assert!(!w.players[&p].alive, "the last heart");
+    assert_eq!(w.players[&p].wounds, 0, "the next life starts unhurt");
+}
+
+#[test]
+fn hearts_heal_over_time() {
+    let mut w = quiet(test_world(Map::empty(15, 15)));
+    w.monsters.enabled = true;
+    let p = w.spawn_test_player(5.5, 5.5);
+    let pl = w.players.get_mut(&p).unwrap();
+    (pl.wounds, pl.heal_at) = (2, w.tick + 5);
+    for _ in 0..6 {
+        w.step();
+    }
+    assert_eq!(w.players[&p].wounds, 1, "one heart back");
+    for _ in 0..w.monsters.tuning.heal_ticks {
+        w.step();
+    }
+    assert_eq!(w.players[&p].wounds, 0);
+}
+
+/// A bitten player who runs gets away: monsters lose interest while the
+/// bite immunity lasts, and a bat chases slower than a player walks.
+fn bitten_player_gets_away(kind: Kind) {
+    let mut w = quiet(test_world(Map::empty(41, 15)));
+    let id = w.place_monster(kind, (6, 7));
+    let p = w.spawn_test_player(6.5, 7.5);
+    w.players.get_mut(&p).unwrap().invulnerable_until = 0;
+    w.monster_bites();
+    assert_eq!(w.stats.monster_bites, 1);
+    w.hold(p, 2, 0);
+    for _ in 0..140 {
+        w.step();
+    }
+    assert!(w.players[&p].alive, "{kind:?}: got away");
+    assert_eq!(w.stats.monster_bites, 1, "{kind:?}: no second bite");
+    let gap = w.players[&p].cell().0 - w.monster(id).unwrap().cell.0;
+    assert!(gap >= 6, "{kind:?}: the gap grew to {gap}");
+}
+
+#[test]
+fn a_bitten_player_escapes_a_bat() {
+    bitten_player_gets_away(Kind::Bat);
+}
+
+#[test]
+fn a_bitten_player_escapes_a_slime() {
+    bitten_player_gets_away(Kind::Slime);
+}
+
+#[test]
+fn bats_chase_slower_than_a_player_walks() {
+    let t = super::monsters::MonsterTuning::default();
+    let player_ticks_per_cell = 1.0 / (super::player::BASE_SPEED * super::DT);
+    for k in super::monsters::KINDS {
+        assert!(t.of(k).chase_step_ticks as f32 > player_ticks_per_cell, "{k:?} must be outrun");
+    }
 }
 
 #[test]

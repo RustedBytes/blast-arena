@@ -160,5 +160,7 @@ function setPlayer(o: FramePlayer, q: Readonly<PlayerEntry>, x: number, y: numbe
   o.carrying = hasFlag(flags, PLAYER_FLAG.CARRYING);
   o.dashing = hasFlag(flags, PLAYER_FLAG.DASHING);
   o.gassed = hasFlag(flags, PLAYER_FLAG.GASSED);
+  o.hurt = hasFlag(flags, PLAYER_FLAG.HURT);
+  o.wounded = hasFlag(flags, PLAYER_FLAG.WOUNDED);
   o.clone = 0;
 }

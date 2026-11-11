@@ -59,6 +59,7 @@ export const ui = {
     range: byId('st-range'),
     speed: byId('st-speed'),
     score: byId('st-score'),
+    hearts: byId('st-hearts'),
     nuke: byId('st-nuke'),
     gadget: byId('st-gadget'),
     ability: byId('st-ability'),

@@ -77,7 +77,9 @@ impl World {
                 | u16::from(o.stunned_until > tick) << 6
                 | u16::from(o.carrying != 0) << 7
                 | u16::from(o.dashing()) << 8
-                | u16::from(o.gassed_until > tick) << 9;
+                | u16::from(o.gassed_until > tick) << 9
+                | u16::from(o.hurt_until > tick) << 10
+                | u16::from(o.wounds > 0) << 11;
             (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
         }));
         cur.players.sort_unstable_by_key(|e| e.0);
@@ -429,6 +431,9 @@ impl World {
             i64::from(p.dash_left),
             i64::from(p.dash_dir),
             t(portal_wait),
+            // Hearts against monster bites (dungeon arena); 0 elsewhere.
+            if self.monsters_on() { i64::from(self.hearts(p)) } else { 0 },
+            if self.monsters_on() { i64::from(self.monsters.tuning.player_hp) } else { 0 },
         ]);
         me
     }

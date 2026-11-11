@@ -180,7 +180,7 @@ pub mod ev {
 /// ivar y and the look (`varint(facing | flags << 3)`) in full; otherwise
 /// `DX`/`DY` give ivar position changes and `LOOK` a new look. Flags:
 /// moving, shield, cursed, ghost, bounty, jumping, stunned, carrying a
-/// flag, dashing, gassed. Bomb flags: pierce, remote, nuke, freeze, rocket,
+/// flag, dashing, gassed, just bitten and wounded (dungeon). Bomb flags: pierce, remote, nuke, freeze, rocket,
 /// mine, sticky, gas. A clone's look is a player's: facing | flags << 3.
 /// Positions are hundredths of a tile.
 pub mod snap {
@@ -218,9 +218,9 @@ pub const ME_FIELDS: [&str; ME_LEN] = [
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
     "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying", "storm", "storm_max",
     "ability", "ability_n", "ability_max", "ability_cd", "gas_bombs", "sticky_bombs", "stuck", "detach", "gassed", "dash",
-    "dash_dir", "portal_wait",
+    "dash_dir", "portal_wait", "hp", "hp_max",
 ];
-pub const ME_LEN: usize = 47;
+pub const ME_LEN: usize = 49;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 

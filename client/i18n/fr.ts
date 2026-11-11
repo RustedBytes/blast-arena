@@ -44,6 +44,7 @@ export const fr: Strings = {
   monsterBitFeed: ['{v} s’est fait engluer par un slime', '{v} a été attrapé par un squelette', '{v} a été mordu par une chauve-souris'],
   monsterSlain: ['Slime éclaté ! +1', 'Squelette brisé ! +2', 'Chauve-souris abattue ! +1'],
   monsterHit: 'Touché ! Encore une explosion pour l’achever',
+  hearts: 'Cœurs contre les morsures de monstres', monsterWounded: 'Mordu ! Encore {n} cœurs : fuis !', monsterWoundedLast: 'Mordu ! Dernier cœur : cours !',
   respawning: 'Réapparition dans {n}…',
   watching: 'Tu regardes {name}',
   disconnected: 'Déconnecté du serveur.',

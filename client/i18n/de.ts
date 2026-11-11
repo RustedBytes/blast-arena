@@ -44,6 +44,7 @@ export const de: Strings = {
   monsterBitFeed: ['{v} wurde verschleimt', '{v} wurde von einem Skelett erwischt', '{v} wurde von einer Fledermaus gebissen'],
   monsterSlain: ['Schleim zerplatzt! +1', 'Skelett zertrümmert! +2', 'Fledermaus erwischt! +1'],
   monsterHit: 'Treffer! Noch eine Explosion erledigt es',
+  hearts: 'Herzen gegen Monsterbisse', monsterWounded: 'Gebissen! Noch {n} Herzen: weg hier!', monsterWoundedLast: 'Gebissen! Letztes Herz: lauf!',
   respawning: 'Wiedereinstieg in {n}…',
   watching: 'Du siehst {name} zu',
   disconnected: 'Verbindung zum Server getrennt.',

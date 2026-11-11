@@ -4,12 +4,15 @@
 import type { Assets, PixelSet, SpriteName, TileStyle } from '../assets.js';
 import { context2d } from '../dom.js';
 import type { Particles } from '../particles.js';
+import { BloodTrail } from './blood.js';
 import type { GameSnapshot } from '../state.js';
 import { POOL } from './constants.js';
 import type { Frame, FrameBomb, FramePlayer } from './types.js';
 
 export class Stage {
   readonly ctx: CanvasRenderingContext2D;
+  /** Blood drops of wounded players (dungeon arena). */
+  readonly blood = new BloodTrail();
   /** Tile size in pixels at zoom 1, and at the current zoom. */
   baseT = 48;
   T = 48;
@@ -63,7 +66,7 @@ export class Stage {
 
 const newPlayer = (): FramePlayer => ({
   id: 0, x: 0, y: 0, facing: 3, moving: false, shield: false, cursed: false, ghost: false, bounty: false, jumpDir: 0,
-  lift: 0, stunned: false, carrying: false, dashing: false, gassed: false, clone: 0, anim: 0,
+  lift: 0, stunned: false, carrying: false, dashing: false, gassed: false, hurt: false, wounded: false, clone: 0, anim: 0,
 });
 const newBomb = (): FrameBomb => ({
   x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false,

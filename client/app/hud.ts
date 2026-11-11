@@ -68,7 +68,7 @@ export function updateHud(me: Me): void {
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
     me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying, me.storm,
     me.ability, me.ability_n, me.ability_max, Math.ceil(me.ability_cd / 2), me.gas_bombs, me.sticky_bombs,
-    getLanguage()].join();
+    me.hp, me.hp_max, getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
   ui.stats.bombs.textContent = `${me.bombs - me.active}/${me.bombs}`;
@@ -76,6 +76,13 @@ export function updateHud(me: Me): void {
   ui.stats.speed.textContent = String(me.speed);
   for (const k of ['kick', 'pierce', 'remote', 'line', 'punch'] as const) ui.stats.flags[k].classList.toggle('off', !me[k]);
   ui.stats.score.textContent = String(me.score);
+  // Hearts against monster bites (dungeon arena only).
+  const hearts = ui.stats.hearts;
+  hearts.classList.toggle('hidden', !me.hp_max || !me.alive);
+  if (me.hp_max) {
+    hearts.textContent = '♥'.repeat(Math.max(0, me.hp)) + '♡'.repeat(Math.max(0, me.hp_max - me.hp));
+    hearts.classList.toggle('low', me.hp <= 1);
+  }
   ui.stats.nuke.classList.toggle('hidden', !me.nukes);
   for (const k of ['freeze', 'stomp'] as const) ui.stats.flags[k].classList.toggle('off', !me[k]);
   const g = ui.stats.gadget;
