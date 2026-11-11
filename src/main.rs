@@ -22,8 +22,8 @@ use tracing::Level;
 #[cfg(not(debug_assertions))]
 mod embedded;
 
-// musl builds (the Alpine Docker image): musl's malloc scales poorly
-// across the runtime's worker threads.
+// musl builds (the Alpine Docker image): musl's malloc is slow and scales
+// poorly across threads (the runtime, its blocking pool, SQLite's thread).
 #[cfg(target_env = "musl")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -134,7 +134,11 @@ fn load_tuning(path: Option<&str>) -> std::sync::Arc<game::ability_config::Tunin
     }
 }
 
-#[tokio::main]
+// One thread runs every task (the arenas' ticks, the sockets, the HTTP
+// handlers): a single worker keeps memory low, since each extra worker
+// holds its own allocator caches and scheduler queues. Blocking work
+// (`tokio::fs`) still goes to tokio's blocking pool.
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
     logging::init(&args.log_level, args.log_format);

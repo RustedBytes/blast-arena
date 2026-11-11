@@ -49,9 +49,14 @@ RUN delgroup ping \
     && mkdir -p /data && chown blast:blast /data
 WORKDIR /app
 COPY --from=build /src/target/release/blast-arena /app/server
+# mimalloc tuning for a small footprint: return freed memory to the OS
+# right away (PURGE_DELAY=0) rather than after its default 10 ms, and
+# commit arena memory as it's used rather than up front.
 ENV PORT=3000 \
     DB_PATH=/data/blast.db \
-    RUST_LOG=info
+    RUST_LOG=info \
+    MIMALLOC_PURGE_DELAY=0 \
+    MIMALLOC_ARENA_EAGER_COMMIT=0
 USER blast
 VOLUME /data
 # 3000/tcp: HTTP and the WebSocket; 3000/udp: WebTransport (HTTP/3).

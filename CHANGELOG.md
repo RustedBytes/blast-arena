@@ -35,6 +35,11 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The server runs on a single-threaded tokio runtime (one thread for
+  every task) to keep its memory low. The Docker image tunes mimalloc to
+  return freed memory to the OS at once (`MIMALLOC_PURGE_DELAY=0`) and to
+  commit arena memory only as it's used (`MIMALLOC_ARENA_EAGER_COMMIT=0`).
+
 - Deno replaces Node.js and npm for the client build. `deno.json` holds
   the tasks (`deno task build`, `build:dev`, `watch`, `check`) and the
   build tools as `npm:` dependencies, pinned in `deno.lock`; the browser
