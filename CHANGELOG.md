@@ -8,6 +8,8 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- Static Linux executables in releases: `x86_64-unknown-linux-musl` and
+  `aarch64-unknown-linux-musl`, besides the glibc builds.
 - A **Cosmos** arena (`Cosmos:cosmos:51:8`, mode `cosmos`): a free-for-all
   on a space station where the bomb key fires a blaster. Bolts fly like
   rockets and glow in the blaster's colour, and so do their blasts.
@@ -36,6 +38,9 @@ All notable changes to Blast Arena are documented here. The format follows
   more. The default file is now `blast.redb` (`/data/blast.redb` in the
   Docker image). Profiles in an old SQLite file are not carried over; if
   `--db` points at one, the server says so and runs without profiles.
+- The musl build (the Alpine Docker image) uses the standard system
+  allocator again instead of mimalloc, and the `MIMALLOC_*` settings are
+  gone from the image.
 - The lobby's arena picker is a compact grid (three columns, two on
   phones, four in short landscape) with a mode icon, the name and live
   player and bot counts on each tile, plus one line under it with the

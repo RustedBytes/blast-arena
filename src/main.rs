@@ -22,12 +22,6 @@ use tracing::Level;
 #[cfg(not(debug_assertions))]
 mod embedded;
 
-// musl builds (the Alpine Docker image): musl's malloc is slow and scales
-// poorly across threads (the runtime, its blocking pool, the profile database's thread).
-#[cfg(target_env = "musl")]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 /// Where debug builds serve the client from when `--static-dir` isn't given.
 #[cfg(debug_assertions)]
 const DEV_STATIC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static");

@@ -29,6 +29,9 @@ jobs:
           # Ubuntu 22.04 keeps the glibc requirement low (2.35).
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, test: true }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, test: true }
+          # Static Linux executables (musl): no glibc needed, run anywhere.
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04, test: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm, test: true }
           - { target: aarch64-apple-darwin, os: macos-latest, test: true }
           # Cross-compiled on the Apple Silicon runner.
           - { target: x86_64-apple-darwin, os: macos-latest, test: false }
@@ -49,6 +52,12 @@ jobs:
           deno install --frozen
           deno task check
           deno task build
+
+      # ring (TLS for WebTransport) compiles C and assembly; musl targets
+      # build it with musl-gcc.
+      - name: Install the musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - uses: dtolnay/rust-toolchain@stable
         with:

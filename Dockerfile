@@ -13,7 +13,7 @@ COPY static ./static
 RUN deno task build
 
 # Build stage: compile the server against musl for the Alpine runtime.
-# mimalloc is compiled from C, hence musl-dev and gcc.
+# ring (TLS for WebTransport) has C and assembly parts, hence musl-dev and gcc.
 FROM rust:1-alpine AS build
 RUN apk add --no-cache musl-dev gcc
 WORKDIR /src
@@ -49,14 +49,9 @@ RUN delgroup ping \
     && mkdir -p /data && chown blast:blast /data
 WORKDIR /app
 COPY --from=build /src/target/release/blast-arena /app/server
-# mimalloc (v3) tuning for a small footprint: return freed memory to the
-# OS right away (PURGE_DELAY=0) rather than after v3's default 1 s, and
-# commit arena memory as it's used rather than up front.
 ENV PORT=3000 \
     DB_PATH=/data/blast.redb \
-    RUST_LOG=info \
-    MIMALLOC_PURGE_DELAY=0 \
-    MIMALLOC_ARENA_EAGER_COMMIT=0
+    RUST_LOG=info
 USER blast
 VOLUME /data
 # 3000/tcp: HTTP and the WebSocket; 3000/udp: WebTransport (HTTP/3).
