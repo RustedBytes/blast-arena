@@ -6,6 +6,21 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- WebTransport (HTTP/3 over QUIC) with the WebSocket as the fallback.
+  Snapshots go as unreliable datagrams, so a lost packet no longer holds
+  back newer ones (TCP's head-of-line blocking); reliable messages share
+  one length-prefixed stream. The client asks `/api/transport` where to
+  connect and falls back to the WebSocket when WebTransport is missing,
+  off or not up within 3 seconds, remembering that for the tab. By
+  default the server uses a self-signed certificate (13 days, renewed
+  every 6) that browsers accept by its hash; `--wt-cert`/`--wt-key` take
+  a real one. New flags: `--wt-port` (defaults to `--port`, 0 turns it
+  off), `--wt-public-port`, `--wt-cert`, `--wt-key`. Docker Compose
+  publishes UDP 443 to the game and keeps Caddy off HTTP/3. Joins are
+  logged with their transport, and the network readout shows `WT` or `WS`.
+
 ### Changed
 
 - The lobby's all-time list shows each player's XP, the value it is ranked

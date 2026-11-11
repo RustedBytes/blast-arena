@@ -1,5 +1,8 @@
 # Production setup: the game server behind Caddy, which gets a TLS
 # certificate automatically and proxies WebSockets (wss://) as well.
+# WebTransport (UDP) goes straight to the game: host port 443/udp maps to
+# its 3000/udp, and it uses a self-signed certificate that browsers accept
+# by hash. Browsers that can't use it play over the WebSocket.
 #
 #   DOMAIN=play.example.com docker compose up -d
 #
@@ -13,11 +16,15 @@ services:
       ROUND_SECS: "300"
       # The address used in link previews, the canonical link and the sitemap.
       PUBLIC_URL: https://${DOMAIN:-blastarena.fun}
+      # Browsers reach WebTransport on host port 443/udp (mapped below).
+      WT_PUBLIC_PORT: "443"
       # Optional: ARENAS: "Main:ffa:81:10,Teams:teams:61:8,Mini:ffa:31:4"
     volumes:
       - blast-data:/data
     expose:
       - "3000"
+    ports:
+      - "443:3000/udp"
 
   caddy:
     image: caddy:2
@@ -26,7 +33,7 @@ services:
       - game
     ports:
       - "80:80"
-      - "443:443"
+      - "443:443/tcp"
     environment:
       DOMAIN: ${DOMAIN:-blastarena.fun}
     volumes:

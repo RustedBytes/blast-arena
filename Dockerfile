@@ -35,5 +35,6 @@ ENV PORT=3000 \
     RUST_LOG=info
 USER blast
 VOLUME /data
-EXPOSE 3000
+# 3000/tcp: HTTP and the WebSocket; 3000/udp: WebTransport (HTTP/3).
+EXPOSE 3000/tcp 3000/udp
 CMD ["/app/server"]

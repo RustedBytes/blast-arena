@@ -41,6 +41,20 @@ fn arena_infos(state: &AppState) -> Vec<ArenaInfo> {
         .collect()
 }
 
+/// How the client should connect: WebTransport details, or `null` for the
+/// WebSocket only.
+#[derive(Serialize)]
+pub struct TransportInfo {
+    webtransport: Option<crate::wt::WtInfo>,
+}
+
+#[allow(clippy::unused_async, reason = "axum handlers must be async")]
+pub async fn transport(State(state): State<AppState>) -> impl IntoResponse {
+    let webtransport = state.webtransport.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    // Never cached: a self-signed certificate's hash changes every few days.
+    ([(header::CACHE_CONTROL, "no-store")], Json(TransportInfo { webtransport }))
+}
+
 #[allow(clippy::unused_async, reason = "axum handlers must be async")]
 pub async fn arenas(State(state): State<AppState>) -> Json<Vec<ArenaInfo>> {
     Json(arena_infos(&state))

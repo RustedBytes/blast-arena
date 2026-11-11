@@ -98,6 +98,9 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | Argument | Env var | Default | Meaning |
 |---|---|---|---|
 | `--port` | `PORT` | `3000` | HTTP/WebSocket port |
+| `--wt-port` | `WT_PORT` | same as `--port` | UDP port for WebTransport (see [Transports](#transports)); `0` turns it off |
+| `--wt-public-port` | `WT_PUBLIC_PORT` | `--wt-port` | The UDP port browsers connect to, when a port mapping changes it (Docker Compose maps 443 to 3000) |
+| `--wt-cert`, `--wt-key` | `WT_CERT`, `WT_KEY` | self-signed | PEM certificate chain and key for WebTransport, reloaded when the file changes. Without them the server makes a 13-day self-signed certificate, renews it every 6 days, and browsers accept it by its SHA-256 hash. |
 | `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa`, `teams`, `royale` or `worms`. Repeat the flag, or comma-separate in the env var. |
 | `--map-size` | `MAP_SIZE` | `81` | Size of the default main arena |
 | `--bots` | `BOTS` | `10` | Bots in the default main arena |
@@ -256,6 +259,7 @@ DOMAIN=play.example.com docker compose up -d
 
 - `Dockerfile` builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume.
 - `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
+- WebTransport skips Caddy: host port **443/udp** goes straight to the game's 3000/udp, so open UDP 443 in the firewall. Caddy is limited to HTTP/1.1 and HTTP/2 so it doesn't claim UDP 443 for HTTP/3. Without the UDP port, everyone plays over the WebSocket.
 - Profiles live in the `blast-data` volume.
 - Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.
 
@@ -299,6 +303,19 @@ Prediction was also tested in the browser with every message delayed by 100 ms e
 | Corrections larger than a quarter tile | none |
 
 
+## Transports
+
+Browsers connect over **WebTransport** (HTTP/3 over QUIC, UDP) when they can, and over a **WebSocket** otherwise. The game and the protocol are the same on both.
+
+- **Why.** A WebSocket runs over TCP, so one lost packet holds back everything after it until it's resent: a stutter on mobile or Wi-Fi. Over WebTransport, snapshots go as unreliable datagrams; a lost one is simply replaced by the next. Snapshots are already deltas against one the client confirmed, so losing one costs nothing.
+- **How.**
+  - The client asks `/api/transport` for the UDP port and the certificate hash, then opens `https://<host>:<port>/wt?arena=N`.
+  - Reliable messages (the join, inputs, world changes, kills, pings) travel on one bidirectional stream as frames: a 4-byte little-endian length, then the message.
+  - Snapshots go as datagrams. One too big for a datagram goes through the stream. The client drops snapshots that arrive before the welcome or after a newer one.
+- **Fallback.** The client uses the WebSocket when the browser has no WebTransport, the server turned it off, or the session isn't up within 3 seconds (UDP blocked, say). It then remembers the failure for the tab, so reconnects don't wait again.
+- **Certificates.** WebTransport needs TLS of its own. By default the server makes a short-lived self-signed certificate, which browsers accept by the hash `/api/transport` gives them. Browsers that don't support certificate hashes fall back to the WebSocket. Pass `--wt-cert`/`--wt-key` to use a real certificate instead.
+- **Trying it.** The network line under the FPS counter starts with `WT` or `WS`. Add `?transport=websocket` to the page address to force the WebSocket, or `?transport=webtransport` to retry WebTransport after a failure. The server logs each join with `transport="webtransport"` or `"websocket"`.
+
 ## How it scales
 
 - **Several arenas.** Each arena is its own simulation task with its own bots. The lobby lists them with live player counts.
@@ -341,7 +358,8 @@ Prediction was also tested in the browser with every message delayed by 100 ms e
 src/main.rs           server entry point: arenas, routes, config
 src/lib.rs            library root (crate blast_arena)
 src/logging.rs        tracing subscriber setup and the log-crate bridge
-src/net.rs            WebSocket sessions (arena choice, profile load, reader/writer)
+src/net.rs            client sessions over any transport (arena choice, profile load, reader/writer), WebSocket
+src/wt.rs             WebTransport endpoint: datagram snapshots, certificates
 src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /metrics
 src/db.rs             SQLite profiles, levels and cosmetic unlocks
 src/metrics.rs        lock-free per-arena live stats
@@ -403,6 +421,8 @@ pixelart/, pixelsprites/   the pixel-art generators, sharing pixelkit.ts
 assets.ts             loads and rasterises the art
 audio.ts              procedural music and sound effects
 alerts.ts, tutorial.ts, settings.ts, particles.ts, net.ts, msgpack.ts, dom.ts, state.ts
+net/                  the connection's transports: webtransport.ts (tried first),
+                      websocket.ts (the fallback), link.ts (what both provide)
 dashboard.ts, tilelab.ts   the server monitor and the Tile Lab pages
 ```
 

@@ -1,3 +1,11 @@
+{
+	# HTTP/1.1 and HTTP/2 only: UDP port 443 belongs to the game's
+	# WebTransport endpoint, so Caddy mustn't advertise HTTP/3 there.
+	servers {
+		protocols h1 h2
+	}
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 	# Keep the metrics endpoint off the public internet; scrape it from the

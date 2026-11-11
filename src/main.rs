@@ -11,7 +11,7 @@ use blast_arena::game::rng::{derive_seed, random_seed};
 use blast_arena::game::{self, Mode};
 use blast_arena::metrics::ArenaStats;
 use blast_arena::logging::{self, LogFormat};
-use blast_arena::{api, net, page};
+use blast_arena::{api, net, page, wt};
 use clap::Parser;
 use tokio::sync::mpsc;
 use tower_http::LatencyUnit;
@@ -39,6 +39,22 @@ struct Args {
     /// HTTP/WebSocket port.
     #[arg(long, env = "PORT", default_value_t = 3000)]
     port: u16,
+    /// UDP port for WebTransport (HTTP/3), the low-latency transport that
+    /// browsers try before the WebSocket. Defaults to --port; 0 turns it off.
+    #[arg(long, env = "WT_PORT")]
+    wt_port: Option<u16>,
+    /// The UDP port browsers should use for WebTransport, when a port
+    /// mapping makes it differ from --wt-port (e.g. 443 mapped to 3000).
+    #[arg(long, env = "WT_PUBLIC_PORT")]
+    wt_public_port: Option<u16>,
+    /// PEM certificate chain for WebTransport (with --wt-key), reloaded when
+    /// the file changes. Without it, the server makes a short-lived
+    /// self-signed certificate, which browsers accept by its hash.
+    #[arg(long, env = "WT_CERT", requires = "wt_key")]
+    wt_cert: Option<std::path::PathBuf>,
+    /// PEM private key for --wt-cert.
+    #[arg(long, env = "WT_KEY", requires = "wt_cert")]
+    wt_key: Option<std::path::PathBuf>,
     /// Main arena width/height in tiles (forced odd, at least 15).
     #[arg(long, env = "MAP_SIZE", default_value_t = 81)]
     map_size: i32,
@@ -164,33 +180,21 @@ async fn main() {
         }
     };
 
-    let mut arenas = Vec::new();
-    for cfg in configs {
-        let (tx, rx) = mpsc::channel(8192);
-        let live = Arc::new(ArenaStats::default());
-        arenas.push(net::ArenaHandle {
-            name: cfg.name.clone(),
-            mode: cfg.mode,
-            map_size: cfg.map_w,
-            max_players: cfg.max_players,
-            game: tx,
-            live: live.clone(),
-        });
-        tokio::spawn(game::run(cfg, rx, live, db.clone()));
-    }
-
     let state = net::AppState {
-        arenas: Arc::new(arenas),
+        arenas: Arc::new(spawn_arenas(configs, db.as_ref())),
         db,
         started: Instant::now(),
         sys: Arc::new(std::sync::Mutex::new(sysinfo::System::new().expect("system info available"))),
+        webtransport: Arc::new(std::sync::RwLock::new(None)),
     };
+    start_webtransport(&args, &state, public_url.as_deref()).await;
     let routes = Router::new()
         .route("/ws", get(net::ws_handler))
         .route("/api/arenas", get(api::arenas))
         .route("/api/leaderboard", get(api::leaderboard))
         .route("/api/profile", get(api::profile))
         .route("/api/stats", get(api::stats))
+        .route("/api/transport", get(api::transport))
         .route("/metrics", get(api::metrics));
     let routes = site_routes(routes, &args, public_url);
     // The rest of the browser client: a directory, or the files built into the binary.
@@ -227,6 +231,45 @@ async fn main() {
         tracing::error!(error = %e, "server error");
     }
     tracing::info!("server stopped");
+}
+
+/// Starts each arena's game task and returns the handles sessions join through.
+fn spawn_arenas(configs: Vec<game::Config>, db: Option<&Db>) -> Vec<net::ArenaHandle> {
+    configs
+        .into_iter()
+        .map(|cfg| {
+            let (tx, rx) = mpsc::channel(8192);
+            let live = Arc::new(ArenaStats::default());
+            let handle = net::ArenaHandle {
+                name: cfg.name.clone(),
+                mode: cfg.mode,
+                map_size: cfg.map_w,
+                max_players: cfg.max_players,
+                game: tx,
+                live: live.clone(),
+            };
+            tokio::spawn(game::run(cfg, rx, live, db.cloned()));
+            handle
+        })
+        .collect()
+}
+
+/// Starts the WebTransport endpoint unless `--wt-port 0`; clients fall
+/// back to the WebSocket when it's off or fails to start.
+async fn start_webtransport(args: &Args, state: &net::AppState, public_url: Option<&str>) {
+    let port = args.wt_port.unwrap_or(args.port);
+    if port == 0 {
+        tracing::info!("WebTransport off (--wt-port 0); clients use the WebSocket");
+        return;
+    }
+    let settings = wt::Settings {
+        port,
+        public_port: args.wt_public_port,
+        cert: args.wt_cert.clone().zip(args.wt_key.clone()),
+        names: public_url.and_then(page::host_of).into_iter().collect(),
+    };
+    let info = wt::start(settings, state.clone()).await;
+    *state.webtransport.write().unwrap_or_else(std::sync::PoisonError::into_inner) = info;
 }
 
 /// Resolves on Ctrl+C (or SIGTERM on Unix), so the server stops gracefully.

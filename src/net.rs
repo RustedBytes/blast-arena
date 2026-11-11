@@ -1,9 +1,14 @@
-//! WebSocket sessions: handshake (arena choice, profile), then a reader that
+//! Client sessions: handshake (arena choice, profile), then a reader that
 //! writes input into the client's lock-free slot and a writer that forwards
 //! reliable events and the newest snapshot.
+//!
+//! A session runs over any transport with an [`Inbound`] and an [`Outbound`]
+//! half: a WebSocket (here) or WebTransport (`crate::wt`), where snapshots
+//! go as unreliable datagrams so a lost packet doesn't hold back newer ones.
 
+use std::future::Future;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
@@ -46,6 +51,30 @@ pub struct AppState {
     pub db: Option<Db>,
     pub started: Instant,
     pub sys: Arc<std::sync::Mutex<sysinfo::System>>,
+    /// Where browsers reach the WebTransport endpoint (`None` when it's off).
+    pub webtransport: Arc<RwLock<Option<crate::wt::WtInfo>>>,
+}
+
+/// The receiving half of a client connection.
+pub trait Inbound: Send + 'static {
+    /// The next message from the client, or why the connection ended.
+    fn recv(&mut self) -> impl Future<Output = Result<Bytes, &'static str>> + Send;
+}
+
+/// The sending half of a client connection.
+pub trait Outbound: Send + 'static {
+    /// Which transport this is, for the logs.
+    const KIND: &'static str;
+    /// Sends a message reliably and in order with the other reliable ones.
+    fn send(&mut self, msg: Bytes) -> impl Future<Output = Result<(), String>> + Send;
+    /// Sends a snapshot. It may be dropped or arrive out of order: snapshots
+    /// are deltas against one the client confirmed, and the client skips
+    /// stale ones. By default it goes like any other message.
+    fn send_snapshot(&mut self, msg: Bytes) -> impl Future<Output = Result<(), String>> + Send {
+        self.send(msg)
+    }
+    /// Flushes what was sent and closes the connection.
+    fn close(self) -> impl Future<Output = ()> + Send;
 }
 
 #[derive(Deserialize)]
@@ -67,7 +96,48 @@ pub async fn ws_handler(
     let span = tracing::info_span!("session", arena = %handle.name, %peer, id = tracing::field::Empty);
     ws.max_message_size(4096)
         .on_failed_upgrade(move |e| tracing::warn!(%peer, error = %e, "websocket upgrade failed"))
-        .on_upgrade(move |socket| session(socket, handle, state.db).instrument(span))
+        .on_upgrade(move |socket| {
+            let (sink, stream) = socket.split();
+            session(WsIn(stream), WsOut(sink), handle, state.db).instrument(span)
+        })
+}
+
+/// A WebSocket's receiving half: binary messages; pings and text are skipped.
+struct WsIn(SplitStream<WebSocket>);
+
+impl Inbound for WsIn {
+    async fn recv(&mut self) -> Result<Bytes, &'static str> {
+        loop {
+            match self.0.next().await {
+                Some(Ok(Message::Binary(data))) => return Ok(data),
+                Some(Ok(Message::Close(frame))) => {
+                    tracing::debug!(code = frame.as_ref().map(|f| f.code), "client sent close");
+                    return Err("closed by client");
+                }
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    tracing::debug!(error = %e, "socket read failed");
+                    return Err("read failed");
+                }
+                None => return Err("connection lost"),
+            }
+        }
+    }
+}
+
+/// A WebSocket's sending half: everything in order, snapshots included.
+struct WsOut(SplitSink<WebSocket, Message>);
+
+impl Outbound for WsOut {
+    const KIND: &'static str = "websocket";
+
+    async fn send(&mut self, msg: Bytes) -> Result<(), String> {
+        self.0.send(Message::Binary(msg)).await.map_err(|e| e.to_string())
+    }
+
+    async fn close(mut self) {
+        let _ = self.0.close().await;
+    }
 }
 
 #[must_use]
@@ -89,9 +159,9 @@ struct Traffic {
     bytes_out: AtomicU64,
 }
 
-async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
-    let (mut sink, mut stream) = socket.split();
-    tracing::debug!("connection opened");
+/// Runs one client's session over a transport: join, play, leave.
+pub(crate) async fn session<I: Inbound, O: Outbound>(mut stream: I, mut sink: O, arena: ArenaHandle, db: Option<Db>) {
+    tracing::debug!(transport = O::KIND, "connection opened");
     let Some(req) = handshake(&mut stream, db.as_ref()).await else { return };
     let name = req.name.clone();
     let has_profile = req.profile.is_some();
@@ -111,8 +181,8 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
         Ok(Ok(id)) => id,
         Ok(Err(reason)) => {
             tracing::info!(%name, reason, "join refused");
-            let _ = sink.send(Message::Binary(protocol::encode_err(reason))).await;
-            let _ = sink.close().await;
+            let _ = sink.send(protocol::encode_err(reason)).await;
+            sink.close().await;
             return;
         }
         Err(_) => {
@@ -121,7 +191,7 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
         }
     };
     tracing::Span::current().record("id", id);
-    tracing::info!(%name, profile = has_profile, ?near, "player joined");
+    tracing::info!(%name, profile = has_profile, ?near, transport = O::KIND, "player joined");
     let started = Instant::now();
     let traffic = Arc::new(Traffic::default());
 
@@ -151,19 +221,11 @@ async fn session(socket: WebSocket, arena: ArenaHandle, db: Option<Db>) {
 
 /// Waits for the join message (the first message must be one) and loads,
 /// or starts, the player's profile. `None` if the client didn't join.
-async fn handshake(stream: &mut SplitStream<WebSocket>, db: Option<&Db>) -> Option<JoinRequest> {
-    let data = match tokio::time::timeout(JOIN_TIMEOUT, stream.next()).await {
-        Ok(Some(Ok(Message::Binary(data)))) => data,
-        Ok(Some(Ok(_))) => {
-            tracing::info!("handshake rejected: first message is not binary");
-            return None;
-        }
-        Ok(Some(Err(e))) => {
-            tracing::debug!(error = %e, "connection failed during handshake");
-            return None;
-        }
-        Ok(None) => {
-            tracing::debug!("connection closed before joining");
+async fn handshake(stream: &mut impl Inbound, db: Option<&Db>) -> Option<JoinRequest> {
+    let data = match tokio::time::timeout(JOIN_TIMEOUT, stream.recv()).await {
+        Ok(Ok(data)) => data,
+        Ok(Err(reason)) => {
+            tracing::debug!(reason, "connection ended before joining");
             return None;
         }
         Err(_) => {
@@ -198,38 +260,39 @@ async fn handshake(stream: &mut SplitStream<WebSocket>, db: Option<&Db>) -> Opti
 /// newest snapshot. Ends when the game drops the client's event sender (on
 /// leave, or when the client can't keep up), which closes the socket.
 async fn write_loop(
-    mut sink: SplitSink<WebSocket, Message>,
+    mut sink: impl Outbound,
     mut events: mpsc::Receiver<Bytes>,
     snapshot: Arc<SnapshotSlot>,
     live: Arc<ArenaStats>,
     traffic: Arc<Traffic>,
 ) -> &'static str {
     loop {
-        let msg = tokio::select! {
+        let (msg, is_snapshot) = tokio::select! {
             biased;
             ev = events.recv() => match ev {
-                Some(ev) => ev,
+                Some(ev) => (ev, false),
                 None => break,
             },
-            snap = snapshot.next() => snap,
+            snap = snapshot.next() => (snap, true),
         };
         let len = msg.len() as u64;
         live.bytes_out.fetch_add(len, Relaxed);
         traffic.msgs_out.fetch_add(1, Relaxed);
         traffic.bytes_out.fetch_add(len, Relaxed);
-        if let Err(e) = sink.send(Message::Binary(msg)).await {
+        let sent = if is_snapshot { sink.send_snapshot(msg).await } else { sink.send(msg).await };
+        if let Err(e) = sent {
             tracing::debug!(error = %e, "socket write failed");
             return "write failed";
         }
     }
-    let _ = sink.close().await;
+    sink.close().await;
     "closed by server"
 }
 
 /// Feeds client messages into the input slot, answers pings, and enforces
 /// the message rate limit. Returns why the connection ended.
 async fn read_loop(
-    mut stream: SplitStream<WebSocket>,
+    mut stream: impl Inbound,
     input: Arc<InputSlot>,
     pong_tx: mpsc::WeakSender<Bytes>,
     traffic: Arc<Traffic>,
@@ -240,20 +303,9 @@ async fn read_loop(
     // Pongs are encoded into a small per-connection arena.
     let mut arena = BytesMut::with_capacity(256);
     loop {
-        let msg = match stream.next().await {
-            Some(Ok(msg)) => msg,
-            Some(Err(e)) => {
-                tracing::debug!(error = %e, "socket read failed");
-                return "read failed";
-            }
-            None => return "connection lost",
-        };
-        let Message::Binary(data) = msg else {
-            if let Message::Close(frame) = msg {
-                tracing::debug!(code = frame.as_ref().map(|f| f.code), "client sent close");
-                return "closed by client";
-            }
-            continue;
+        let data = match stream.recv().await {
+            Ok(data) => data,
+            Err(reason) => return reason,
         };
         traffic.msgs_in.fetch_add(1, Relaxed);
         if window.elapsed() >= Duration::from_secs(1) {
@@ -297,7 +349,6 @@ async fn read_loop(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

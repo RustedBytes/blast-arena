@@ -83,7 +83,7 @@ function frame(now: number): void {
     el.textContent = `${Math.round(fps)} FPS · ${(perfWork / perfFrames).toFixed(1)} ms · ${Math.round(state.interpDelay * state.tickMs)} ms buf`;
     el.classList.toggle('slow', fps < 50);
     updateRoyaleHud(now);
-    ui.hud.netInfo.textContent = `ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
+    ui.hud.netInfo.textContent = `${net.transport === 'webtransport' ? 'WT' : 'WS'} · ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
     net.bytesIn = 0;
     perfTime = perfFrames = perfWork = 0;
   }

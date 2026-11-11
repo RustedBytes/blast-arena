@@ -35,6 +35,19 @@ fn valid_host(host: &str) -> bool {
     !host.is_empty() && host.len() <= 255 && host.chars().all(|c| c.is_ascii_alphanumeric() || "-.:[]".contains(c))
 }
 
+/// The host name of a checked public URL, without any port:
+/// `https://play.example.com:8443/x` gives `play.example.com`.
+#[must_use]
+pub fn host_of(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let host = rest.split('/').next()?;
+    let host = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next()?,
+        None => host.split(':').next()?,
+    };
+    (!host.is_empty()).then(|| host.to_owned())
+}
+
 /// The site's origin (`scheme://host`) for this request.
 #[must_use]
 pub fn origin(headers: &HeaderMap, public_url: Option<&str>) -> String {
@@ -82,6 +95,14 @@ pub fn sitemap(origin: &str) -> String {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn hosts() {
+        assert_eq!(host_of("https://play.example.com:8443/x").as_deref(), Some("play.example.com"));
+        assert_eq!(host_of("https://blastarena.fun").as_deref(), Some("blastarena.fun"));
+        assert_eq!(host_of("http://[::1]:3000").as_deref(), Some("::1"));
+        assert_eq!(host_of("nonsense"), None);
+    }
 
     fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut h = HeaderMap::new();

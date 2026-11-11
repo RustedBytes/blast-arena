@@ -24,6 +24,7 @@ tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "tracing-log"] }
+wtransport = "0.7.2"
 
 # musl's allocator is slow under many threads; the Alpine image (a musl
 # build) uses mimalloc instead. Other targets keep the system allocator.
