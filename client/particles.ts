@@ -5,6 +5,8 @@
 // frame costs a few dozen canvas state changes instead of one per particle.
 // Nothing here allocates per frame.
 
+import { N as ART_PX } from './pixelkit.js';
+
 export const P_SPARK = 0;   // additive, shrinks, gravity-free
 export const P_SMOKE = 1;   // grows and fades, drifts up
 export const P_DEBRIS = 2;  // squares with gravity
@@ -130,21 +132,21 @@ export class Particles {
     const k = this.kind[i], life = this.life[i], t = life / this.maxLife[i], size = this.size[i];
     const px = this.x[i] * T - camX, py = this.y[i] * T - camY;
     if (this.pixel) {
-      // Pixel art: squares snapped to the art-pixel grid (16 per tile),
+      // Pixel art: squares snapped to the art-pixel grid (ART_PX per tile),
       // sized in whole art pixels, so effects match the sprites.
-      const u = T / 16;
+      const u = T / ART_PX;
       const cx = Math.round(px / u) * u, cy = Math.round(py / u) * u;
       if (k === P_STAR) {
-        // A plus sign that twinkles.
-        const n = t > 0.5 ? 2 : 1;
-        ctx.rect(cx - u / 2, cy - (n + 0.5) * u, u, (2 * n + 1) * u);
-        ctx.rect(cx - (n + 0.5) * u, cy - u / 2, (2 * n + 1) * u, u);
+        // A plus sign that twinkles, two art pixels thick.
+        const n = t > 0.5 ? 4 : 2;
+        ctx.rect(cx - u, cy - (n + 1) * u, 2 * u, (2 * n + 2) * u);
+        ctx.rect(cx - (n + 1) * u, cy - u, (2 * n + 2) * u, 2 * u);
         return;
       }
       let n: number;
-      if (k === P_SMOKE) n = size * 16 * (1.6 - t) * 1.4;
-      else if (k === P_DEBRIS) n = size * 16;
-      else n = size * 16 * (k === P_SPARK ? t : 1) * 1.6;
+      if (k === P_SMOKE) n = size * ART_PX * (1.6 - t) * 1.4;
+      else if (k === P_DEBRIS) n = size * ART_PX;
+      else n = size * ART_PX * (k === P_SPARK ? t : 1) * 1.6;
       const s = Math.max(1, Math.round(n)) * u;
       ctx.rect(cx - s / 2, cy - s / 2, s, s);
       return;

@@ -3,12 +3,12 @@
 // light from the top left, hue-shifted ramps, and a dark outline on
 // everything you interact with so it pops off the quieter floor.
 //
-// Sprites are built at 16x16 and handed out as 4x canvases (see
+// Sprites are built at 32x32 and handed out as 2x canvases (see
 // Pix.canvas), because they are drawn straight onto the game canvas.
 //
 // The parts live in client/pixelsprites/.
 
-import { Pix, X4 } from './pixelkit.js';
+import { Pix, UP } from './pixelkit.js';
 import { antenna, bomb, flames, IRON, nukeBomb, RED_IRON, scorch } from './pixelsprites/bombs.js';
 import { hat, HATS, player } from './pixelsprites/players.js';
 import type { PixelHat, PlayerView } from './pixelsprites/players.js';
@@ -27,7 +27,7 @@ export type { PixelHat, PlayerView };
  * built per colour on demand with `pixelPlayer`.
  */
 export function buildPixelSprites() {
-  const big = (p: Pix): HTMLCanvasElement => p.canvas(X4);
+  const big = (p: Pix): HTMLCanvasElement => p.canvas(UP);
   const f = flames();
   const items = powerUps();
   // Sprite names of the tokens, in the same order (item kinds 1, 2, ...).
@@ -66,9 +66,9 @@ export function buildPixelSprites() {
   };
 }
 
-/** A player sprite for given colours as a 4x canvas. */
+/** A player sprite for given colours as a 2x canvas. */
 export function pixelPlayer(colors: readonly [string, string], view: PlayerView, frame: number): HTMLCanvasElement {
-  return player(colors, view, frame).canvas(X4);
+  return player(colors, view, frame).canvas(UP);
 }
 
 export type PixelSprites = ReturnType<typeof buildPixelSprites>;

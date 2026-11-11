@@ -4,6 +4,7 @@
 import { playerColors } from '../assets.js';
 import type { PlayerColors } from '../assets.js';
 import { context2d } from '../dom.js';
+import { N as ART_PX } from '../pixelkit.js';
 import { P_CURSE, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
 import { hopHeight } from '../prediction.js';
 import { C_DASH, C_DUST, C_GAS_DARK, EMOTES, PIXEL_VIEWS, PLAYER_VIEWS, STRIDE, TEAM_COLORS, TRAIL_COLORS } from './constants.js';
@@ -146,7 +147,7 @@ export class PlayerLayer {
     const pixel = this.s.pixelArt() !== null;
     const phase = g.dist * Math.PI / STRIDE;
     const lift = Math.abs(Math.sin(phase)) * g.amp;
-    const bob = pixel ? -Math.round(lift) * T / 16 : -lift * T * 0.07;
+    const bob = pixel ? -Math.round(lift * 2) * T / ART_PX : -lift * T * 0.07;
     const stretch = pixel ? 0 : (lift - 0.5 * g.amp) * 0.09 - g.settle * 0.07;
     const sxs = 1 - stretch * 0.7, sys = 1 + stretch;
     const lean = pixel ? 0 : g.lean;
@@ -277,13 +278,13 @@ export class PlayerLayer {
 
   /**
    * Pixel-art hat sitting on the helmet. `top` is the sprite's top edge;
-   * hats overlap the helmet by two art pixels, and the halo floats above.
+   * hats overlap the helmet by four art pixels, and the halo floats above.
    */
   private drawPixelHat(hat: number, x: number, top: number, T: number, facing: number) {
     const h = hat && this.s.assets.pixel.hats[hat];
     if (!h) return;
-    const u = T / 16;
-    const y = hat === 4 ? top - (h.rows + 1) * u : top + (2 - h.rows) * u;
+    const u = T / ART_PX;
+    const y = hat === 4 ? top - (h.rows + 1) * u : top + (4 - h.rows) * u;
     const { ctx } = this.s;
     ctx.save();
     ctx.translate(x, y);

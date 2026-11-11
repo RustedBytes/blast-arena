@@ -95,7 +95,7 @@ function drawMap(): void {
 
 function figure(canvas: CanvasImageSource, caption: string, under?: CanvasImageSource): HTMLElement {
   const f = document.createElement('figure');
-  // Tiles are 16px and sprites 64px (4x); both are shown at 64px, crisp.
+  // Tiles are 32px and sprites 64px (2x); both are shown at 64px, crisp.
   const c = makeCanvas(64);
   const g = context2d(c);
   g.imageSmoothingEnabled = false;

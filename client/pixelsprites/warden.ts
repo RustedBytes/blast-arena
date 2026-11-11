@@ -1,11 +1,12 @@
-// The vault's Warden: a stone golem, calm or enraged.
+// The vault's Warden at 32x32: a stone golem, calm or enraged.
 
-import { bitmap, clamp, N, Pix, SHADOW } from '../pixelkit.js';
+import { crack, fill, groundShadow, layer, line, Pix, rng, sdBox, sdCircle, sdPoly, sdUnion, shape } from '../pixelkit.js';
 
 // ------------------------------------------------------------------ warden
 
 const STONE = ['#16171d', '#2c2f38', '#454955', '#626774', '#838a97', '#aab1bc', '#d3d8de'];
-const GOLD = ['#4a2e06', '#94600e', '#d69a26', '#ffd25a', '#fff1b0'];
+const GOLD = ['#4a2e06', '#94600e', '#d69a26', '#ffd25a', '#fff1b0', '#ffffff'];
+const MOSS = ['#203a26', '#2f5530', '#46753a', '#679a45'];
 
 /**
  * The vault's Warden, facing the viewer: a hulking stone golem with a gold
@@ -14,62 +15,55 @@ const GOLD = ['#4a2e06', '#94600e', '#d69a26', '#ffd25a', '#fff1b0'];
  */
 export function warden(rage: boolean): Pix {
   const p = new Pix();
-  for (let y = 13; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      if (((x - 7.5) / 7.5) ** 2 + ((y - 14.5) / 1.5) ** 2 <= 1) p.set(x, y, SHADOW);
-    }
-  }
-  const glow = rage ? ['#7a1206', '#ff3a1a', '#ffb08a'] : ['#6a4a06', '#ffd25a', '#fff6c8'];
-  // Stone with light from the top left: k from the distance to the light.
-  const stone = (x: number, y: number, cx: number, cy: number, r: number): string => {
-    const lit = -((x - cx) * 0.6 + (y - cy) * 0.8) / r;
-    return STONE[clamp(Math.round(3 + lit * 2.2), 1, 5)];
-  };
+  groundShadow(p, 16, 29.5, 15, 2.4);
+  const glow = rage ? ['#7a1206', '#ff3a1a', '#ffb08a', '#fff0e0'] : ['#6a4a06', '#ffd25a', '#fff6c8', '#ffffff'];
   // Legs.
-  for (let y = 12; y <= 14; y++) {
-    for (const x0 of [4, 9]) {
-      for (let x = x0; x < x0 + 3; x++) p.set(x, y, y === 14 ? STONE[0] : stone(x, y, 7.5, 9, 6));
+  layer(p, (q) => {
+    for (const x of [10.5, 21.5]) shape(q, sdBox(x, 26, 3.6, 3.4, 1.4), darker(STONE), { depth: 2 });
+  });
+  // The body: a great rounded block of stone with moss on its shoulders.
+  const body = sdBox(16, 16, 10.5, 9.5, 4);
+  layer(p, (q) => {
+    shape(q, body, STONE, { lo: 1, hi: 5, depth: 6, bounce: 0.3 });
+    // Masonry seams.
+    for (const [x0, y0, x1, y1] of [[7, 13, 12, 13], [20, 13, 25, 13], [9, 19, 13, 19], [19, 20, 24, 20], [16, 21, 16, 24]]) {
+      line(x0, y0, x1, y1, (x, y) => { if (body(x + 0.5, y + 0.5) < -1) { q.set(x, y, STONE[1]); q.set(x, y + 1, STONE[4]); } });
     }
-  }
-  // Body: a rounded block.
-  for (let y = 3; y <= 12; y++) {
-    for (let x = 2; x <= 13; x++) {
-      const corner = (x === 2 || x === 13) && (y === 3 || y === 12);
-      if (corner) continue;
-      const edge = x === 2 || x === 13 || y === 3 || y === 12;
-      p.set(x, y, edge ? STONE[0] : stone(x, y, 7.5, 7.5, 6));
+    // Cracks, glowing when enraged.
+    const rand = rng(9);
+    for (const [sx, sy] of [[8, 16], [22, 22], [11, 23]]) {
+      crack(rand, sx, sy, 5, (x, y) => { if (body(x + 0.5, y + 0.5) < -1) q.set(x, y, rage ? glow[1] : STONE[1]); });
     }
-  }
-  // Fists.
-  for (const [x0, side] of [[0, -1], [13, 1]]) {
-    for (let y = 7; y <= 11; y++) {
-      for (let x = x0; x < x0 + 3; x++) {
-        const edge = x === x0 + (side < 0 ? 0 : 2) || y === 7 || y === 11;
-        p.set(x, y, edge ? STONE[0] : stone(x, y, x0 + 1, 8, 3));
-      }
+    // The chest rune: a diamond in a ring.
+    fill(q, sdCircle(16, 17, 4.2), STONE[1]);
+    fill(q, sdPoly([[16, 13.5], [19, 17], [16, 20.5], [13, 17]]), glow[1]);
+    fill(q, sdPoly([[16, 15], [17.6, 17], [16, 19], [14.4, 17]]), glow[2]);
+    q.set(15, 16, glow[3]);
+    for (let x = 9; x <= 13; x++) if (x % 2) q.set(x, 8, MOSS[2]);
+    q.set(10, 9, MOSS[1]); q.set(22, 8, MOSS[3]); q.set(23, 8, MOSS[2]); q.set(22, 9, MOSS[1]);
+  });
+  // The head: a heavy brow with eyes burning in a dark slit, under a crown.
+  layer(p, (q) => {
+    shape(q, sdBox(16, 7.5, 6, 4.5, 2), STONE, { lo: 1, hi: 6, depth: 3 });
+    for (let x = 11; x <= 20; x++) q.set(x, 8, STONE[0]);
+    for (const x of [12, 13, 18, 19]) q.set(x, 8, glow[x === 12 || x === 18 ? 2 : 1]);
+    for (const x of [12, 19]) q.set(x, 9, glow[0]);
+    const crown = sdUnion(0, sdBox(16, 3.4, 6.4, 1.3, 0.4), sdPoly([[9.6, 3], [10.5, -0.5], [12.5, 3]]), sdPoly([[14, 3], [16, -1], [18, 3]]), sdPoly([[19.5, 3], [21.5, -0.5], [22.4, 3]]));
+    shape(q, crown, GOLD, { lo: 1, hi: 4, depth: 1.5, spec: GOLD[5] });
+    q.set(15, 3, '#ff3a4a'); q.set(16, 3, '#ff8a8a');
+  });
+  // Huge fists hanging at its sides.
+  layer(p, (q) => {
+    for (const s of [-1, 1]) {
+      const cx = 16 + s * 12;
+      shape(q, sdUnion(1.5, sdCircle(cx, 19.5, 4.4), sdCircle(cx - s * 1.5, 12, 3.6)), STONE, { lo: 1, hi: 6, depth: 3.5 });
+      for (const ky of [18, 20]) line(cx - 2, ky, cx + 1, ky, (x, y) => q.set(x, y, STONE[2]));
     }
-  }
-  // Crown and brow band.
-  for (let x = 3; x <= 12; x++) p.set(x, 3, GOLD[x < 7 ? 3 : 2]);
-  for (const x of [3, 6, 9, 12]) {
-    p.set(x, 2, GOLD[3]);
-    p.set(x, 1, GOLD[x < 7 ? 4 : 3]);
-  }
-  p.set(7, 2, GOLD[2]);
-  p.set(8, 2, GOLD[2]);
-  // Eyes in a dark visor slit.
-  for (let x = 4; x <= 11; x++) p.set(x, 5, STONE[0]);
-  for (const x of [5, 6, 9, 10]) p.set(x, 5, glow[x === 5 || x === 9 ? 2 : 1]);
-  // The chest rune.
-  bitmap(p, [' a ', 'aba', ' a '], { a: glow[1], b: glow[2] }, 6, 8);
-  p.set(7, 7, glow[0]);
-  p.set(7, 11, glow[0]);
-  // Cracks, glowing when enraged.
-  const crack = rage ? glow[1] : STONE[1];
-  for (const [x, y] of [[3, 6], [4, 7], [4, 8], [12, 9], [11, 10], [10, 11], [5, 11]]) p.set(x, y, crack);
-  // Highlights on the shoulders.
-  p.set(3, 4, STONE[6]);
-  p.set(4, 4, STONE[5]);
-  p.set(1, 8, STONE[5]);
+  });
   return p;
+}
+
+/** A ramp a step darker (for the legs, in the body's shadow). */
+function darker(ramp: readonly string[]): string[] {
+  return [ramp[0], ...ramp.slice(0, -1)];
 }

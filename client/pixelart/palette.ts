@@ -1,8 +1,8 @@
 // Colour ramps for the tiles (dark to light, hue-shifting) and the block
 // geometry shared by the generators.
 
-/** Rows 0..TOP-1 are a block's top face; rows TOP..N-2 its front face. */
-export const TOP = 11;
+/** Rows 0..TOP-1 are a block's top face; rows TOP..N-2 its front face (at N = 32). */
+export const TOP = 22;
 
 /** Colour of a block face pixel. */
 export type Shade = (x: number, y: number) => string;

@@ -6,6 +6,17 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- HD pixel art: every tile and sprite is redrawn at 32x32 per tile instead
+  of 16x16. Players, hats, bombs, flames, power-ups, monsters, the Warden
+  and worms are built from lit shapes, each part with its own
+  colour-aware outline, so they get real form shading, a specular glint
+  and bounced light on the far rim. Floors, blocks and special tiles get
+  finer texture: two-pixel bevels, staggered masonry, icicles, lava veins
+  with a glow, riveted hull plates. Pixel particles, the walk bob and hat
+  placement use the finer art grid.
+
 ## [0.11.0] - 2026-11-11
 
 ### Added

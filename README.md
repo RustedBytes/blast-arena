@@ -2,14 +2,14 @@
 
 A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bombs, blast crates, grab power-ups, hold the hills and blast each other.
 
-![Two blasts going off in the volcano region of the main arena, with bots, bombs and armored crates around](screenshots/gameplay.png)
+![Sudden death in the desert of the main arena: two blasts going off among a crowd of bots, bombs and conveyor belts](screenshots/gameplay.png)
 
 | | |
 |---|---|
-| ![A worm crawling after the player in the Worms arena](screenshots/worms.png) | ![The battle royale storm closing in on a fight](screenshots/battle-royale.png) |
+| ![A worm surfacing in the volcano region of the Worms arena, beside a vault full of power-ups and its Warden](screenshots/worms.png) | ![The next safe zone of a battle royale marked on the meadow, by the Warden's vault, with snow and desert around](screenshots/battle-royale.png) |
 | **Worms:** giant worms hunt everyone along the lanes. | **Battle royale:** the safe zone shrinks; the blue storm hurts. |
-| ![The vault, full of power-ups and guarded by the Warden, next to snow, desert and conveyor belts](screenshots/vault-warden.png) | ![The lobby: arenas with live player counts, profile and cosmetics](screenshots/lobby.png) |
-| **The vault and its Warden** in the Teams arena, among snow, desert and conveyor belts. | **The lobby:** pick an arena, see your level and unlock hats and trails. |
+| ![The Warden by its vault in the desert, with bots and bombs around and snow and meadow beyond](screenshots/vault-warden.png) | ![The lobby: arenas with live player counts, profile and cosmetics](screenshots/lobby.png) |
+| **The vault and its Warden** in the main arena, where desert, snow and meadow meet. | **The lobby:** pick an arena, see your level and unlock hats and trails. |
 
 - **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in redb (a pure-Rust embedded database).
 - **Client:** TypeScript on a plain HTML5 canvas (no framework, no bundler) with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, German, French, Spanish, Italian, Polish and Ukrainian. The language follows your browser and can be changed in the lobby or settings.
