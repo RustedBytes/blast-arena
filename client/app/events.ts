@@ -8,7 +8,7 @@ import { AB, EV, GUARD_NEWS, MONSTER_NEWS, WORM_NEWS } from '../protocol.js';
 import type { EventMsg } from '../protocol.js';
 import { updateCaptures } from './hud.js';
 import { alerts, audio, renderer } from './services.js';
-import { state } from './session.js';
+import { newsworthy, state } from './session.js';
 
 // How each map event is announced: icon and tone, by kind.
 const EVENT_LOOK: ([string, Tone] | null)[] = [null, ['☄️', 'danger'], ['❄️', 'info'], ['🌋', 'danger'], ['⚙️', 'warn'], ['🌍', 'danger']];
@@ -136,10 +136,10 @@ function guardEvent([what, x, y, who]: number[]): void {
       renderer.effects.wardenDown(x, y, now);
       if (dist < 20) audio.nuke(dist, pan);
       if (id === state.myId) alerts.announce({ text: t('wardenSlainByYou'), icon: '🗿', tone: 'epic', priority: 2 });
-      else alerts.toast(id >= 0 ? t('wardenSlain', { name: name(id) }) : t('wardenFell'), { icon: '🗿', tone: 'warn', key: 'warden' });
+      else if (newsworthy(x, y, 12)) alerts.toast(id >= 0 ? t('wardenSlain', { name: name(id) }) : t('wardenFell'), { icon: '🗿', tone: 'warn', key: 'warden' });
       break;
     case GUARD_NEWS.BACK:
-      alerts.toast(t('wardenBack'), { icon: '🗿', tone: 'info', key: 'warden' });
+      if (newsworthy(x, y, 12)) alerts.toast(t('wardenBack'), { icon: '🗿', tone: 'info', key: 'warden' });
       break;
   }
 }
@@ -238,7 +238,7 @@ function abilityEvent(v: number[]): void {
     case AB.CLONE_SPAWNED: {
       const [, , x, y] = a;
       renderer.effects.sparkle(...tile(x, y), true);
-      audio.mystery();
+      if (dist(x, y) < 14) audio.mystery();
       break;
     }
     case AB.CLONE_DESTROYED: {

@@ -6,6 +6,21 @@ import type { GameSnapshot, GameState, SnapshotRing } from '../state.js';
 /** The game in progress, or null in the lobby. */
 export let state: GameState | null = null;
 
+/** From this many players online (bots included) an arena counts as crowded. */
+export const CROWDED_PLAYERS = 100;
+/** Before the first player count arrives, a map this big counts as crowded. */
+export const CROWDED_MAP_CELLS = 161 * 161;
+
+/**
+ * Whether news at tile (x, y) should be shown to this player: always in a
+ * normal arena; in a crowded one only within the view (plus `margin` tiles).
+ */
+export function newsworthy(x: number, y: number, margin = 2): boolean {
+  if (!state?.crowded) return true;
+  const [hw, hh] = state.me?.aoi ?? state.aoi;
+  return Math.abs(x - state.focus.x) <= hw + margin && Math.abs(y - state.focus.y) <= hh + margin;
+}
+
 export function setState(next: GameState | null): void {
   state = next;
 }

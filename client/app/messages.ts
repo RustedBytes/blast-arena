@@ -13,7 +13,7 @@ import { gameEvent, MONSTER_ICONS } from './events.js';
 import { toast, updateHud } from './hud.js';
 import { refreshLobbyLater } from './lobby.js';
 import { alerts, audio, predictor, renderer, settings } from './services.js';
-import { connection, findSnapshot, rebuildItems, setState, SnapRing, state } from './session.js';
+import { connection, CROWDED_MAP_CELLS, CROWDED_PLAYERS, findSnapshot, newsworthy, rebuildItems, setState, SnapRing, state } from './session.js';
 import { applyVisualSettings } from './settings-ui.js';
 import { forgetLook, resize } from './view.js';
 import { ui } from './ui.js';
@@ -50,6 +50,7 @@ export const net = new Net({
       mode: m.mode,
       team: m.team,
       map: { w: m.w, h: m.h, tiles, biomes: m.biomes },
+      crowded: m.roster.length >= CROWDED_PLAYERS || m.w * m.h >= CROWDED_MAP_CELLS,
       aoi: m.aoi,
       aoiMax: m.aoi_max,
       tickMs: 1000 / m.rate,
@@ -248,7 +249,10 @@ export const net = new Net({
     const now = performance.now();
     const info = state.rosterInfo.get(m.v);
     const colors = playerColors(m.v, info?.team ?? 0, settings.get('colorblind'));
-    renderer.effects.death(m.x, m.y, now, colors, 3);
+    const mine = m.k === state.myId || m.v === state.myId;
+    // In a crowded arena, deaths out of sight are neither drawn nor listed.
+    const seen = mine || newsworthy(m.x, m.y);
+    if (seen) renderer.effects.death(m.x, m.y, now, colors, 3);
     if (m.v === state.myId) audio.death();
     const st = state;
     const name = (id: number): string => escapeHtml(st.rosterInfo.get(id)?.name ?? '???');
@@ -262,6 +266,7 @@ export const net = new Net({
     const bitten = state.monsterMeals.get(m.v) ?? 0;
     state.monsterMeals.delete(m.v);
     if (m.v === state.myId) state.bittenBy = bitten;
+    if (!seen) return;
     const el = document.createElement('div');
     el.className = 'kill';
     if (m.k === state.myId || m.v === state.myId) el.classList.add('mine');
@@ -287,6 +292,7 @@ export const net = new Net({
     if (!state) return;
     ui.hud.online.textContent = t('online', { n: m.n });
     state.roundSecs = m.r;
+    state.crowded = m.n >= CROWDED_PLAYERS || state.map.w * state.map.h >= CROWDED_MAP_CELLS;
     if (state.mode !== 'royale') ui.hud.roundTime.textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
     const ts = ui.hud.teamScores;
     query(ts, '.red').textContent = String(m.teams[0]);
@@ -311,6 +317,13 @@ export const net = new Net({
 
   streak(m) {
     if (!state) return;
+    if (m.id !== state.myId && state.crowded) {
+      // Only streaks of players in view; there are too many otherwise.
+      const f = renderer.frame;
+      let near = false;
+      for (let i = 0; i < f.nPlayers; i++) if (f.players[i].id === m.id) near = newsworthy(f.players[i].x, f.players[i].y);
+      if (!near) return;
+    }
     const name = state.rosterInfo.get(m.id)?.name ?? '?';
     alerts.announce({ text: t('streak', { name, n: m.n }), icon: '🔥', tone: m.id === state.myId ? 'epic' : 'warn', key: `streak${m.id}` });
   },

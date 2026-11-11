@@ -74,6 +74,11 @@ export interface GameState {
   interpTarget: number;
   lastK?: number;
   me: Me | null;
+  /**
+   * A crowded arena (the Horde: hundreds of players): kills, streaks and
+   * other news far from this player are not announced (see `newsworthy`).
+   */
+  crowded: boolean;
   /** This player's entry in the latest snapshot. */
   mine: PlayerEntry | null;
   /** Where this player is drawn (predicted). */
