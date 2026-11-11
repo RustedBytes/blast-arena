@@ -81,12 +81,23 @@ struct Args {
     worst: usize,
 }
 
+/// Whether `thread_cpu` can measure (Unix); elsewhere ticks are timed by
+/// wall clock only.
+const HAS_CPU_TIME: bool = cfg!(unix);
+
 /// CPU time used by this thread so far: unlike wall time it doesn't count
 /// time the OS had the thread descheduled.
-fn thread_cpu() -> Duration {
+#[cfg(unix)]
+#[allow(clippy::unnecessary_wraps, reason = "the same signature as the other platforms', which can't measure")]
+fn thread_cpu() -> Option<Duration> {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &raw mut ts) };
-    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+    Some(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+}
+
+#[cfg(not(unix))]
+fn thread_cpu() -> Option<Duration> {
+    None
 }
 
 /// Asks the OS to treat the benchmark thread as interactive. On macOS that
@@ -184,7 +195,8 @@ fn main() {
         world.send_updates_profiled();
         world.drop_lagging_clients();
         let took = started.elapsed();
-        let cpu = thread_cpu().saturating_sub(cpu0);
+        // Without thread CPU time (Windows), the wall time stands in.
+        let cpu = thread_cpu().zip(cpu0).map_or(took, |(now, then)| now.saturating_sub(then));
         let (a1, b1) = (ALLOCS.load(Relaxed), ALLOC_BYTES.load(Relaxed));
 
         // Drain like the socket writers would, and acknowledge the snapshot
@@ -233,14 +245,18 @@ fn report(args: &Args, world: &World, size: i32, mut ticks: Vec<Tick>, allocs: &
     let mut cpu: Vec<Duration> = ticks.iter().map(|t| t.cpu).collect();
     cpu.sort_unstable();
     let cpct = |p: f64| ms(cpu[((cpu.len() as f64 * p) as usize).min(cpu.len() - 1)]);
-    println!(
-        "tick CPU:    avg {:.3} ms   p50 {:.3}   p99 {:.3}   p99.9 {:.3}   max {:.3} ms   (thread CPU time: without OS preemption)",
-        ms(cpu.iter().sum::<Duration>()) / n,
-        cpct(0.5),
-        cpct(0.99),
-        cpct(0.999),
-        ms(*cpu.last().unwrap())
-    );
+    if HAS_CPU_TIME {
+        println!(
+            "tick CPU:    avg {:.3} ms   p50 {:.3}   p99 {:.3}   p99.9 {:.3}   max {:.3} ms   (thread CPU time: without OS preemption)",
+            ms(cpu.iter().sum::<Duration>()) / n,
+            cpct(0.5),
+            cpct(0.99),
+            cpct(0.999),
+            ms(*cpu.last().unwrap())
+        );
+    } else {
+        println!("tick CPU:    not measurable on this platform; the worst ticks below are by wall time");
+    }
     println!(
         "allocations: {:.2} per tick, {:.0} bytes per tick; {:.1}% of ticks allocated nothing",
         total_allocs as f64 / n,
@@ -273,7 +289,7 @@ fn report(args: &Args, world: &World, size: i32, mut ticks: Vec<Tick>, allocs: &
     // The worst ticks (by CPU time: the work itself), and their three
     // biggest phases.
     ticks.sort_by_key(|t| std::cmp::Reverse(t.cpu));
-    println!("\nworst ticks by CPU time:");
+    println!("\nworst ticks by {}:", if HAS_CPU_TIME { "CPU time" } else { "wall time" });
     for t in ticks.iter().take(args.worst) {
         let mut parts: Vec<(f64, &str)> = t.phases.iter().zip(PHASES).map(|(d, n)| (ms(*d), n)).collect();
         parts.push((ms(t.join), "join"));
