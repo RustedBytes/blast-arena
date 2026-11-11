@@ -1,0 +1,188 @@
+// In-game alerts (see client/alerts.ts): big announcement cards at the top,
+// status pills pinned under them, and toasts near the bottom. A tone colours
+// each one through --tone, --tone-rgb and --tone-bg.
+
+@use 'sass:list';
+@use 'tokens' as *;
+
+#alerts { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+
+@each $name, $tone in $tones {
+  // `info` is the default: any element with a tone.
+  $selector: '[data-tone="#{$name}"]';
+  @if $name == 'info' { $selector: '[data-tone]'; }
+  #{$selector} {
+    --tone: #{list.nth($tone, 1)};
+    --tone-rgb: #{rgb-triplet(list.nth($tone, 1))};
+    --tone-bg: #{list.nth($tone, 2)};
+  }
+}
+
+// ---------------------------------------------------------------- announcements
+
+.alerts-top {
+  @extend %ui-scaled;
+  position: absolute;
+  top: calc(var(--top) + 52px);
+  @include center-x;
+  // Between the stats and the leaderboard where there's room for it.
+  width: min(560px, max(360px, calc(100vw / var(--ui) - 500px)), calc(100vw / var(--ui) - 24px));
+  display: flex;
+  justify-content: center;
+
+  @include upright { top: calc(var(--top) + 150px); }
+  @include landscape { top: calc(var(--top) + 36px); width: min(440px, calc(100vw - 24px)); }
+}
+
+.alert-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  padding: 10px 18px 12px;
+  border-radius: 14px;
+  max-width: 100%;
+  background: var(--tone-bg);
+  border: 1px solid rgba(var(--tone-rgb), 0.55);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 22px rgba(var(--tone-rgb), 0.35);
+  animation: alert-in 0.32s cubic-bezier(0.2, 1.4, 0.4, 1);
+
+  &.leaving { animation: alert-out 0.26s ease-in forwards; }
+  .alert-icon { font-size: 30px; line-height: 1; flex-shrink: 0; filter: drop-shadow(0 2px 4px #000); }
+  img.alert-icon { width: 34px; height: 34px; }
+
+  @include phone {
+    padding: 8px 14px 10px;
+    gap: 10px;
+    .alert-icon { font-size: 24px; }
+    img.alert-icon { width: 28px; height: 28px; }
+  }
+}
+
+.alert-title {
+  font-size: 21px;
+  font-weight: 900;
+  color: var(--tone);
+  text-shadow: 0 2px 6px #000;
+  line-height: 1.2;
+  @include phone { font-size: 17px; }
+}
+
+.alert-sub {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  opacity: 0.9;
+  margin-top: 2px;
+  @include phone { font-size: 12px; }
+}
+
+.alert-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  i { display: block; height: 100%; background: var(--tone); transform-origin: left; }
+}
+
+@keyframes alert-in { from { opacity: 0; transform: translateY(-14px) scale(0.92); } }
+@keyframes alert-out { to { opacity: 0; transform: translateY(-10px) scale(0.96); } }
+
+// ---------------------------------------------------------------- status pills
+
+.alerts-status {
+  @extend %ui-scaled;
+  position: absolute;
+  top: calc(var(--top) + 128px);
+  @include center-x;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+// The pills sit under the announcement card, or in its place when there's none.
+.alerts-top:empty ~ .alerts-status { top: calc(var(--top) + 52px); }
+@include upright {
+  .alerts-top:empty ~ .alerts-status,
+  .alerts-status { top: calc(var(--top) + 150px); }
+}
+@include landscape {
+  .alerts-top:empty ~ .alerts-status,
+  .alerts-status { top: calc(var(--top) + 36px); }
+  .alerts-top:not(:empty) ~ .alerts-status { top: calc(var(--top) + 100px); }
+}
+
+.alert-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  padding: 6px 16px 8px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 15px;
+  color: #fff;
+  background: var(--tone-bg);
+  border: 2px solid var(--tone);
+  animation: alert-in 0.25s ease-out, status-pulse 0.9s ease-in-out infinite alternate;
+
+  &.leaving { animation: alert-out 0.22s ease-in forwards; }
+  .alert-icon { font-size: 18px; }
+  .alert-bar { height: 4px; }
+  @include phone { font-size: 13px; padding: 4px 12px 6px; }
+}
+
+@keyframes status-pulse { to { box-shadow: 0 0 16px rgba(var(--tone-rgb), 0.7); } }
+
+// ---------------------------------------------------------------- toasts
+
+.alerts-toasts {
+  @extend %ui-scaled;
+  position: absolute;
+  bottom: calc(var(--bottom) + 80px);
+  @include center-x;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+
+  @include touch { bottom: calc(var(--bottom) + 188px); }
+  @include landscape {
+    &,
+    body.touch & { bottom: calc(var(--bottom) + 96px); }
+  }
+}
+
+.alert-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--tone);
+  text-shadow: 0 2px 4px #000;
+  background: rgba(12, 18, 28, 0.85);
+  border: 2px solid var(--tone);
+  white-space: nowrap;
+  animation: toast-in 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+
+  &.leaving { animation: alert-out 0.3s ease-in forwards; }
+  img.alert-icon { width: 24px; height: 24px; }
+  .alert-icon { font-size: 18px; }
+  @include phone { font-size: 14px; white-space: normal; }
+}
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(0.85); } }
+
+@include reduced-motion {
+  .alert-card,
+  .alert-toast,
+  .alert-status { animation: none !important; }
+}

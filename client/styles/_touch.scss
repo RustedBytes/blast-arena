@@ -1,0 +1,116 @@
+// On-screen controls for touch devices: a floating joystick on the left and
+// round buttons on the right (see client/input.ts). Landscape phones fold
+// the buttons into a lower, tighter cluster that clears the leaderboard.
+
+@use 'sass:list';
+@use 'tokens' as *;
+
+#joy-zone {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 60vw;
+  height: 70vh;
+  height: 70dvh;
+  touch-action: none;
+}
+
+#joy-base {
+  position: fixed;
+  @include round(130px);
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  @include landscape { @include round(110px); }
+}
+
+#joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  @include round(58px);
+  transform: translate(-50%, -50%);
+  background: rgba($self, 0.7);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  @include landscape { @include round(50px); }
+}
+
+#bomb-btn {
+  position: fixed;
+  right: calc(26px + var(--sa-r));
+  bottom: calc(40px + var(--sa-b));
+  @include round(104px);
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 90, 40, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+
+  &.active { background: rgba($accent, 0.7); transform: scale(0.94); }
+  img { width: 66px; height: 66px; pointer-events: none; }
+
+  @include landscape {
+    right: calc(20px + var(--sa-r));
+    bottom: calc(18px + var(--sa-b));
+    @include round(86px);
+    img { width: 54px; height: 54px; }
+  }
+}
+
+// The small round buttons: (right, bottom, size, font size), upright and landscape.
+$buttons: (
+  'act-btn': ((140px, 50px, 64px, 22px), (118px, 20px, 56px, 20px)),
+  'emote-btn': ((40px, 160px, 52px, 22px), (180px, 94px, 44px, 19px)),
+  'jump-btn': ((130px, 130px, 60px, 26px), (112px, 90px, 52px, 22px)),
+  'gadget-btn': ((40px, 230px, 52px, 20px), (28px, 116px, 48px, 18px)),
+  'ability-btn': ((110px, 210px, 52px, 20px), (74px, 154px, 46px, 18px)),
+);
+
+@mixin place($right, $bottom, $size, $font) {
+  right: calc(#{$right} + var(--sa-r));
+  bottom: calc(#{$bottom} + var(--sa-b));
+  width: $size;
+  height: $size;
+  font-size: $font;
+}
+
+#act-btn,
+#emote-btn,
+#jump-btn,
+#gadget-btn,
+#ability-btn,
+#detach-btn {
+  position: fixed;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-weight: 800;
+  touch-action: none;
+}
+
+@each $id, $places in $buttons {
+  ##{$id} {
+    @include place(list.nth($places, 1)...);
+    @include landscape { @include place(list.nth($places, 2)...); }
+  }
+}
+
+#jump-btn.active { background: rgba(127, 246, 255, 0.45); transform: scale(0.94); }
+
+// Shaking off a sticky bomb: a pulsing button in the middle while one is on you.
+#detach-btn {
+  left: 50%;
+  bottom: calc(120px + var(--sa-b));
+  width: 76px;
+  height: 76px;
+  margin-left: -38px;
+  font-size: 30px;
+  background: rgba(255, 90, 60, 0.35);
+  animation: nuke-armed 0.5s ease-in-out infinite alternate;
+
+  &.active { background: rgba(255, 200, 80, 0.55); transform: scale(0.94); }
+  @include landscape { bottom: calc(70px + var(--sa-b)); width: 64px; height: 64px; margin-left: -32px; font-size: 26px; }
+}

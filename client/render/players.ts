@@ -61,7 +61,7 @@ export class PlayerLayer {
    */
   drawSprite(colors: PlayerColors, facing: number, px: number, py: number, T: number, sxs: number, sys: number, frame = 0, cache: (HTMLCanvasElement | null)[] | null = null, rot = 0) {
     const vi = facing === 1 ? 0 : facing === 3 ? 1 : 2;
-    let sprite = null;
+    let sprite: HTMLCanvasElement | null | undefined;
     if (this.s.pixelArt()) {
       const slot = vi * 3 + frame;
       sprite = cache?.[slot];

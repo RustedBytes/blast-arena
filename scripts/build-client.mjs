@@ -3,8 +3,9 @@
 // - JavaScript: one bundle per page in static/js/ — main.js (the game),
 //   dashboard.js (server monitor) and tilelab.js (Tile Lab) — with newer
 //   syntax rewritten for the oldest browsers in the list;
-// - CSS: client/style.css minified into static/style.css, with the vendor
-//   prefixes and fallbacks those browsers need.
+// - CSS: client/styles/main.scss compiled by Sass, its @media rules merged
+//   (merge-media.mjs), then minified by Lightning CSS into static/style.css
+//   with the vendor prefixes and fallbacks those browsers need.
 //
 //   node scripts/build-client.mjs           production: minified, no source maps
 //   node scripts/build-client.mjs --dev     readable, with inline source maps
@@ -13,16 +14,20 @@
 //
 // esbuild only strips the types; `npm run check` is what type-checks.
 
-import { readFileSync, rmSync, watch as watchFiles, writeFileSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
+import { rmSync, watch as watchFiles, writeFileSync } from 'node:fs';
 import browserslist from 'browserslist';
 import * as esbuild from 'esbuild';
 import { browserslistToTargets, transform } from 'lightningcss';
+import * as sass from 'sass';
+import { mergeMedia } from './merge-media.mjs';
 
 const args = process.argv.slice(2);
 const watch = args.includes('--watch');
 const dev = watch || args.includes('--dev');
 const outdir = 'static/js';
-const CSS_IN = 'client/style.css';
+const CSS_IN = 'client/styles/main.scss';
+const CSS_DIR = 'client/styles';
 const CSS_OUT = 'static/style.css';
 
 const browsers = browserslist(undefined, { path: '.' });
@@ -76,9 +81,10 @@ if (args.includes('--targets')) {
 }
 
 function buildCss() {
+  const scss = sass.compile(CSS_IN, { style: 'expanded', sourceMap: false });
   const { code, warnings } = transform({
     filename: CSS_IN,
-    code: readFileSync(CSS_IN),
+    code: Buffer.from(mergeMedia(scss.css)),
     minify: !dev,
     sourceMap: false,
     targets: cssTargets(),
@@ -108,7 +114,7 @@ buildCss();
 if (watch) {
   const ctx = await esbuild.context(options);
   await ctx.watch();
-  watchFiles(CSS_IN, () => {
+  watchFiles(CSS_DIR, () => {
     try { buildCss(); } catch (e) { console.error(e); }
   });
 } else {

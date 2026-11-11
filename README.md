@@ -16,7 +16,7 @@ A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bomb
 
 ## Run
 
-You need [Rust](https://rustup.rs) 1.88 or newer and [Node.js](https://nodejs.org) 22 or newer.
+You need [Rust](https://rustup.rs) 1.88 or newer and [Node.js](https://nodejs.org) 22.13 or newer (26, the current LTS, is what Docker and the release builds use).
 
 ```bash
 npm ci && npm run build   # build the client (client/) into static/js and static/style.css
@@ -38,7 +38,7 @@ cargo run       # debug server: serves static/ from disk, so a reload picks up c
 
 | Command | What it does |
 |---|---|
-| `npm run build` | Production client: [esbuild](https://esbuild.github.io) bundles and minifies the TypeScript into one file per page (`static/js/main.js` for the game, plus `dashboard.js` and `tilelab.js`), and [Lightning CSS](https://lightningcss.dev) minifies `client/style.css` into `static/style.css` |
+| `npm run build` | Production client: [esbuild](https://esbuild.github.io) bundles and minifies the TypeScript into one file per page (`static/js/main.js` for the game, plus `dashboard.js` and `tilelab.js`), and the SCSS in `client/styles/` is compiled by [Sass](https://sass-lang.com), its media queries merged, and minified by [Lightning CSS](https://lightningcss.dev) into `static/style.css` |
 | `npm run build:dev` | The same, readable and with source maps |
 | `node scripts/build-client.mjs --targets` | Shows the browser targets and how much of global usage they cover |
 | `npm run check` | Type-checks the client (strict) and lints it (typescript-eslint's strict rules); the bundler only strips types |
@@ -374,14 +374,18 @@ docs/ABILITIES.md     design of the ability system and how to add one
 screenshots/          the pictures in this README
 Dockerfile, docker-compose.yml, Caddyfile   deployment
 package.json, tsconfig.json, eslint.config.js   client build, type-check and lint settings
-scripts/build-client.mjs   builds the client (esbuild, Lightning CSS) for the browserslist targets
+scripts/build-client.mjs   builds the client (esbuild, Sass, Lightning CSS) for the browserslist targets;
+                      merge-media.mjs merges the stylesheet's media queries
 ```
 
 The browser client (`client/`, TypeScript):
 
 ```
 main.ts               entry point: wires up the modules in app/
-style.css             the game page's styles (built into static/style.css)
+styles/               the game page's styles in SCSS: main.scss, tokens and mixins
+                      (_tokens), then one partial per part of the page (base, hud,
+                      alerts, overlays, lobby, tutorial, touch, noscript), each
+                      with its responsive rules beside it
 app/                  the game page: ui (every page element, looked up once and
                       typed), services (shared singletons), session (the game in
                       progress), messages (server messages), events (game events),

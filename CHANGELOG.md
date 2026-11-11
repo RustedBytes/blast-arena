@@ -8,6 +8,40 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- Build tools upgraded: ESLint 10 (with `@eslint/js` 10), TypeScript 6.0,
+  esbuild 0.28, and the latest Sass, Lightning CSS, PostCSS and
+  typescript-eslint. TypeScript stays on 6.0, the newest typescript-eslint
+  supports (TypeScript 7's native compiler has no API for it yet). A
+  `minimatch` override (^11.0.8) fixes a moderate advisory
+  (GHSA-g3hv-75wg-m249) in ESLint's dependencies without downgrading
+  ESLint; `npm audit` reports 0 vulnerabilities. Install scripts are
+  reviewed in `allowScripts` (esbuild's allowed; the optional file-watcher
+  build Sass pulls in is denied, as nothing here uses it). Node 26, the
+  current LTS, builds the client in Docker and the release workflow, and
+  `engines` asks for Node 22.13 or newer.
+- Fixed along the way: the client encoder's bytes are typed as plain
+  `ArrayBuffer`-backed (what `WebSocket.send` takes), the build script
+  imports `Buffer`, and a needless initial assignment went away.
+
+- The stylesheet is SCSS now (`client/styles/`): design tokens and mixins
+  (breakpoints, round buttons, fields, edge tints, countdown rings) in
+  `_tokens.scss`, and one partial per part of the page with its responsive
+  rules beside it. The alert tones, their RGB triplets and the touch-button
+  layouts (upright and landscape) are generated from maps instead of being
+  written out by hand. The build merges each media query into a single block
+  (11 instead of 76), and the output is smaller than before (25.6 KB,
+  6.3 KB gzipped). A computed-style comparison of every element in 48 page
+  states and screen sizes matches the old stylesheet, except for two layout
+  fixes that the old rule order had hidden: the tutorial's Back button uses
+  the tutorial's button size, and its card uses its narrow-screen padding
+  on phones.
+
+### Fixed
+
+- `/favicon.ico` returned 404: browsers and crawlers ask for it on their own.
+  It's now a 16/32/48 px icon rendered from `favicon.svg`, linked from every
+  page and covered by a server test.
+
 - The client is built for about 95% of the world's browsers (browserslist
   `cover 95%, not dead`: Chrome 103+, Firefox 115+, Safari and iOS 15.6+,
   Samsung Internet, UC and QQ Browser). esbuild compiles the JavaScript down

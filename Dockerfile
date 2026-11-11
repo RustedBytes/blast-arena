@@ -1,6 +1,6 @@
 # Client stage: bundle the TypeScript browser client into one minified
 # file per page in static/js.
-FROM node:22-bookworm-slim AS client
+FROM node:26-bookworm-slim AS client
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci

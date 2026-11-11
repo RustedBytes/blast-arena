@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn table_is_sorted_and_has_the_client() {
         assert!(FILES.windows(2).all(|w| w[0].0 < w[1].0), "binary search needs a sorted table");
-        for p in ["index.html", "js/main.js", "style.css", "assets/pu_nuke.svg"] {
+        for p in ["index.html", "js/main.js", "style.css", "assets/pu_nuke.svg", "favicon.ico", "favicon.svg"] {
             assert!(FILES.iter().any(|e| e.0 == p), "{p} embedded");
         }
         assert!(FILES.iter().all(|e| !e.0.starts_with('.') && !e.0.contains("/.")), "no hidden files");
@@ -90,6 +90,11 @@ mod tests {
         h.insert(header::IF_NONE_MATCH, etag);
         let res = serve(Uri::from_static("/index.html"), h).await;
         assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
+
+        // Browsers ask for /favicon.ico on their own, whatever the page links.
+        let res = serve(Uri::from_static("/favicon.ico"), HeaderMap::new()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[header::CONTENT_TYPE], "image/x-icon");
 
         let res = serve(Uri::from_static("/nope.js"), HeaderMap::new()).await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);

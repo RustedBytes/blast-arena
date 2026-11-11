@@ -1,0 +1,122 @@
+// Custom properties, the page basics and small shared pieces: panels,
+// buttons, fields, key caps and utility classes.
+
+@use 'tokens' as *;
+
+:root {
+  --bg: #1b2a17;
+  --panel: rgba(12, 18, 28, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --text: #f3f5f8;
+  --muted: #a8b3c2;
+  --accent: #{$accent};
+  --accent-dark: #e0680f;
+  --self: #{$self};
+  --danger: #ff5a4a;
+  --good: #6ff2a0;
+  --curse: #{$curse};
+  // HUD scale (bigger on large displays) and distance from the screen
+  // edges, plus whatever the notch or rounded corners cover.
+  --ui: 1;
+  --edge: 12px;
+  --top: calc(var(--edge) + env(safe-area-inset-top, 0px));
+  --right: calc(var(--edge) + env(safe-area-inset-right, 0px));
+  --bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  --left: calc(var(--edge) + env(safe-area-inset-left, 0px));
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  // The minimap's size, chosen in the settings (set from the client).
+  --minimap: 170px;
+
+  @include phone { --edge: 8px; }
+  // Large displays: the HUD and menus grow with the screen.
+  @media (min-width: 1700px) and (min-height: 950px) { --ui: 1.2; }
+  @media (min-width: 2200px) and (min-height: 1250px) { --ui: 1.4; }
+  @media (min-width: 3000px) and (min-height: 1700px) { --ui: 1.8; }
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  touch-action: none;
+}
+
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+
+kbd {
+  background: $kbd-bg;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+}
+
+select {
+  @include field;
+  padding: 8px;
+  font-size: 14px;
+
+  // Phones zoom in on focused fields under 16px.
+  @include touch { font-size: 16px; }
+}
+
+// ---------------------------------------------------------------- buttons
+
+button.primary {
+  font-size: 20px;
+  font-weight: 800;
+  padding: 12px;
+  border-radius: 10px;
+  border: 0;
+  cursor: pointer;
+  color: #2a1000;
+  background: linear-gradient(var(--accent), var(--accent-dark));
+  box-shadow: 0 4px 0 $accent-shadow;
+
+  &:active { transform: translateY(2px); box-shadow: 0 2px 0 $accent-shadow; }
+  &:disabled { opacity: 0.6; cursor: wait; }
+}
+
+button.secondary {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--panel-border);
+
+  &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+  &:disabled { opacity: 0.35; cursor: default; }
+}
+
+button.link {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}

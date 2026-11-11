@@ -1,0 +1,13 @@
+// The game page's stylesheet, built into static/style.css by
+// scripts/build-client.mjs (Sass, then Lightning CSS for the browser targets).
+// Tokens and mixins are in _tokens.scss; each other partial styles one part
+// of the page, with its responsive rules next to it.
+
+@use 'base';
+@use 'hud';
+@use 'alerts';
+@use 'overlays';
+@use 'lobby';
+@use 'tutorial';
+@use 'touch';
+@use 'noscript';

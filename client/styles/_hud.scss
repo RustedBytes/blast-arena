@@ -1,0 +1,384 @@
+// The in-game HUD: the canvas and its tints, power-up stats, round bar,
+// leaderboard and kill feed, minimap, performance readout, corner buttons,
+// emote wheel and the death notice.
+
+@use 'tokens' as *;
+
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+// Darkened edges, blended by the compositor instead of drawn each frame.
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0) 35vmin, rgba(0, 0, 0, 0.45) 75vmax);
+}
+
+// Inside the storm or a gas cloud: the edges of the view turn blue or green.
+#storm-tint { @include edge-tint(120px, 40px, rgba(60, 110, 255, 0.55)); }
+#gas-tint { @include edge-tint(160px, 70px, rgba(90, 170, 40, 0.55)); }
+body.in-storm #storm-tint,
+body.in-gas #gas-tint { display: block; }
+
+// ---------------------------------------------------------------- stats
+
+#stats {
+  @extend %ui-scaled;
+  position: fixed;
+  top: var(--top);
+  left: var(--left);
+  // Wraps before it reaches the round timer in the middle.
+  max-width: calc((50vw - var(--left)) / var(--ui) - 110px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 17px;
+
+  @include phone { gap: 4px 7px; padding: 5px 8px; font-size: 14px; }
+  @include upright { top: calc(var(--top) + 34px); max-width: calc(100vw - var(--left) - var(--right) - 158px); }
+  @include tiny { font-size: 13px; }
+  @include landscape { max-width: calc(50vw - var(--left) - 90px); }
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+
+  img {
+    width: 26px;
+    height: 26px;
+    @include phone { width: 20px; height: 20px; }
+    @include tiny { width: 18px; height: 18px; }
+  }
+
+  &.off { opacity: 0.25; filter: grayscale(1); }
+  &.nuke { color: #ffd23f; animation: nuke-armed 0.9s ease-in-out infinite alternate; }
+
+  // A countdown (shield, ghost, curse, stun): a ring around the icon.
+  &.timer span { font-size: 14px; font-variant-numeric: tabular-nums; }
+  &.timer::after {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    border-radius: 50%;
+    background: conic-gradient(var(--ring-color, #7ff6ff) calc(var(--p, 1) * 360deg), transparent 0);
+    @include ring(32px, 13px);
+    @include phone { @include ring(26px, 10px); }
+  }
+  &.curse { --ring-color: var(--curse); color: var(--curse); }
+
+  &.score {
+    color: var(--muted);
+    font-weight: 600;
+    b { color: var(--self); font-size: 19px; }
+    @include phone { display: none; }
+  }
+
+  &.gadget kbd,
+  &.ability kbd { font-size: 10px; padding: 0 3px; }
+  &.gadget span,
+  &.ability span,
+  &.modifier span { font-weight: 700; }
+
+  // An ability recharging: a sweep shows how long until the next charge.
+  &.ability {
+    --cd: 0;
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 6px;
+      pointer-events: none;
+      background: conic-gradient(rgba(0, 0, 0, 0.55) calc(var(--cd) * 360deg), transparent 0);
+    }
+    &.empty img { filter: grayscale(1) brightness(0.7); }
+  }
+}
+
+@keyframes nuke-armed { to { filter: drop-shadow(0 0 6px #ffd23f); } }
+
+// ---------------------------------------------------------------- round bar
+
+#roundbar {
+  @extend %ui-scaled;
+  position: fixed;
+  top: var(--top);
+  @include center-x;
+  padding: 4px 14px;
+  white-space: nowrap;
+  font-weight: 800;
+  font-size: 16px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+
+  .red { color: #ff7a6e; }
+  .blue { color: #7ab4ff; }
+
+  @include phone { font-size: 13px; padding: 3px 10px; gap: 10px; }
+}
+
+#ctf-caps {
+  margin-left: 10px;
+  .red { color: $team-red; }
+  .blue { color: $team-blue; }
+}
+
+// ---------------------------------------------------------------- leaderboard
+
+#side {
+  @extend %ui-scaled;
+  position: fixed;
+  top: var(--top);
+  right: var(--right);
+  width: min(230px, calc((50vw - var(--right)) / var(--ui) - 110px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  @include upright { top: calc(var(--top) + 34px); width: 150px; }
+  @include landscape { width: min(170px, calc(50vw - var(--right) - 100px)); }
+}
+
+.panel-title { font-weight: 700; color: var(--accent); margin-bottom: 4px; display: flex; justify-content: space-between; }
+#online { color: var(--muted); font-weight: 500; }
+
+#leaderboard {
+  padding: 8px 12px;
+  font-size: 14px;
+  transition: width 0.15s;
+
+  &.expanded { width: 300px; margin-left: -70px; }
+  @include phone { font-size: 11px; padding: 5px 8px; }
+}
+
+#lb-list {
+  margin: 0;
+  padding-left: 22px;
+  @include phone { padding-left: 18px; }
+
+  li {
+    line-height: 1.5;
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .s { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .kd { display: none; color: var(--muted); font-size: 12px; }
+    &.me .n { color: var(--self); font-weight: 700; }
+    &.team-1 .n { color: $team-red; }
+    &.team-2 .n { color: $team-blue; }
+  }
+}
+
+// Collapsed: the top five (three on phones); expanded (Tab): everyone, with kills and deaths.
+#leaderboard.expanded #lb-list li .kd { display: inline; }
+#leaderboard:not(.expanded) #lb-list li:nth-child(n + 6) { display: none; }
+@include phone { #leaderboard:not(.expanded) #lb-list li:nth-child(n + 4) { display: none; } }
+
+.lb-hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+  @include phone { display: none; }
+}
+
+#killfeed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  @include phone { display: none; }
+}
+
+.kill {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 13px;
+  animation: slide-in 0.2s ease-out;
+  b { color: var(--accent); }
+  &.mine b.v,
+  &.mine b.k { color: var(--self); }
+}
+
+@keyframes slide-in { from { opacity: 0; transform: translateX(10px); } }
+
+// ---------------------------------------------------------------- minimap
+
+#minimap {
+  position: fixed;
+  left: var(--left);
+  bottom: var(--bottom);
+  width: var(--minimap);
+  height: var(--minimap);
+  image-rendering: pixelated;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+
+  &.dragging { cursor: grabbing; }
+  // Hidden by the setting, on phones, and on touch devices (it would sit under the joystick).
+  body.no-minimap &,
+  body.touch & { display: none; }
+  @include phone { display: none; }
+}
+
+// Watching another part of the map: a way back.
+#look-pill {
+  position: fixed;
+  @include center-x;
+  bottom: calc(var(--bottom) + 8px);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 16px;
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-color: var(--self);
+  zoom: var(--ui);
+
+  b { color: var(--self); }
+  span { color: var(--muted); font-size: 13px; }
+}
+
+// ---------------------------------------------------------------- readout and buttons
+
+#perf {
+  @extend %ui-scaled;
+  position: fixed;
+  left: calc((var(--left) + var(--minimap) + 10px) / var(--ui));
+  bottom: var(--bottom);
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+
+  body.no-minimap & { left: var(--left); }
+  @include touch { left: 50%; transform: translateX(-50%); bottom: calc(var(--sa-b) + 4px); padding: 3px 8px; }
+  @include phone { body:not(.touch) & { left: auto; right: var(--right); bottom: auto; top: calc(var(--top) + 148px); } }
+  @include landscape {
+    &,
+    body.touch & { top: auto; right: auto; left: 50%; transform: translateX(-50%); bottom: calc(var(--sa-b) + 4px); padding: 3px 8px; }
+  }
+}
+
+#fps {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--good);
+  &.slow { color: var(--danger); }
+}
+
+#hud-buttons {
+  @extend %ui-scaled;
+  position: fixed;
+  right: var(--right);
+  bottom: var(--bottom);
+  display: flex;
+  gap: 8px;
+
+  button {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    color: var(--text);
+    cursor: pointer;
+    @include phone { width: 40px; height: 40px; font-size: 19px; }
+  }
+
+  @include touch { bottom: auto; top: calc(var(--top) + 148px); right: auto; left: var(--left); flex-direction: column; }
+  @include phone { top: calc(var(--top) + 148px); bottom: auto; right: auto; left: var(--left); flex-direction: column; }
+  @include landscape {
+    &,
+    body.touch & { top: calc(var(--top) + 76px); }
+  }
+}
+
+#emote-toggle { @include touch { display: none; } }
+
+#emote-wheel {
+  @extend %ui-scaled;
+  position: fixed;
+  right: var(--right);
+  bottom: calc(var(--bottom) + 52px);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 8px;
+
+  button {
+    min-width: 56px;
+    height: 44px;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+    &:hover { background: rgba(255, 176, 46, 0.4); }
+  }
+  kbd { font-size: 10px; display: block; }
+
+  @include upright { right: var(--right); bottom: calc(var(--bottom) + 230px); }
+  @include landscape { bottom: auto; top: calc(var(--top) + 76px); right: auto; left: calc(var(--left) + 52px); }
+}
+
+// ---------------------------------------------------------------- death notice
+
+#dead {
+  @extend %ui-scaled;
+  position: fixed;
+  left: 50%;
+  top: 32%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+
+  // Battle royale: out until the next match. A small notice in the
+  // bottom-right corner, above the HUD buttons, so the spectator view stays clear.
+  &.out {
+    left: auto;
+    top: auto;
+    right: var(--right);
+    bottom: calc(var(--bottom) + 56px);
+    transform: none;
+    text-align: right;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: var(--panel);
+    text-shadow: none;
+    max-width: min(320px, calc(100vw - 24px));
+
+    #dead-msg { font-size: 17px; }
+    #dead-timer { font-size: 13px; margin-top: 2px; opacity: 0.85; }
+    @include touch { bottom: calc(var(--bottom) + 128px); }
+    @include landscape {
+      right: auto;
+      @include center-x;
+      bottom: auto;
+      top: calc(var(--top) + 40px);
+      text-align: center;
+      @include touch { bottom: auto; }
+    }
+  }
+}
+
+#dead-msg {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--danger);
+  @include phone { font-size: 22px; }
+}
+
+#dead-timer { font-size: 18px; margin-top: 6px; }

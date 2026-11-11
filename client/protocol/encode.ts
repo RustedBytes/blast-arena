@@ -7,7 +7,8 @@ const CLIENT_OP: Record<ClientMsg['t'], number> = { join: 1, in: 2, bomb: 3, act
 const textEncoder = new TextEncoder();
 
 class Writer {
-  private buf = new Uint8Array(64);
+  // Plain ArrayBuffer-backed bytes, which is what WebSocket.send takes.
+  private buf: Uint8Array<ArrayBuffer> = new Uint8Array(64);
   private pos = 0;
 
   ensure(n: number): void {
@@ -44,11 +45,11 @@ class Writer {
     return this;
   }
 
-  bytes(): Uint8Array { return this.buf.subarray(0, this.pos); }
+  bytes(): Uint8Array<ArrayBuffer> { return this.buf.subarray(0, this.pos); }
 }
 
 /** Encodes a client message `{t, ...fields}`. */
-export function encodeClient(m: ClientMsg): Uint8Array {
+export function encodeClient(m: ClientMsg): Uint8Array<ArrayBuffer> {
   const w = new Writer().u8(CLIENT_OP[m.t]);
   switch (m.t) {
     case 'join': w.str(m.name).str(m.token ?? '').u8(m.hat ?? 0).u8(m.trail ?? 0).uvar(m.near ?? 0); break;

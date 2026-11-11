@@ -1,0 +1,18 @@
+// Shown only without JavaScript (and read by crawlers).
+
+@use 'tokens' as *;
+
+.noscript {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow: auto;
+  padding: 32px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, sans-serif;
+  text-align: center;
+
+  h1 { color: $accent; }
+  p { max-width: 640px; margin: 12px auto; }
+}
