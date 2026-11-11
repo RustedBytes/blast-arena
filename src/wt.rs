@@ -19,13 +19,12 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use bytes::{BufMut, Bytes, BytesMut};
-use serde::Serialize;
 use tracing::Instrument;
 use wtransport::endpoint::IncomingSession;
 use wtransport::error::{SendDatagramError, StreamReadExactError};
 use wtransport::{Connection, Endpoint, Identity, RecvStream, SendStream, ServerConfig};
 
-use crate::net::{self, AppState, Inbound, Outbound};
+use crate::net::{self, AppState, Inbound, Outbound, WtInfo};
 
 /// Largest client message accepted (the WebSocket has the same limit).
 const MAX_CLIENT_MSG: usize = 4096;
@@ -38,15 +37,6 @@ const SELF_SIGNED_RENEW: Duration = Duration::from_secs(6 * 24 * 3600);
 const CERT_FILE_CHECK: Duration = Duration::from_secs(3600);
 /// Time the client gets to open its stream after the session is accepted.
 const STREAM_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// What `/api/transport` tells browsers.
-#[derive(Clone, Serialize)]
-pub struct WtInfo {
-    /// UDP port to connect to.
-    pub port: u16,
-    /// Hex SHA-256 hashes of a self-signed certificate (empty with a real one).
-    pub hashes: Vec<String>,
-}
 
 /// Endpoint settings from the command line.
 pub struct Settings {

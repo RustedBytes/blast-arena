@@ -8,6 +8,11 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- A `webtransport` cargo feature, on by default. `--no-default-features`
+  builds without WebTransport (118 crates to compile instead of 200) for
+  faster local builds and tests; such a server serves everyone over the
+  WebSocket.
+
 - Caddy sends security headers (HSTS, a Content-Security-Policy that only
   allows the site's own scripts, `nosniff`, referrer and permissions
   policies), holds requests for up to 10 s while the game restarts and
@@ -29,6 +34,14 @@ All notable changes to Blast Arena are documented here. The format follows
   logged with their transport, and the network readout shows `WT` or `WS`.
 
 ### Changed
+
+- Faster builds. Docker compiles the dependencies in a cached layer of
+  their own, so a code change rebuilds only the server. Fewer crates: log
+  filters use `tracing-subscriber`'s `Targets` instead of `EnvFilter` (no
+  regex engine; filters are a level plus `target=level` pairs, as before),
+  tokio has only the features the server uses (no `parking_lot`), and the
+  bots tool uses the same `tokio-tungstenite` as axum instead of a second
+  copy. `db.rs` logs through `tracing` like the rest of the server.
 
 - The lobby's all-time list shows each player's XP, the value it is ranked
   by. With only level and kills shown, players on the same level looked

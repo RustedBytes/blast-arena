@@ -6,14 +6,16 @@
 //!
 //! The filter comes from `RUST_LOG` when set (e.g. `RUST_LOG=debug` or
 //! `RUST_LOG=info,blast_arena::net=debug`), otherwise from
-//! `--log-level`. Output can be human-friendly (`pretty`, `compact`) or one
+//! `--log-level`: a default level plus `target=level` pairs (no span or
+//! field filters, which would need a regex engine). Output can be human-friendly (`pretty`, `compact`) or one
 //! JSON object per line (`json`) for log collectors.
 
 use std::fmt;
 
 use clap::ValueEnum;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum LogFormat {
@@ -35,10 +37,16 @@ impl fmt::Display for LogFormat {
     }
 }
 
-/// The filter to use: `RUST_LOG` if set and valid, otherwise `default`.
+/// The filter to use: `RUST_LOG` if set and valid, otherwise `default`,
+/// otherwise `info`.
 #[must_use]
-pub fn filter(default: &str) -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::try_new(default).unwrap_or_else(|_| EnvFilter::new("info")))
+pub fn filter(default: &str) -> Targets {
+    let parse = |s: &str| s.parse::<Targets>().ok();
+    std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| parse(&s))
+        .or_else(|| parse(default))
+        .unwrap_or_else(|| Targets::new().with_default(tracing::Level::INFO))
 }
 
 /// Installs the global subscriber and the `log` bridge. Call once at startup.
@@ -47,12 +55,13 @@ pub fn init(level: &str, format: LogFormat) {
     if let Err(e) = tracing_log::LogTracer::init() {
         eprintln!("log bridge already installed: {e}");
     }
-    let builder = tracing_subscriber::fmt().with_env_filter(filter(level)).with_target(true);
+    let targets = filter(level);
+    let builder = tracing_subscriber::fmt().with_target(true);
     let result = match format {
-        LogFormat::Pretty => tracing::subscriber::set_global_default(builder.pretty().finish()),
-        LogFormat::Compact => tracing::subscriber::set_global_default(builder.compact().finish()),
+        LogFormat::Pretty => tracing::subscriber::set_global_default(builder.pretty().finish().with(targets)),
+        LogFormat::Compact => tracing::subscriber::set_global_default(builder.compact().finish().with(targets)),
         LogFormat::Json => tracing::subscriber::set_global_default(
-            builder.json().flatten_event(true).with_current_span(true).with_span_list(false).with_span_events(FmtSpan::NONE).finish(),
+            builder.json().flatten_event(true).with_current_span(true).with_span_list(false).with_span_events(FmtSpan::NONE).finish().with(targets),
         ),
     };
     if let Err(e) = result {
@@ -82,15 +91,19 @@ mod tests {
     }
 
     #[test]
+    fn filters_parse_targets() {
+        let f = filter("warn,blast_arena::net=debug");
+        assert!(f.would_enable("blast_arena::net", &tracing::Level::DEBUG));
+        assert!(!f.would_enable("blast_arena::game", &tracing::Level::INFO));
+        assert!(f.would_enable("blast_arena::game", &tracing::Level::WARN));
+    }
+
+    #[test]
     fn log_crate_records_reach_tracing_output() {
         let _ = tracing_log::LogTracer::init();
         let out = Capture::default();
         let writer = out.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::new("info"))
-            .json()
-            .with_writer(move || writer.clone())
-            .finish();
+        let subscriber = tracing_subscriber::fmt().json().with_writer(move || writer.clone()).finish().with(filter("info"));
         tracing::subscriber::with_default(subscriber, || {
             log::info!(target: "blast_test", "bridged message {}", 42);
             log::debug!(target: "blast_test", "filtered out");

@@ -11,7 +11,7 @@ use blast_arena::game::rng::{derive_seed, random_seed};
 use blast_arena::game::{self, Mode};
 use blast_arena::metrics::ArenaStats;
 use blast_arena::logging::{self, LogFormat};
-use blast_arena::{api, net, page, wt};
+use blast_arena::{api, net, page};
 use clap::Parser;
 use tokio::sync::mpsc;
 use tower_http::LatencyUnit;
@@ -233,6 +233,15 @@ async fn main() {
     tracing::info!("server stopped");
 }
 
+/// Built without the `webtransport` feature: clients use the WebSocket.
+#[cfg(not(feature = "webtransport"))]
+#[allow(clippy::unused_async, reason = "same signature as the real one")]
+async fn start_webtransport(args: &Args, _state: &net::AppState, _public_url: Option<&str>) {
+    if args.wt_port.is_some_and(|p| p != 0) || args.wt_cert.is_some() {
+        tracing::warn!("built without the webtransport feature; --wt-* settings are ignored");
+    }
+}
+
 /// Starts each arena's game task and returns the handles sessions join through.
 fn spawn_arenas(configs: Vec<game::Config>, db: Option<&Db>) -> Vec<net::ArenaHandle> {
     configs
@@ -256,7 +265,9 @@ fn spawn_arenas(configs: Vec<game::Config>, db: Option<&Db>) -> Vec<net::ArenaHa
 
 /// Starts the WebTransport endpoint unless `--wt-port 0`; clients fall
 /// back to the WebSocket when it's off or fails to start.
+#[cfg(feature = "webtransport")]
 async fn start_webtransport(args: &Args, state: &net::AppState, public_url: Option<&str>) {
+    use blast_arena::wt;
     let port = args.wt_port.unwrap_or(args.port);
     if port == 0 {
         tracing::info!("WebTransport off (--wt-port 0); clients use the WebSocket");

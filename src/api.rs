@@ -45,7 +45,7 @@ fn arena_infos(state: &AppState) -> Vec<ArenaInfo> {
 /// WebSocket only.
 #[derive(Serialize)]
 pub struct TransportInfo {
-    webtransport: Option<crate::wt::WtInfo>,
+    webtransport: Option<crate::net::WtInfo>,
 }
 
 #[allow(clippy::unused_async, reason = "axum handlers must be async")]

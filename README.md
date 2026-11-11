@@ -43,6 +43,7 @@ cargo run       # debug server: serves static/ from disk, so a reload picks up c
 | `node scripts/build-client.mjs --targets` | Shows the browser targets and how much of global usage they cover |
 | `npm run check` | Type-checks the client (strict) and lints it (typescript-eslint's strict rules); the bundler only strips types |
 | `cargo test` | Server tests (game rules, protocol, abilities, worms, the Warden, map generation) |
+| `cargo test --no-default-features` | The same without WebTransport: 118 crates to compile instead of 200, for faster clean builds; such a server serves everyone over the WebSocket |
 | `cargo clippy --all-targets` | Rust lints |
 
 **Browser support.** The client is built for the browsers in `package.json`'s `browserslist` (`cover 95%, not dead`): about 95% of global usage, including Chrome 103+, Firefox 115+, Safari and iOS Safari 15.6+, Samsung Internet, and UC and QQ Browser (built on older Chromium, so the JavaScript targets Chrome 78). esbuild rewrites newer syntax for them, Lightning CSS adds vendor prefixes and fallbacks, and the lint step (`eslint-plugin-compat`) flags browser APIs they lack. The game needs WebSockets, canvas and ES modules, so Internet Explorer is out.
@@ -111,7 +112,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
 | `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `npm run watch` running to recompile the TypeScript). |
 | `--public-url` | `PUBLIC_URL` | from the request | The site's public address (e.g. `https://blastarena.fun`) for link previews, the canonical link, `robots.txt` and `sitemap.xml`. Without it the address comes from each request (`Host`, or a proxy's `X-Forwarded-Proto` and `X-Forwarded-Host`). |
-| `--log-level` | `LOG_LEVEL` | `info` | Log filter, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
+| `--log-level` | `LOG_LEVEL` | `info` | Log filter: a level plus `target=level` pairs, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
 Without `--arena` the server runs six arenas:
@@ -257,7 +258,7 @@ How a bot plays:
 DOMAIN=play.example.com docker compose up -d
 ```
 
-- `Dockerfile` builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume.
+- `Dockerfile` compiles the dependencies in a layer of their own, so after a code change only the server itself is recompiled. It builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume.
 - `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
 - WebTransport skips Caddy: host port **443/udp** goes straight to the game's 3000/udp, so open UDP 443 in the firewall. Caddy is limited to HTTP/1.1 and HTTP/2 so it doesn't claim UDP 443 for HTTP/3. Without the UDP port, everyone plays over the WebSocket.
 - Profiles live in the `blast-data` volume.

@@ -9,4 +9,5 @@ pub mod metrics;
 pub mod net;
 pub mod page;
 pub mod protocol;
+#[cfg(feature = "webtransport")]
 pub mod wt;

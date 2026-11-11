@@ -12,19 +12,21 @@ axum = { version = "0.8.9", features = ["ws"] }
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures-util = "0.3.34"
-log = "0.4.35"
 rmp-serde = "1.3.1"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sysinfo = "0.40.1"
-tokio = { version = "1.54.1", features = ["full"] }
-tokio-tungstenite = "0.30.0"
+# Only what the server uses (no fs watchers, processes or parking_lot).
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs"] }
+# The bots tool's client; the version axum uses, so it's compiled once.
+tokio-tungstenite = "0.29.0"
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "tracing-log"] }
-wtransport = "0.7.2"
+# Log filters use `Targets`, which needs no regex engine (no env-filter).
+tracing-subscriber = { version = "0.3.23", features = ["json", "tracing-log"] }
+wtransport = { version = "0.7.2", optional = true }
 
 # musl's allocator is slow under many threads; the Alpine image (a musl
 # build) uses mimalloc instead. Other targets keep the system allocator.
@@ -32,6 +34,16 @@ wtransport = "0.7.2"
 mimalloc = "0.1.52"
 
 [dev-dependencies]
+# The logging test checks that `log` records reach the tracing output.
+log = "0.4.35"
+
+[features]
+default = ["webtransport"]
+# WebTransport (HTTP/3 over QUIC) besides the WebSocket. It brings QUIC,
+# TLS and certificate handling: about a third of the dependency tree. Build
+# with `--no-default-features` for faster local builds and tests; the
+# client then uses the WebSocket.
+webtransport = ["dep:wtransport"]
 
 # `cargo clippy` runs the pedantic group. The four numeric-cast lints are
 # allowed: the simulation converts between tile coordinates (bounded by the

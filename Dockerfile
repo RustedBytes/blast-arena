@@ -15,6 +15,15 @@ FROM rust:1-alpine AS build
 RUN apk add --no-cache musl-dev gcc
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
+# Dependencies first, in a layer of their own: built against stand-in
+# sources, so it stays cached until Cargo.toml or Cargo.lock change, and a
+# code change rebuilds only the server itself.
+RUN mkdir src \
+    && echo 'fn main() {}' > src/main.rs \
+    && touch src/lib.rs \
+    && echo 'fn main() {}' > build.rs \
+    && cargo build --release --locked --bin blast-arena \
+    && rm -rf src build.rs
 COPY build.rs ./
 COPY src ./src
 # Default ability tuning, compiled in with `include_str!`.
@@ -22,7 +31,10 @@ COPY config ./config
 # The browser client (with the compiled static/js) is compiled into the binary.
 COPY --from=client /src/static ./static
 COPY client ./client
-RUN cargo build --release --locked --bin blast-arena
+# COPY keeps the files' own times, which can be older than the stand-ins:
+# touching the crate roots makes Cargo rebuild the crate and rerun build.rs.
+RUN touch build.rs src/main.rs src/lib.rs \
+    && cargo build --release --locked --bin blast-arena
 
 # Runtime stage: Alpine and the binary (it carries the browser client).
 FROM alpine:3.24

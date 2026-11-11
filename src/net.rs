@@ -52,7 +52,16 @@ pub struct AppState {
     pub started: Instant,
     pub sys: Arc<std::sync::Mutex<sysinfo::System>>,
     /// Where browsers reach the WebTransport endpoint (`None` when it's off).
-    pub webtransport: Arc<RwLock<Option<crate::wt::WtInfo>>>,
+    pub webtransport: Arc<RwLock<Option<WtInfo>>>,
+}
+
+/// Where browsers reach WebTransport, as `/api/transport` reports it.
+#[derive(Clone, serde::Serialize)]
+pub struct WtInfo {
+    /// UDP port to connect to.
+    pub port: u16,
+    /// Hex SHA-256 hashes of a self-signed certificate (empty with a real one).
+    pub hashes: Vec<String>,
 }
 
 /// The receiving half of a client connection.
