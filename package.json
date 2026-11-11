@@ -3,16 +3,18 @@
   "version": "0.8.0",
   "private": true,
   "type": "module",
-  "description": "Browser client for Blast Arena, compiled from client/*.ts to static/js/*.js",
+  "description": "Browser client for Blast Arena: client/*.ts bundled into one minified file per page in static/js/",
   "scripts": {
-    "build": "tsc -p .",
-    "watch": "tsc -p . --watch",
-    "typecheck": "tsc -p . --noEmit",
-    "lint": "eslint client",
-    "check": "tsc -p . --noEmit && eslint client"
+    "build": "node scripts/build-client.mjs",
+    "build:dev": "node scripts/build-client.mjs --dev",
+    "watch": "node scripts/build-client.mjs --watch",
+    "typecheck": "tsc -p .",
+    "lint": "eslint client scripts",
+    "check": "tsc -p . && eslint client scripts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "esbuild": "^0.25.12",
     "eslint": "^9.39.5",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.2"

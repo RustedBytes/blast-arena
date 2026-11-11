@@ -17,4 +17,10 @@ export default tseslint.config(
       '@typescript-eslint/no-confusing-void-expression': ['error', { ignoreArrowShorthand: true }],
     },
   },
+  {
+    // Node build scripts: plain JavaScript, so no type-aware rules.
+    files: ['scripts/**/*.mjs'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
 );

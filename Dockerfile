@@ -1,8 +1,10 @@
-# Client stage: compile the TypeScript browser client into static/js.
+# Client stage: bundle the TypeScript browser client into one minified
+# file per page in static/js.
 FROM node:22-bookworm-slim AS client
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci
+COPY scripts ./scripts
 COPY client ./client
 COPY static ./static
 RUN npm run build

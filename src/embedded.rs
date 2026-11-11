@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(res.headers()[header::CONTENT_TYPE], "text/html; charset=utf-8");
         let etag = res.headers()[header::ETAG].clone();
 
-        let res = serve(Uri::from_static("/js/render.js?v=2"), HeaderMap::new()).await;
+        let res = serve(Uri::from_static("/js/main.js?v=2"), HeaderMap::new()).await;
         assert_eq!(res.headers()[header::CONTENT_TYPE], "text/javascript; charset=utf-8");
 
         let mut h = HeaderMap::new();

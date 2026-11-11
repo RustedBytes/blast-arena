@@ -8,6 +8,13 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The client ships as one minified file per page: esbuild bundles
+  `client/` into `static/js/main.js` (the game, about 210 KB, 80 KB
+  gzipped; it was 70 separate modules, 588 KB), `dashboard.js` and
+  `tilelab.js`. `npm run build` is the production build, `npm run
+  build:dev` and `npm run watch` keep it readable with source maps, and
+  `tsc` now only type-checks (`npm run check`).
+
 - README: new screenshots (gameplay, worms, battle royale, the vault and its
   Warden, the lobby) with captions, build prerequisites, a development
   section, the vault and Warden under Gameplay, and a map of the client's

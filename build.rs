@@ -41,33 +41,23 @@ fn main() {
     fs::write(dest, out).expect("write the generated table");
 }
 
-/// The browser client is written in TypeScript (`client/`) and compiled by
-/// `npm run build` into `static/js/`, which is what gets embedded. Stops the
-/// build when it hasn't been compiled, and warns when a source file is newer
-/// than its output.
+/// The browser client is written in TypeScript (`client/`) and bundled by
+/// `npm run build` into one minified file per page in `static/js/`, which
+/// is what gets embedded. Stops the build when it hasn't been bundled, and
+/// warns when a client source file is newer than the bundles.
 fn check_client(manifest: &Path) {
     let out = manifest.join("static/js");
+    let bundles = ["main.js", "dashboard.js", "tilelab.js"].map(|b| out.join(b));
     assert!(
-        out.join("main.js").is_file(),
-        "the browser client isn't built: run `npm ci && npm run build` first (compiles client/*.ts into static/js/)"
+        bundles.iter().all(|b| b.is_file()),
+        "the browser client isn't built: run `npm ci && npm run build` first (bundles client/ into static/js/)"
     );
-    let client = manifest.join("client");
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let Some(built) = bundles.iter().filter_map(|b| modified(b)).min() else { return };
     let mut sources = Vec::new();
-    collect(&client, &mut sources);
-    for src in sources {
-        if src.extension().is_none_or(|e| e != "ts") {
-            continue;
-        }
-        let rel = src.strip_prefix(&client).expect("inside client/");
-        let js = out.join(rel).with_extension("js");
-        let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
-        if let (Some(s), Some(j)) = (modified(&src), modified(&js))
-            && s <= j
-        {
-            continue;
-        }
+    collect(&manifest.join("client"), &mut sources);
+    if let Some(src) = sources.iter().find(|s| modified(s).is_some_and(|t| t > built)) {
         println!("cargo:warning=static/js is out of date with client/ ({}): run `npm run build`", src.display());
-        return;
     }
 }
 
