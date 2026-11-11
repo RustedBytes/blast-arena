@@ -12,6 +12,7 @@ export const de: Strings = {
   modeFfa: 'Jeder gegen jeden',
   modeTeams: 'Rot gegen Blau',
   modeWorms: 'Würmer',
+  modeRockets: 'Raketen', helpRocket: 'Rakete', rocketsHint: 'Raketen-Arena: Die Bombentaste feuert eine Rakete in Blickrichtung',
   profile: 'Dein Profil',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} EP',

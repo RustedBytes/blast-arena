@@ -8,6 +8,14 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- A Rockets arena (`rockets` mode, `Rockets:rockets:51:8` in the default
+  list): a free-for-all where the bomb key fires a rocket in the
+  direction you're walking or facing instead of dropping a bomb. Rockets
+  reuse the rocket gadget's flight and impact, carry your range, pierce
+  and freeze, and count towards your bomb limit. Bots aim down open lanes
+  at enemies and nearby crates, and dodge rockets flying their way: the
+  danger map now follows each rocket's lane, in every arena.
+
 - A `webtransport` cargo feature, on by default. `--no-default-features`
   builds without WebTransport (118 crates to compile instead of 200) for
   faster local builds and tests; such a server serves everyone over the

@@ -104,10 +104,34 @@ impl World {
     }
 
     fn fire_rocket(&mut self, id: u32) -> bool {
+        let kind = BombKind { rocket: true, ..BombKind::gadget(ROCKET_RANGE, ROCKET_MAX_TICKS) };
+        self.launch_rocket(id, kind)
+    }
+
+    /// The bomb key in a rockets arena: a rocket with the player's own blast
+    /// (range, pierce, freeze) that counts towards their bomb limit, so the
+    /// extra-bomb power-up means more rockets in the air. Bomb modifiers
+    /// (atomic, gas, sticky, line, remote) don't apply to rockets.
+    pub(super) fn fire_bomb_rocket(&mut self, id: u32) -> bool {
+        let Some(p) = self.players.get(&id) else { return false };
+        if !p.can_bomb(self.tick) {
+            return false;
+        }
+        let kind = BombKind {
+            rocket: true,
+            pierce: p.pierce,
+            freeze: p.freeze,
+            ..BombKind::plain(p.range.max(ROCKET_RANGE), ROCKET_MAX_TICKS)
+        };
+        self.launch_rocket(id, kind)
+    }
+
+    /// Puts a rocket of `kind` in the player's cell, flying the way they're
+    /// steering (or facing, when they stand still) from this tick on.
+    fn launch_rocket(&mut self, id: u32, kind: BombKind) -> bool {
         let p = &self.players[&id];
         let (x, y) = p.cell();
         let dir = if p.input_dir != 0 { p.input_dir } else { p.facing };
-        let kind = BombKind { rocket: true, ..BombKind::gadget(ROCKET_RANGE, ROCKET_MAX_TICKS) };
         if !self.place_bomb_at(id, (x, y), kind) {
             return false;
         }

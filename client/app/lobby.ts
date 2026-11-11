@@ -90,7 +90,7 @@ function renderArenas() {
   if (!arenas.some((a) => a.id === selectedArena)) selectedArena = arenas[0]?.id ?? 0;
   ui.join.arenaList.innerHTML = arenas.map((a) =>
     `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}">` +
-    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : a.mode === 'worms' ? t('modeWorms') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
+    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : a.mode === 'worms' ? t('modeWorms') : a.mode === 'rockets' ? t('modeRockets') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
     `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
 }
 

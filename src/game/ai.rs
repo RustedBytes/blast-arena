@@ -5,7 +5,9 @@
 //! The brain works on a shared *danger map* ("ticks until fire" per cell,
 //! including chain reactions) and, in priority order: escapes danger, grabs
 //! power-ups, bombs enemies, blasts crates, or wanders. It only drops a bomb
-//! after checking it can reach a safe cell before the fuse runs out.
+//! after checking it can reach a safe cell before the fuse runs out. In a
+//! rockets arena it fires down lanes at enemies and nearby crates instead,
+//! and the danger map follows each flying rocket's lane so bots step aside.
 //!
 //! All working memory lives in [`AiScratch`] and the bots' own path buffers,
 //! reused tick after tick, so thinking doesn't allocate.
@@ -31,6 +33,12 @@ const ESCAPE_MARGIN: f32 = 3.0;
 const MIN_SAFE_POCKET: usize = 6;
 /// How soon bots assume a remote bomb might be detonated.
 const REMOTE_ASSUMED_TICKS: u16 = FUSE_TICKS as u16;
+/// Rockets arena: how far down a lane a bot looks for an enemy to shoot,
+/// and how near a crate must be to be worth a rocket.
+const ROCKET_SIGHT: i32 = 12;
+const ROCKET_CRATE_SIGHT: i32 = 5;
+/// What hitting an enemy is worth to a bot, against 1 for a crate.
+const ROCKET_ENEMY: u32 = 4;
 
 const NAMES: &[&str] = &[
     "Sparky", "Boomer", "Kaboom", "Fuse", "Dynamo", "Pixel", "Zapper", "Turbo", "Nova", "Gizmo",
@@ -232,6 +240,8 @@ struct Me {
     team: usize,
     /// Has remote bombs waiting to be detonated.
     remote_out: bool,
+    /// A rockets arena: the bomb key fires a rocket the way the bot faces.
+    rockets: bool,
 }
 
 /// Direction from cell `a` to the next cell `b` on a path: a neighbour, or
@@ -366,8 +376,13 @@ impl World {
             // A remote bomb can go off whenever its owner likes; treat it like
             // a freshly lit one.
             let t = if b.remote { t.min(REMOTE_ASSUMED_TICKS) } else { t };
+            let (x, y, t) = if b.rocket && b.slide_dir != 0 && b.attached == 0 {
+                self.rocket_lane(b.x, b.y, b.slide_dir, t, danger)
+            } else {
+                (b.x, b.y, t)
+            };
             index.insert(b.id, bombs.len());
-            bombs.push(DangerBomb { x: b.x, y: b.y, range: b.range, pierce: b.pierce, nuke: b.nuke, t });
+            bombs.push(DangerBomb { x, y, range: b.range, pierce: b.pierce, nuke: b.nuke, t });
         }
 
         // A bomb caught in another's blast goes off no later than the fire
@@ -403,6 +418,27 @@ impl World {
             self.worm_danger(danger);
             self.warden_danger(danger);
         }
+    }
+
+    /// A flying rocket, one cell a tick: each cell of its lane is deadly from
+    /// when it gets there (a direct hit), and it blows up where it runs into
+    /// a wall, crate or bomb, or when it's flown its full time. Returns that
+    /// impact cell and when it goes off there.
+    fn rocket_lane(&self, mut x: i32, mut y: i32, dir: u8, fuse: u16, danger: &mut [u16]) -> (i32, i32, u16) {
+        let (dx, dy) = DIRS[dir as usize];
+        let mut k: u16 = 0;
+        while k < fuse {
+            let (nx, ny) = (x + dx, y + dy);
+            if !self.map.in_bounds(nx, ny) || self.map.is_solid(nx, ny) || self.bomb_at(nx, ny).is_some() {
+                break;
+            }
+            (x, y) = (nx, ny);
+            let i = self.map.idx(x, y);
+            // (A tick early: the rocket may move before the bot does.)
+            danger[i] = danger[i].min(k);
+            k += 1;
+        }
+        (x, y, fuse.min(k))
     }
 
     /// The Warden crushes: its cell is deadly now, the cells next to it from
@@ -532,6 +568,7 @@ impl World {
             speed_lvl: p.speed_lvl,
             kick: p.kick,
             shielded: p.invulnerable_until > self.tick + 20,
+            rockets: self.mode == super::Mode::Rockets,
         };
         let cur = me.cur;
         while brain.path.last() == Some(&cur) {
@@ -543,6 +580,8 @@ impl World {
         });
 
         let mut want_bomb = false;
+        // Rockets arena: the direction to fire in when `want_bomb`.
+        let mut fire_dir = 0;
         let think = self.tick >= brain.next_think
             || next_unsafe
             || (in_danger && !brain.escaping)
@@ -561,7 +600,10 @@ impl World {
             } else {
                 brain.escaping = false;
                 // Reflex: an enemy is in the line of fire right now.
-                if me.can_bomb && self.blast_value(cur, &sc.targets[me.team], &me).1 > 0 {
+                if me.rockets {
+                    fire_dir = self.rocket_aim(&me, &sc.targets[me.team], false);
+                    want_bomb = fire_dir != 0;
+                } else if me.can_bomb && self.blast_value(cur, &sc.targets[me.team], &me).1 > 0 {
                     if self.bomb_escape(sc, &me, &mut brain.path) {
                         want_bomb = true;
                         brain.escaping = true;
@@ -576,14 +618,8 @@ impl World {
             }
         }
 
-        // Reached a chosen bomb spot: drop only with a safe way out.
         if !want_bomb && !in_danger && brain.goal_bomb && brain.path.is_empty() {
-            brain.goal_bomb = false;
-            brain.next_think = self.tick;
-            if me.can_bomb && self.bomb_escape(sc, &me, &mut brain.path) {
-                want_bomb = true;
-                brain.escaping = true;
-            }
+            (want_bomb, fire_dir) = self.at_bomb_spot(&me, brain, sc);
         }
 
         let mut dir = match brain.path.last() {
@@ -603,6 +639,11 @@ impl World {
         let ability = !want_bomb && self.bot_wants_ability(id, in_danger);
         let p = self.players.get_mut(&id).unwrap();
         p.want_ability |= ability;
+        // Turn to aim while standing still: the rocket flies the way the
+        // bot faces, and walking after it could run into it.
+        if fire_dir != 0 {
+            p.facing = fire_dir;
+        }
         p.input_dir = dir;
         p.input_alt = 0;
         p.input_jump = hop;
@@ -612,6 +653,21 @@ impl World {
         if me.remote_out && !in_danger && !want_bomb && !brain.escaping {
             p.want_act = true;
         }
+    }
+
+    /// Reached a chosen bomb spot: drop only with a safe way out, or, in a
+    /// rockets arena, fire if the shot is still there. Returns whether to
+    /// press the bomb key, and which way to aim a rocket.
+    fn at_bomb_spot(&self, me: &Me, brain: &mut BotBrain, sc: &mut AiScratch) -> (bool, u8) {
+        brain.goal_bomb = false;
+        brain.next_think = self.tick;
+        if me.rockets {
+            let d = self.rocket_aim(me, &sc.targets[me.team], true);
+            return (d != 0, d);
+        }
+        let drop = me.can_bomb && self.bomb_escape(sc, me, &mut brain.path);
+        brain.escaping |= drop;
+        (drop, 0)
     }
 
     /// Whether a bot should fire its gadget now: drones when enemies are
@@ -774,6 +830,49 @@ impl World {
         (crates, hit)
     }
 
+    /// Rockets arena: which way to fire right now (0: hold fire). A rocket
+    /// flies off and spares its shooter, so unlike a bomb it needs no way
+    /// out, just a clear shot at an enemy (or, with `crates`, at a crate).
+    fn rocket_aim(&self, me: &Me, targets: &[u8], crates: bool) -> u8 {
+        if !me.can_bomb {
+            return 0;
+        }
+        self.rocket_shot(me.cur, targets).filter(|&(_, v)| crates || v >= ROCKET_ENEMY).map_or(0, |(d, _)| d)
+    }
+
+    /// Rockets arena: the best rocket to fire from `c`, as a direction and
+    /// a value: `ROCKET_ENEMY` for each enemy first in line down a lane, 1
+    /// for a nearby crate the rocket would blow open. None when no lane
+    /// has anything worth a rocket.
+    fn rocket_shot(&self, c: (i32, i32), targets: &[u8]) -> Option<(u8, u32)> {
+        let mut best: Option<(u8, u32)> = None;
+        for d in 1..=4u8 {
+            let (dx, dy) = DIRS[d as usize];
+            let mut value = 0;
+            for k in 1..=ROCKET_SIGHT {
+                let (x, y) = (c.0 + dx * k, c.1 + dy * k);
+                if !self.map.in_bounds(x, y) || self.bomb_at(x, y).is_some() {
+                    break;
+                }
+                if self.map.is_solid(x, y) {
+                    if k <= ROCKET_CRATE_SIGHT && self.map.get(x, y).is_breakable() {
+                        value = 1;
+                    }
+                    break;
+                }
+                let hit = u32::from(targets[self.map.idx(x, y)]);
+                if hit > 0 {
+                    value = ROCKET_ENEMY * hit;
+                    break;
+                }
+            }
+            if value > 0 && best.is_none_or(|(_, v)| value > v) {
+                best = Some((d, value));
+            }
+        }
+        best
+    }
+
     fn item_value(item: Item, me: &Me) -> f32 {
         match item {
             Item::ExtraBomb if me.max_bombs < MAX_BOMBS => 6.0,
@@ -822,8 +921,15 @@ impl World {
                     consider(Self::item_value(item, me), false);
                 }
             if me.can_bomb && n.dist <= BOMB_SPOT_RANGE && self.rest_ok(n.cell) {
-                let (crates, enemies) = self.blast_value(n.cell, &sc.targets[me.team], me);
-                consider(crates as f32 + 4.0 * enemies as f32, true);
+                if me.rockets {
+                    // A spot with a clear shot down a lane.
+                    if let Some((_, v)) = self.rocket_shot(n.cell, &sc.targets[me.team]) {
+                        consider(v as f32, true);
+                    }
+                } else {
+                    let (crates, enemies) = self.blast_value(n.cell, &sc.targets[me.team], me);
+                    consider(crates as f32 + 4.0 * enemies as f32, true);
+                }
             }
         }
 
@@ -978,5 +1084,72 @@ mod tests {
         assert!(items >= 60, "bots should collect power-ups: {items}");
         // 3 x 10 bots x 100 s: well under one suicide per bot per minute.
         assert!(suicides <= 21, "too many suicides: {suicides}");
+    }
+    #[test]
+    fn danger_map_follows_a_rocket_lane() {
+        let mut w = test_world(Map::empty(21, 21));
+        w.mode = crate::game::Mode::Rockets;
+        let me = w.spawn_test_player(3.5, 5.5);
+        w.players.get_mut(&me).unwrap().facing = 2; // right
+        assert!(w.place_bomb(me));
+        let d = w.danger_map();
+        assert_eq!(d[w.map.idx(4, 5)], 0, "the next cell: any moment now");
+        assert_eq!(d[w.map.idx(12, 5)], 8, "further down the lane, later");
+        assert!(d[w.map.idx(19, 5)] <= 16, "the far end, where it hits the border");
+        assert_eq!(d[w.map.idx(12, 7)], SAFE, "a lane over is safe");
+    }
+
+    #[test]
+    fn bot_dodges_an_incoming_rocket() {
+        let mut w = test_world(Map::empty(21, 21));
+        w.mode = crate::game::Mode::Rockets;
+        let shooter = w.spawn_test_player(1.5, 5.5);
+        w.players.get_mut(&shooter).unwrap().facing = 2; // right, at the bot
+        let bot = w.spawn_test_bot(11.5, 5.5);
+        assert!(w.place_bomb(shooter));
+        // Move the shooter out of the bot's sights so it doesn't fire back.
+        w.players.get_mut(&shooter).unwrap().y = 19.5;
+        for _ in 0..40 {
+            w.step();
+        }
+        assert!(w.players[&bot].alive, "the bot stepped out of the lane");
+        assert_eq!(w.stats.deaths, 0);
+    }
+
+    #[test]
+    fn rocket_bots_fire_rockets_and_never_plant_bombs() {
+        let (mut rockets, mut kills, mut crates, mut suicides) = (0, 0, 0, 0);
+        for seed in [21, 22] {
+            let mut rng = Rng::new(seed);
+            let map = Map::generate(41, 41, 0.45, &mut rng);
+            let mut w = World::with_map(map, rng, 64);
+            w.mode = crate::game::Mode::Rockets;
+            for _ in 0..8 {
+                w.add_bot();
+            }
+            let mut seen = std::collections::HashSet::new();
+            for _ in 0..1500 {
+                w.step();
+                for b in w.bombs.values() {
+                    // Gadgets (drones) and bomb rain drop uncounted or
+                    // ownerless bombs; the bomb key only ever fires rockets.
+                    if b.counted && b.owner != 0 {
+                        assert!(b.rocket, "a bot planted a bomb");
+                        assert_ne!(b.slide_dir, 0, "a bot's rocket sits still");
+                        seen.insert(b.id);
+                    }
+                }
+            }
+            let s = w.stats;
+            eprintln!("seed {seed}: {} rockets, {s:?}", seen.len());
+            rockets += seen.len();
+            kills += s.deaths - s.suicides;
+            crates += s.crates_destroyed;
+            suicides += s.suicides;
+        }
+        assert!(rockets >= 200, "bots should fire plenty of rockets: {rockets}");
+        assert!(kills >= 10, "bots should hit each other (deaths that weren't suicides): {kills}");
+        assert!(crates >= 100, "bots should shoot open crates: {crates}");
+        assert!(suicides <= 4, "a rocket spares its shooter: {suicides}");
     }
 }

@@ -106,11 +106,19 @@ export const net = new Net({
     ui.hud.root.classList.remove('hidden');
     ui.vignette.classList.remove('hidden');
     ui.hud.teamScores.classList.toggle('hidden', m.mode !== 'teams');
+    // Rockets arena: the bomb key fires a rocket, so the key help says so.
+    // (Swapping the i18n key keeps it right across a language change.)
+    const bombHelp = document.querySelector<HTMLElement>('[data-i18n="helpBomb"], [data-i18n="helpRocket"]');
+    if (bombHelp) {
+      bombHelp.dataset.i18n = m.mode === 'rockets' ? 'helpRocket' : 'helpBomb';
+      bombHelp.textContent = t(bombHelp.dataset.i18n as 'helpBomb' | 'helpRocket');
+    }
     ui.join.play.disabled = false;
     connection.reconnectTry = -1;
     input.enabled = true;
     resize();
     if (m.resumed) toast(t('welcomeBack'), null, 'mystery');
+    else if (m.mode === 'rockets') toast(t('rocketsHint'), null, 'info');
   },
 
   s(raw) {

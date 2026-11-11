@@ -12,6 +12,7 @@ export const es: Strings = {
   modeFfa: 'Todos contra todos',
   modeTeams: 'Rojos contra Azules',
   modeWorms: 'Gusanos',
+  modeRockets: 'Cohetes', helpRocket: 'cohete', rocketsHint: 'Arena de cohetes: el botón de bomba dispara un cohete hacia donde miras',
   profile: 'Tu perfil',
   level: 'Nivel {n}',
   xpProgress: '{xp} / {next} XP',

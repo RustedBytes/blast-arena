@@ -12,6 +12,7 @@ export const it: Strings = {
   modeFfa: 'Tutti contro tutti',
   modeTeams: 'Rossi contro Blu',
   modeWorms: 'Vermi',
+  modeRockets: 'Razzi', helpRocket: 'razzo', rocketsHint: 'Arena dei razzi: il tasto bomba spara un razzo dove guardi',
   profile: 'Il tuo profilo',
   level: 'Livello {n}',
   xpProgress: '{xp} / {next} XP',

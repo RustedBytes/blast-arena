@@ -1222,3 +1222,77 @@ fn watching_another_part_of_the_map_shows_whats_there() {
     w.players.get_mut(&me).unwrap().look = None;
     assert!(!ids(&w).contains(&u64::from(far)), "back to your own view");
 }
+
+/// A rockets arena on the classic grid: odd rows and columns are open lanes.
+fn rockets_world() -> World {
+    let mut w = test_world(Map::empty(21, 21));
+    w.mode = Mode::Rockets;
+    w
+}
+
+#[test]
+fn rockets_mode_bomb_key_fires_a_moving_rocket() {
+    let mut w = rockets_world();
+    let me = w.spawn_test_player(3.5, 5.5);
+    w.players.get_mut(&me).unwrap().facing = 2; // right
+    w.players.get_mut(&me).unwrap().want_bomb = true;
+    w.step();
+    assert!(!w.players[&me].want_bomb, "the press was used");
+    assert_eq!(w.bombs.len(), 1);
+    let b = w.bombs.values().next().unwrap();
+    assert!(b.rocket && b.counted, "a rocket that counts towards the bomb limit");
+    assert_eq!((b.slide_dir, b.range), (2, player::BASE_RANGE), "flies the way the shooter faces, with their range");
+    assert_eq!(w.players[&me].active_bombs, 1);
+    let x0 = b.x;
+    assert_eq!(b.y, 5);
+    assert!(x0 > 3, "it left the shooter's cell on the tick it was fired");
+    w.step();
+    let b = w.bombs.values().next().unwrap();
+    assert_eq!(b.x, x0 + 1, "one cell a tick");
+    assert_eq!(w.bomb_at(3, 5), None, "nothing was placed where the shooter stands");
+    // It flies on until it hits the border, blows up and frees the slot.
+    for _ in 0..30 {
+        w.step();
+        assert!(w.bombs.values().all(|b| b.rocket), "never a placed bomb");
+        if w.bombs.is_empty() {
+            break;
+        }
+    }
+    assert!(w.bombs.is_empty());
+    assert!(w.explosions.iter().any(|e| e.x == 19 && e.y == 5), "blew up against the border");
+    assert_eq!(w.players[&me].active_bombs, 0);
+    assert!(w.players[&me].alive);
+}
+
+#[test]
+fn rockets_mode_rocket_hits_an_enemy_and_spares_the_shooter() {
+    let mut w = rockets_world();
+    let me = w.spawn_test_player(3.5, 5.5);
+    let enemy = w.spawn_test_player(13.5, 5.5);
+    w.players.get_mut(&enemy).unwrap().invulnerable_until = 0;
+    w.players.get_mut(&me).unwrap().facing = 2;
+    w.players.get_mut(&me).unwrap().want_bomb = true;
+    for _ in 0..15 {
+        w.step();
+    }
+    assert!(!w.players[&enemy].alive, "a direct hit");
+    assert!(w.players[&me].alive);
+    assert!(w.explosions.iter().any(|e| (e.x, e.y) == (13, 5)), "exploded in the enemy's cell");
+}
+
+#[test]
+fn rockets_mode_respects_the_bomb_limit() {
+    let mut w = rockets_world();
+    let me = w.spawn_test_player(3.5, 5.5);
+    w.players.get_mut(&me).unwrap().facing = 2;
+    assert_eq!(w.players[&me].max_bombs, 1);
+    assert!(w.place_bomb(me));
+    assert!(!w.place_bomb(me), "one rocket in the air at a time with one bomb");
+    assert_eq!(w.bombs.len(), 1);
+    // In a free-for-all the same key drops a plain bomb.
+    let mut ffa = test_world(Map::empty(21, 21));
+    let p = ffa.spawn_test_player(3.5, 5.5);
+    assert!(ffa.place_bomb(p));
+    let b = ffa.bombs.values().next().unwrap();
+    assert!(!b.rocket && b.slide_dir == 0);
+}

@@ -12,6 +12,7 @@ export const fr: Strings = {
   modeFfa: 'Chacun pour soi',
   modeTeams: 'Rouges contre Bleus',
   modeWorms: 'Vers',
+  modeRockets: 'Roquettes', helpRocket: 'roquette', rocketsHint: 'Arène des roquettes : le bouton bombe tire une roquette droit devant',
   profile: 'Ton profil',
   level: 'Niveau {n}',
   xpProgress: '{xp} / {next} XP',

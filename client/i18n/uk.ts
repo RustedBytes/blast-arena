@@ -12,6 +12,7 @@ export const uk: Strings = {
   modeFfa: 'Кожен сам за себе',
   modeTeams: 'Червоні проти синіх',
   modeWorms: 'Черв’яки',
+  modeRockets: 'Ракети', helpRocket: 'ракета', rocketsHint: 'Арена ракет: кнопка бомби випускає ракету туди, куди ви дивитеся',
   profile: 'Ваш профіль',
   level: 'Рівень {n}',
   xpProgress: '{xp} / {next} досвіду',

@@ -117,6 +117,9 @@ pub enum Mode {
     Royale,
     /// Free-for-all with worms: AI creatures that hunt everyone (see `worms`).
     Worms,
+    /// Free-for-all where the bomb key fires a rocket instead of dropping a
+    /// bomb (see `World::fire_bomb_rocket`).
+    Rockets,
 }
 
 impl Mode {
@@ -127,6 +130,7 @@ impl Mode {
             Mode::Teams => "teams",
             Mode::Royale => "royale",
             Mode::Worms => "worms",
+            Mode::Rockets => "rockets",
         }
     }
 
@@ -137,6 +141,7 @@ impl Mode {
             "teams" => Some(Mode::Teams),
             "royale" => Some(Mode::Royale),
             "worms" => Some(Mode::Worms),
+            "rockets" => Some(Mode::Rockets),
             _ => None,
         }
     }

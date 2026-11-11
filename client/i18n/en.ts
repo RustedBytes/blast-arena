@@ -11,6 +11,7 @@ export const en = {
   modeFfa: 'Free-for-all',
   modeTeams: 'Red vs Blue',
   modeWorms: 'Worms',
+  modeRockets: 'Rockets', helpRocket: 'rocket', rocketsHint: 'Rocket arena: the bomb button fires a rocket the way you face',
   profile: 'Your profile',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} XP',

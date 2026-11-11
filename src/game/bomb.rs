@@ -148,11 +148,16 @@ impl World {
     /// The bomb button: drops a bomb where the player stands, or, with the
     /// line-bomb power-up while standing on their own bomb, lays the rest of
     /// their bombs in a line ahead. A gas bomb (bomb modifier) drops the
-    /// same way; a sticky bomb is thrown (see `sticky`).
+    /// same way; a sticky bomb is thrown (see `sticky`). In a rockets arena
+    /// it fires a rocket instead (see `fire_bomb_rocket`).
     ///
     /// # Panics
     /// Never: the player was looked up just before.
     pub fn place_bomb(&mut self, owner: u32) -> bool {
+        // A rockets arena has no dropped bombs: the key fires a rocket.
+        if self.mode == super::Mode::Rockets {
+            return self.fire_bomb_rocket(owner);
+        }
         let Some(p) = self.players.get(&owner) else { return false };
         if !p.can_bomb(self.tick) {
             return false;
