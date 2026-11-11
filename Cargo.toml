@@ -25,6 +25,11 @@ tracing = "0.1.44"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "tracing-log"] }
 
+# musl's allocator is slow under many threads; the Alpine image (a musl
+# build) uses mimalloc instead. Other targets keep the system allocator.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.52"
+
 [dev-dependencies]
 
 # `cargo clippy` runs the pedantic group. The four numeric-cast lints are
