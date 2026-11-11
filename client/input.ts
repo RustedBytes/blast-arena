@@ -5,8 +5,6 @@
 // over a stone pillar in front of you. The detach key (C, held) shakes off a
 // sticky bomb and is held state too (`h`). Only changes are sent.
 
-import { byId } from './dom.js';
-
 const KEY_DIRS: Record<string, number> = {
   ArrowUp: 1, KeyW: 1,
   ArrowRight: 2, KeyD: 2,
@@ -30,6 +28,21 @@ export interface InputHandlers {
   onEmote(e: number): void;
   onZoom(factor: number): void;
   onAction(name: InputAction, down: boolean): void;
+}
+
+/** The on-screen touch controls (shown on touch devices only). */
+export interface TouchElements {
+  root: HTMLElement;
+  joyZone: HTMLElement;
+  joyBase: HTMLElement;
+  joyKnob: HTMLElement;
+  bomb: HTMLElement;
+  act: HTMLElement;
+  jump: HTMLElement;
+  gadget: HTMLElement;
+  ability: HTMLElement;
+  detach: HTMLElement;
+  emote: HTMLElement;
 }
 
 /** The held input, read every prediction step. */
@@ -59,7 +72,7 @@ export class Input {
   /** The last input reported, packed (see update()). */
   private sent = -1;
 
-  constructor(private readonly h: InputHandlers) {
+  constructor(private readonly h: InputHandlers, private readonly touch: TouchElements) {
     addEventListener('keydown', (e) => this.keydown(e));
     addEventListener('keyup', (e) => this.keyup(e));
     addEventListener('blur', () => this.clear());
@@ -212,10 +225,8 @@ export class Input {
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (!isTouch) return;
     document.body.classList.add('touch');
-    byId('touch').classList.remove('hidden');
-    const zone = byId('joy-zone');
-    const base = byId('joy-base');
-    const knob = byId('joy-knob');
+    const { root, joyZone: zone, joyBase: base, joyKnob: knob } = this.touch;
+    root.classList.remove('hidden');
     let joyId: number | null = null, ox = 0, oy = 0;
     const pinch = new Map<number, PointerEvent>();
     let pinchDist = 0;
@@ -279,7 +290,7 @@ export class Input {
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
 
-    const bomb = byId('bomb-btn');
+    const bomb = this.touch.bomb;
     bomb.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       bomb.classList.add('active');
@@ -290,13 +301,13 @@ export class Input {
     bomb.addEventListener('pointerup', up);
     bomb.addEventListener('pointercancel', up);
 
-    const act = byId('act-btn');
+    const act = this.touch.act;
     act.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       vibrate(10);
       this.h.onAct();
     });
-    const jumpBtn = byId('jump-btn');
+    const jumpBtn = this.touch.jump;
     jumpBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       vibrate(10);
@@ -312,18 +323,18 @@ export class Input {
     jumpBtn.addEventListener('pointerup', jumpUp);
     jumpBtn.addEventListener('pointercancel', jumpUp);
     jumpBtn.addEventListener('pointerleave', jumpUp);
-    byId('gadget-btn').addEventListener('pointerdown', (e) => {
+    this.touch.gadget.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       vibrate(10);
       this.h.onGadget();
     });
-    byId('ability-btn').addEventListener('pointerdown', (e) => {
+    this.touch.ability.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       vibrate(10);
       this.h.onAbility();
     });
     // Shaking off a sticky bomb: hold the button.
-    const detachBtn = byId('detach-btn');
+    const detachBtn = this.touch.detach;
     detachBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       vibrate(10);
@@ -339,7 +350,7 @@ export class Input {
     detachBtn.addEventListener('pointerup', detachUp);
     detachBtn.addEventListener('pointercancel', detachUp);
     detachBtn.addEventListener('pointerleave', detachUp);
-    byId('emote-btn').addEventListener('pointerdown', (e) => {
+    this.touch.emote.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);
     });

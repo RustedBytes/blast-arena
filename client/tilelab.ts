@@ -7,11 +7,22 @@ import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
 import { Particles } from './particles.js';
 import { Renderer, T_ARMORED, T_CRATE, T_FLOOR, T_ICE, T_TELEPORT, T_WALL, biome } from './render.js';
 import type { PixelSet } from './assets.js';
-import { byId as $, context2d, makeCanvas } from './dom.js';
+import { byId, context2d, makeCanvas } from './dom.js';
 import type { PlayerView } from './pixelsprites.js';
 import type { FlameEntry } from './protocol.js';
 import type { Frame, FrameBomb, FramePlayer, PlayerScene } from './render.js';
 import type { GameMap } from './state.js';
+
+/** Every element of the Tile Lab page, looked up once (see app/ui.ts). */
+const ui = {
+  map: byId('map', HTMLCanvasElement),
+  scene: byId('scene', HTMLCanvasElement),
+  sheet: byId('sheet'),
+  seed: byId('seed', HTMLInputElement),
+  style: byId('style', HTMLSelectElement),
+  reroll: byId('reroll'),
+  actualSize: byId('actual', HTMLInputElement),
+} as const;
 
 const SIZE = 49;
 const CHUNK = 8;
@@ -70,7 +81,7 @@ const renderer = new Renderer(document.createElement('canvas'), document.createE
 const map = sampleMap();
 
 function drawMap(): void {
-  const out = $('map', HTMLCanvasElement);
+  const out = ui.map;
   const chunkPx = CHUNK * 64;
   out.width = out.height = SIZE * 64;
   const g = context2d(out);
@@ -102,7 +113,7 @@ function section(title: string, figures: HTMLElement[]): void {
   const div = document.createElement('div');
   div.className = 'sheet';
   div.append(...figures);
-  $('sheet').append(h, div);
+  ui.sheet.append(h, div);
 }
 
 function drawSheet(px: PixelSet): void {
@@ -153,7 +164,7 @@ function drawSprites(px: PixelSet): void {
 
 // A second renderer draws straight into the scene canvas, so players,
 // bombs, fire and particles are animated by the game's own code.
-const sceneRenderer = new Renderer($('scene', HTMLCanvasElement), document.createElement('canvas'), assets, new Particles(512));
+const sceneRenderer = new Renderer(ui.scene, document.createElement('canvas'), assets, new Particles(512));
 const SCENE = { w: 12, h: 5 };
 const sceneMap: GameMap = { w: SCENE.w, h: SCENE.h, tiles: new Uint8Array(SCENE.w * SCENE.h) };
 for (const [x, y] of [[0, 0], [11, 0], [4, 1], [7, 1], [0, 4], [11, 4]]) sceneMap.tiles[y * SCENE.w + x] = T_WALL;
@@ -225,21 +236,21 @@ function drawScene(now: number): void {
 }
 
 function update(): void {
-  const seed = Math.max(1, Math.floor(Number($('seed', HTMLInputElement).value)) || 1);
+  const seed = Math.max(1, Math.floor(Number(ui.seed.value)) || 1);
   assets.setPixelSeed(seed);
-  renderer.tileStyle = $('style', HTMLSelectElement).value === 'classic' ? 'classic' : 'pixel';
+  renderer.tileStyle = ui.style.value === 'classic' ? 'classic' : 'pixel';
   drawMap();
-  $('sheet').replaceChildren();
+  ui.sheet.replaceChildren();
   drawSheet(assets.pixel);
   drawSprites(assets.pixel);
 }
 
-$('seed').addEventListener('change', update);
-$('style').addEventListener('change', update);
-$('reroll').addEventListener('click', () => {
-  $('seed', HTMLInputElement).value = String(1 + Math.floor(Math.random() * 99999));
+ui.seed.addEventListener('change', update);
+ui.style.addEventListener('change', update);
+ui.reroll.addEventListener('click', () => {
+  ui.seed.value = String(1 + Math.floor(Math.random() * 99999));
   update();
 });
-$('actual').addEventListener('change', () => $('map').classList.toggle('actual', $('actual', HTMLInputElement).checked));
+ui.actualSize.addEventListener('change', () => ui.map.classList.toggle('actual', ui.actualSize.checked));
 update();
 requestAnimationFrame(drawScene);

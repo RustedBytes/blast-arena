@@ -1,12 +1,13 @@
 // The lobby: arena list, profile with cosmetic unlocks, all-time
 // leaderboard and the join form.
 
-import { byId as $, closest, escapeHtml, fireAndForget } from '../dom.js';
+import { closest, escapeHtml, fireAndForget } from '../dom.js';
 import { t } from '../i18n.js';
 import { net } from './messages.js';
 import { audio, params, settings, token } from './services.js';
 import { connection, state } from './session.js';
 import { applySettings } from './settings-ui.js';
+import { ui } from './ui.js';
 
 // ---------------------------------------------------------------- lobby
 
@@ -66,7 +67,7 @@ function isLeaderRow(v: unknown): v is LeaderRow {
 const listOf = <T>(item: (v: unknown) => v is T) => (v: unknown): v is T[] => Array.isArray(v) && v.every(item);
 
 async function refreshLobby(): Promise<void> {
-  if (!$('join').classList.contains('hidden') || !state) {
+  if (!ui.join.screen.classList.contains('hidden') || !state) {
     try {
       arenas = await fetchJson('/api/arenas', listOf(isArenaInfo));
       renderArenas();
@@ -78,7 +79,7 @@ async function refreshLobby(): Promise<void> {
   } catch { /* no profile service */ }
   try {
     const top = await fetchJson('/api/leaderboard', listOf(isLeaderRow));
-    $('alltime').innerHTML = top.length
+    ui.join.allTime.innerHTML = top.length
       ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${r.kills}K ${r.wins}★</span></li>`).join('')
       : `<li class="muted">${t('noRecords')}</li>`;
   } catch { /* ignore */ }
@@ -86,7 +87,7 @@ async function refreshLobby(): Promise<void> {
 
 function renderArenas() {
   if (!arenas.some((a) => a.id === selectedArena)) selectedArena = arenas[0]?.id ?? 0;
-  $('arena-list').innerHTML = arenas.map((a) =>
+  ui.join.arenaList.innerHTML = arenas.map((a) =>
     `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}">` +
     `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : a.mode === 'worms' ? t('modeWorms') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
     `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
@@ -94,13 +95,13 @@ function renderArenas() {
 
 function renderProfile() {
   if (!profile) return;
-  $('pf-level').textContent = t('level', { n: profile.level });
-  $('pf-xp').textContent = t('xpProgress', { xp: profile.xp, next: profile.next_xp });
+  ui.join.profileLevel.textContent = t('level', { n: profile.level });
+  ui.join.profileXp.textContent = t('xpProgress', { xp: profile.xp, next: profile.next_xp });
   const span = Math.max(1, profile.next_xp - profile.level_xp);
-  $('pf-xpbar').style.width = `${Math.min(100, ((profile.xp - profile.level_xp) / span) * 100)}%`;
-  $('pf-stats').textContent = t('profileStats', { k: profile.kills, w: profile.wins, s: profile.best_streak });
-  picker($('hat-picker'), profile, t('hats'), profile.hat_levels, 'hat');
-  picker($('trail-picker'), profile, t('trails'), profile.trail_levels, 'trail');
+  ui.join.profileXpBar.style.width = `${Math.min(100, ((profile.xp - profile.level_xp) / span) * 100)}%`;
+  ui.join.profileStats.textContent = t('profileStats', { k: profile.kills, w: profile.wins, s: profile.best_streak });
+  picker(ui.join.hatPicker, profile, t('hats'), profile.hat_levels, 'hat');
+  picker(ui.join.trailPicker, profile, t('trails'), profile.trail_levels, 'trail');
 }
 
 function picker(el: HTMLElement, pf: Profile, names: readonly string[], levels: readonly number[], key: 'hat' | 'trail'): void {
@@ -120,22 +121,22 @@ function picker(el: HTMLElement, pf: Profile, names: readonly string[], levels: 
 
 /** Wires the arena list and the join form. */
 export function setupLobby(): void {
-  $('arena-list').addEventListener('click', (e) => {
+  ui.join.arenaList.addEventListener('click', (e) => {
     const b = closest(e.target, '.arena', HTMLButtonElement);
     if (!b) return;
     selectedArena = Number(b.dataset.id);
     settings.set('arena', selectedArena);
     renderArenas();
   });
-  $('name', HTMLInputElement).value = (() => { try { return localStorage.getItem('blast-name') ?? ''; } catch { return ''; } })();
-  $('join-form').addEventListener('submit', (e) => {
+  ui.join.name.value = (() => { try { return localStorage.getItem('blast-name') ?? ''; } catch { return ''; } })();
+  ui.join.form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = $('name', HTMLInputElement).value.trim() || 'Blaster';
+    const name = ui.join.name.value.trim() || 'Blaster';
     try { localStorage.setItem('blast-name', name); } catch { /* storage unavailable */ }
     audio.start(); // browsers only allow audio after a user gesture
     applySettings();
-    $('join-error').textContent = '';
-    $('play', HTMLButtonElement).disabled = true;
+    ui.join.error.textContent = '';
+    ui.join.play.disabled = true;
     const near = Number(params.get('near')) || 0;
     connection.joinInfo = {
       arena: selectedArena,

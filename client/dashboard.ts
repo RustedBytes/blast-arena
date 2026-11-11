@@ -1,7 +1,26 @@
 // Live server dashboard: polls /api/stats and draws simple line charts of
 // the last 10 minutes.
 
-import { byId as $, context2d, fireAndForget } from './dom.js';
+import { byId, context2d, escapeHtml, fireAndForget } from './dom.js';
+
+type ChartId = 'players' | 'tick' | 'net' | 'sys';
+const chartOf = (id: ChartId) => ({ canvas: byId(`c-${id}`, HTMLCanvasElement), legend: byId(`l-${id}`) });
+
+/** Every element of the dashboard page, looked up once (see app/ui.ts). */
+const ui = {
+  status: byId('status'),
+  arenas: byId('arenas'),
+  kpi: {
+    players: byId('k-players'),
+    humans: byId('k-humans'),
+    tick: byId('k-tick'),
+    net: byId('k-net'),
+    cpu: byId('k-cpu'),
+    mem: byId('k-mem'),
+    uptime: byId('k-up'),
+  },
+  charts: { players: chartOf('players'), tick: chartOf('tick'), net: chartOf('net'), sys: chartOf('sys') } satisfies Record<ChartId, unknown>,
+} as const;
 
 const POLL_MS = 2000;
 const HISTORY = 300; // samples (10 minutes)
@@ -39,11 +58,11 @@ async function poll(): Promise<void> {
     if (!isStats(body)) throw new Error('unexpected /api/stats response');
     s = body;
   } catch {
-    $('status').textContent = 'server unreachable';
+    ui.status.textContent = 'server unreachable';
     return;
   }
   const now = performance.now();
-  $('status').textContent = `updated ${new Date().toLocaleTimeString()}`;
+  ui.status.textContent = `updated ${new Date().toLocaleTimeString()}`;
   push(history.t, now);
   push(history.cpu, s.cpu_percent);
   push(history.mem, s.memory_mb);
@@ -65,16 +84,16 @@ async function poll(): Promise<void> {
   lastTime = now;
 
   const sum = (f: (a: ArenaStats) => number): string => String(s.arenas.reduce((n, a) => n + f(a), 0));
-  $('k-players').textContent = sum((a) => a.players);
-  $('k-humans').textContent = sum((a) => a.humans);
-  $('k-tick').textContent = Math.max(0, ...s.arenas.map((a) => a.tick_ms)).toFixed(2);
-  $('k-net').textContent = Object.values(history.arenas).reduce((n, h) => n + (h.kbs.at(-1) ?? 0), 0).toFixed(1);
-  $('k-cpu').textContent = s.cpu_percent.toFixed(1);
-  $('k-mem').textContent = s.memory_mb.toFixed(1);
+  ui.kpi.players.textContent = sum((a) => a.players);
+  ui.kpi.humans.textContent = sum((a) => a.humans);
+  ui.kpi.tick.textContent = Math.max(0, ...s.arenas.map((a) => a.tick_ms)).toFixed(2);
+  ui.kpi.net.textContent = Object.values(history.arenas).reduce((n, h) => n + (h.kbs.at(-1) ?? 0), 0).toFixed(1);
+  ui.kpi.cpu.textContent = s.cpu_percent.toFixed(1);
+  ui.kpi.mem.textContent = s.memory_mb.toFixed(1);
   const up = s.uptime_s;
-  $('k-up').textContent = `${Math.floor(up / 3600)}h ${Math.floor((up % 3600) / 60)}m`;
-  $('arenas').innerHTML = s.arenas.map((a) =>
-    `<tr><td>${a.name}</td><td>${a.mode}</td><td>${a.map}×${a.map}</td><td>${a.humans}</td><td>${a.bots}</td><td>${a.bombs}</td>` +
+  ui.kpi.uptime.textContent = `${Math.floor(up / 3600)}h ${Math.floor((up % 3600) / 60)}m`;
+  ui.arenas.innerHTML = s.arenas.map((a) =>
+    `<tr><td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.mode)}</td><td>${a.map}×${a.map}</td><td>${a.humans}</td><td>${a.bots}</td><td>${a.bombs}</td>` +
     `<td>${a.tick_ms.toFixed(2)}</td><td>${a.max_tick_ms.toFixed(2)}</td><td>${Math.floor(a.round_secs / 60)}:${String(a.round_secs % 60).padStart(2, '0')}</td><td>${a.deaths}</td></tr>`).join('');
   draw();
 }
@@ -93,8 +112,8 @@ function draw(): void {
   ]);
 }
 
-function chart(id: string, lines: Line[], unit = ''): void {
-  const c = $(`c-${id}`, HTMLCanvasElement);
+function chart(id: ChartId, lines: Line[], unit = ''): void {
+  const c = ui.charts[id].canvas;
   const dpr = devicePixelRatio || 1;
   const w = c.clientWidth * dpr, h = c.clientHeight * dpr;
   if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -123,7 +142,7 @@ function chart(id: string, lines: Line[], unit = ''): void {
     });
     g.stroke();
   }
-  $(`l-${id}`).innerHTML = lines.map((l) =>
+  ui.charts[id].legend.innerHTML = lines.map((l) =>
     `<span><i style="background:${l.color}"></i>${l.name}: ${(l.values.at(-1) ?? 0).toFixed(unit === 'count' ? 0 : 1)} ${unit === 'count' ? '' : unit}</span>`).join('');
 }
 

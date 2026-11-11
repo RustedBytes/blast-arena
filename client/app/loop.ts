@@ -1,12 +1,12 @@
 // The frame loop: prediction, camera, drawing and the performance readout.
 
-import { byId as $ } from '../dom.js';
 import { input, sendInput } from './controls.js';
 import { updateRoyaleHud, updateStatusAlerts } from './hud.js';
 import { net } from './messages.js';
 import { audio, particles, predictor, renderer, tutorial } from './services.js';
 import { state } from './session.js';
 import { isDraggingLook, stopLooking } from './view.js';
+import { ui } from './ui.js';
 
 // ----------------------------------------------------------------- loop
 
@@ -81,11 +81,11 @@ function frame(now: number): void {
   perfTime += dt;
   if (perfTime >= 0.5) {
     const fps = perfFrames / perfTime;
-    const el = $('fps');
+    const el = ui.hud.fps;
     el.textContent = `${Math.round(fps)} FPS · ${(perfWork / perfFrames).toFixed(1)} ms · ${Math.round(state.interpDelay * state.tickMs)} ms buf`;
     el.classList.toggle('slow', fps < 50);
     updateRoyaleHud(now);
-    $('netinfo').textContent = `ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
+    ui.hud.netInfo.textContent = `ping ${net.ping} ms · ${(net.bytesIn / 1024 / perfTime).toFixed(1)} KB/s · ${particles.count} fx`;
     net.bytesIn = 0;
     perfTime = perfFrames = perfWork = 0;
   }

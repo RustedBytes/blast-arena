@@ -4,13 +4,14 @@
 import type { StatusOpts } from '../alerts.js';
 import { itemSprite } from '../assets.js';
 import type { SpriteName } from '../assets.js';
-import { byId as $, escapeHtml, closest, fireAndForget, query, setTrailingText } from '../dom.js';
+import { escapeHtml, closest, fireAndForget, query, setTrailingText } from '../dom.js';
 import { getLanguage, t } from '../i18n.js';
 import type { Me } from '../protocol.js';
 import { EMOTES } from '../render.js';
 import { sendEmote } from './controls.js';
 import { alerts, renderer } from './services.js';
 import { game, state } from './session.js';
+import { ui } from './ui.js';
 
 /** A small notice; `kind` '' (good news), 'mystery' or 'curse'; `icon` a sprite name. */
 export function toast(text: string, icon: string | null, kind: '' | 'mystery' | 'curse' | 'info'): void {
@@ -47,7 +48,7 @@ export function updateStatusAlerts(now: number): void {
   const detachTotal = st.abilities?.detach ?? 16;
   show('stuck', stuck, t(touch ? 'stuckTouch' : 'stuckOn', { n: Math.ceil(me.stuck * st.tickMs / 1000) }),
     { icon: 'img:pu_sticky', tone: 'danger', progress: me.detach / detachTotal });
-  $('detach-btn').classList.toggle('hidden', !stuck);
+  ui.touch.detach.classList.toggle('hidden', !stuck);
   show('gas', alive && me.gassed > 0, t('inGas'), { icon: 'img:pu_gas', tone: 'warn' });
   document.body.classList.toggle('in-gas', alive && me.gassed > 0);
   const wait = alive ? me.portal_wait : 0;
@@ -70,23 +71,23 @@ export function updateHud(me: Me): void {
     getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
-  $('st-bombs').textContent = `${me.bombs - me.active}/${me.bombs}`;
-  $('st-range').textContent = String(me.range);
-  $('st-speed').textContent = String(me.speed);
-  for (const k of ['kick', 'pierce', 'remote', 'line', 'punch'] as const) $(`st-${k}`).classList.toggle('off', !me[k]);
-  $('st-score').textContent = String(me.score);
-  $('st-nuke').classList.toggle('hidden', !me.nukes);
-  for (const k of ['freeze', 'stomp'] as const) $(`st-${k}`).classList.toggle('off', !me[k]);
-  const g = $('st-gadget');
+  ui.stats.bombs.textContent = `${me.bombs - me.active}/${me.bombs}`;
+  ui.stats.range.textContent = String(me.range);
+  ui.stats.speed.textContent = String(me.speed);
+  for (const k of ['kick', 'pierce', 'remote', 'line', 'punch'] as const) ui.stats.flags[k].classList.toggle('off', !me[k]);
+  ui.stats.score.textContent = String(me.score);
+  ui.stats.nuke.classList.toggle('hidden', !me.nukes);
+  for (const k of ['freeze', 'stomp'] as const) ui.stats.flags[k].classList.toggle('off', !me[k]);
+  const g = ui.stats.gadget;
   g.classList.toggle('hidden', !me.gadget_n);
   if (me.gadget_n) {
     setStatIcon(g, itemSprite(me.gadget));
     setTrailingText(g, `×${me.gadget_n}`);
     g.title = `${t('items')[me.gadget] ?? ''} (Q)`;
   }
-  setTrailingText($('st-nuke'), me.nukes > 1 ? `×${me.nukes}` : '');
+  setTrailingText(ui.stats.nuke, me.nukes > 1 ? `×${me.nukes}` : '');
   // The active ability: charges, and a sweep while the next one recharges.
-  const ab = $('st-ability');
+  const ab = ui.stats.ability;
   ab.classList.toggle('hidden', !me.ability);
   if (me.ability) {
     setStatIcon(ab, itemSprite(me.ability));
@@ -97,7 +98,7 @@ export function updateHud(me: Me): void {
     ab.title = `${t('items')[me.ability] ?? ''} (R)` + (me.ability_cd > 0 ? ` · ${Math.ceil(me.ability_cd * state.tickMs / 1000)} s` : '');
   }
   // Bomb modifiers: the next bombs are gas or sticky bombs.
-  const mod = $('st-modifier');
+  const mod = ui.stats.modifier;
   const modN = me.gas_bombs || me.sticky_bombs;
   mod.classList.toggle('hidden', !modN);
   if (modN) {
@@ -107,24 +108,24 @@ export function updateHud(me: Me): void {
     mod.title = t('items')[me.gas_bombs ? 22 : 24] ?? '';
   }
   const tickS = state.tickMs / 1000;
-  timer($('st-stun'), me.stun > 0, me.stun * tickS, 1);
-  timer($('st-shield'), me.alive && me.shield > 0, me.shield * tickS, 6);
-  timer($('st-ghost'), me.ghost > 0, me.ghost * tickS, 6);
-  timer($('st-curse'), me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);
-  $('st-curse').title = t('curses')[me.curse] ?? '';
+  timer(ui.stats.stun, me.stun > 0, me.stun * tickS, 1);
+  timer(ui.stats.shield, me.alive && me.shield > 0, me.shield * tickS, 6);
+  timer(ui.stats.ghost, me.ghost > 0, me.ghost * tickS, 6);
+  timer(ui.stats.curse, me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);
+  ui.stats.curse.title = t('curses')[me.curse] ?? '';
 
-  $('dead').classList.toggle('hidden', me.alive);
+  ui.dead.root.classList.toggle('hidden', me.alive);
   if (!me.alive) {
     const killer = me.killer;
     const name = (id: number): string => state.rosterInfo.get(id)?.name ?? '?';
     const out = me.respawn * tickS > 3600; // royale: out until the next match
-    $('dead').classList.toggle('out', out);
-    $('dead-msg').textContent = killer === state.myId
+    ui.dead.root.classList.toggle('out', out);
+    ui.dead.message.textContent = killer === state.myId
       ? t('youBlewUp')
       : killer != null ? t('blastedBy', { name: name(killer) }) : out ? t('outTitle')
         : state.crushedByWarden ? t('youWereCrushed')
           : state.eatenByWorm ? t('youWereEaten') : t('youWereBlasted');
-    $('dead-timer').textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
+    ui.dead.timer.textContent = (out ? t('outOfMatch') : t('respawning', { n: Math.ceil(me.respawn * tickS) })) +
       (me.spec ? ` · ${t('watching', { name: name(me.spec) })}` : '');
   }
 }
@@ -137,12 +138,12 @@ export function updateRoyaleHud(now: number): void {
   if (r && !r.on) text = t('nextMatch', { n: Math.max(0, Math.ceil((r.nextAt - now) / 1000)) });
   else if (z?.state === 0) text = t('zoneNext', { n: Math.max(0, Math.ceil((z.end - now) / 1000)) });
   else if (z?.state === 1) text = t('zoneClosingShort');
-  $('round-time').textContent = `👤 ${r?.alive ?? '?'} · ${text}`;
+  ui.hud.roundTime.textContent = `👤 ${r?.alive ?? '?'} · ${text}`;
 }
 
 /** Capture-the-flag captures next to the team scores. */
 export function updateCaptures() {
-  const el = $('ctf-caps');
+  const el = ui.hud.ctfCaptures;
   if (!state?.flags) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   query(el, '.red').textContent = String(state.captures[0]);
@@ -165,7 +166,7 @@ function timer(el: HTMLElement, on: boolean, seconds: number, total: number): vo
 
 export function buildEmoteWheel() {
   const labels = t('emotes');
-  $('emote-wheel').innerHTML = EMOTES.map((e, i) =>
+  ui.hud.emoteWheel.innerHTML = EMOTES.map((e, i) =>
     `<button data-e="${i}" title="${escapeHtml(labels[i])}">${e}<kbd>${i + 1}</kbd></button>`).join('');
 }
 
@@ -184,12 +185,12 @@ async function invite(): Promise<void> {
 
 /** Wires the emote wheel and the invite button. */
 export function setupHud(): void {
-  $('emote-wheel').addEventListener('click', (e) => {
+  ui.hud.emoteWheel.addEventListener('click', (e) => {
     const b = closest(e.target, 'button', HTMLButtonElement);
     if (b) sendEmote(Number(b.dataset.e));
   });
-  $('emote-toggle').addEventListener('click', () => $('emote-wheel').classList.toggle('hidden'));
-  $('invite').addEventListener('click', () => fireAndForget(invite(), 'invite'));
+  ui.hud.emoteToggle.addEventListener('click', () => ui.hud.emoteWheel.classList.toggle('hidden'));
+  ui.hud.invite.addEventListener('click', () => fireAndForget(invite(), 'invite'));
 }
 
 /** The next HUD update redraws everything (the language changed). */

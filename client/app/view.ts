@@ -1,10 +1,10 @@
 // The camera: zoom, the area of interest asked from the server, and
 // watching other parts of the map from the minimap.
 
-import { byId as $ } from '../dom.js';
 import { net } from './messages.js';
 import { renderer, settings } from './services.js';
 import { game, state } from './session.js';
+import { ui } from './ui.js';
 
 const VIEW_DEBOUNCE_MS = 200;
 
@@ -17,7 +17,7 @@ export function setZoom(z: number): void {
   if (!Number.isFinite(zz)) zz = 1;
   if (state) state.zoomTarget = zz;
   settings.set('zoom', zz);
-  $('set-zoom', HTMLInputElement).value = String(zz);
+  ui.settings.zoom.value = String(zz);
   requestView();
 }
 
@@ -34,7 +34,7 @@ let lookTimer = 0;
 /** The map position (in tiles) under a pointer event on the minimap. */
 function minimapPoint(e: PointerEvent): [number, number] {
   const state = game();
-  const r = $('minimap').getBoundingClientRect();
+  const r = ui.minimap.getBoundingClientRect();
   const scale = r.width / Math.max(state.map.w, state.map.h);
   return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
 }
@@ -47,7 +47,7 @@ function lookAt(x: number, y: number): void {
   const hw = renderer.canvas.width / T / 2, hh = renderer.canvas.height / T / 2;
   const fit = (v: number, half: number, size: number): number => (2 * half >= size ? size / 2 : Math.max(half, Math.min(size - half, v)));
   state.look = { x: fit(x, hw, state.map.w), y: fit(y, hh, state.map.h) };
-  $('look-pill').classList.remove('hidden');
+  ui.hud.lookPill.classList.remove('hidden');
   renderer.lastMinimap = 0; // the box moves at once, not at the next refresh
   sendLook();
 }
@@ -69,8 +69,8 @@ export function stopLooking() {
   if (!state?.look) return;
   state.look = null;
   lookDrag = null;
-  $('minimap').classList.remove('dragging');
-  $('look-pill').classList.add('hidden');
+  ui.minimap.classList.remove('dragging');
+  ui.hud.lookPill.classList.add('hidden');
   renderer.lastMinimap = 0;
   lookSentAt = 0; // right away
   sendLook();
@@ -89,14 +89,14 @@ function requestView() {
 export function resize() {
   if (!state) return;
   renderer.resize(state.aoi, state.aoiMax);
-  $('set-zoom', HTMLInputElement).min = renderer.minZoom.toFixed(2);
-  $('set-zoom', HTMLInputElement).max = String(renderer.maxZoom);
+  ui.settings.zoom.min = renderer.minZoom.toFixed(2);
+  ui.settings.zoom.max = String(renderer.maxZoom);
   setZoom(state.zoomTarget);
 }
 
 /** Wires the minimap drag and window resizes. */
 export function setupView(): void {
-  $('minimap').addEventListener('pointerdown', (e) => {
+  ui.minimap.addEventListener('pointerdown', (e) => {
     if (!state || e.button !== 0) return;
     e.preventDefault();
     const [x, y] = minimapPoint(e);
@@ -106,24 +106,24 @@ export function setupView(): void {
     const cx = renderer.camX / T + vw / 2, cy = renderer.camY / T + vh / 2;
     const grabbed = Math.abs(x - cx) <= vw / 2 && Math.abs(y - cy) <= vh / 2;
     lookDrag = grabbed ? { dx: cx - x, dy: cy - y } : { dx: 0, dy: 0 };
-    $('minimap').classList.add('dragging');
+    ui.minimap.classList.add('dragging');
     try {
-      $('minimap').setPointerCapture(e.pointerId); // keep dragging outside the minimap
+      ui.minimap.setPointerCapture(e.pointerId); // keep dragging outside the minimap
     } catch { /* a pointer that's already gone: just this click */ }
     lookAt(x + lookDrag.dx, y + lookDrag.dy);
   });
-  $('minimap').addEventListener('pointermove', (e) => {
+  ui.minimap.addEventListener('pointermove', (e) => {
     if (!lookDrag || !state) return;
     const [x, y] = minimapPoint(e);
     lookAt(x + lookDrag.dx, y + lookDrag.dy);
   });
   for (const end of ['pointerup', 'pointercancel']) {
-    $('minimap').addEventListener(end, () => {
+    ui.minimap.addEventListener(end, () => {
       lookDrag = null;
-      $('minimap').classList.remove('dragging');
+      ui.minimap.classList.remove('dragging');
     });
   }
-  $('look-pill').addEventListener('click', stopLooking);
+  ui.hud.lookPill.addEventListener('click', stopLooking);
   addEventListener('resize', resize);
   // Moving the window to a screen with another pixel ratio (or browser zoom)
   // changes devicePixelRatio, which doesn't always fire 'resize'.
@@ -135,7 +135,7 @@ export function setupView(): void {
 /** A new game watches your own player (the server too). */
 export function forgetLook(): void {
   lookDrag = null;
-  $('look-pill').classList.add('hidden');
+  ui.hud.lookPill.classList.add('hidden');
   net.send({ t: 'look', at: null });
 }
 

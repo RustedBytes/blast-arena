@@ -323,6 +323,7 @@ src/bin/mapview.rs    prints generated maps as text, with their quality scores
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
 client/               the browser client in TypeScript. main.ts wires up app/:
+                      ui (every page element, looked up once and typed),
                       services (shared singletons), session (the game in
                       progress), messages (server messages), events (game
                       events), controls, view (camera and minimap watching),

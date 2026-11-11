@@ -2,7 +2,7 @@
 // kills, scores and the connection closing (with reconnects).
 
 import { ITEM_SPRITES, playerColors } from '../assets.js';
-import { byId as $, escapeHtml, query } from '../dom.js';
+import { escapeHtml, query } from '../dom.js';
 import { t } from '../i18n.js';
 import { Net } from '../net.js';
 import { BOMB_FLAG, hasFlag, meObject, PLAYER_FLAG } from '../protocol.js';
@@ -16,6 +16,7 @@ import { alerts, audio, predictor, renderer, settings, tutorial } from './servic
 import { connection, findSnapshot, rebuildItems, setState, SnapRing, state } from './session.js';
 import { applyVisualSettings } from './settings-ui.js';
 import { forgetLook, resize } from './view.js';
+import { ui } from './ui.js';
 
 const KILLFEED_SIZE = 5;
 const RECONNECT_DELAYS = [500, 1500, 3000, 5000];
@@ -100,12 +101,12 @@ export const net = new Net({
     predictor.active = false;
     renderer.resetMap(state.map);
     applyVisualSettings();
-    $('join').classList.add('hidden');
-    $('reconnecting').classList.add('hidden');
-    $('hud').classList.remove('hidden');
-    $('vignette').classList.remove('hidden');
-    $('team-scores').classList.toggle('hidden', m.mode !== 'teams');
-    $('play', HTMLButtonElement).disabled = false;
+    ui.join.screen.classList.add('hidden');
+    ui.reconnecting.classList.add('hidden');
+    ui.hud.root.classList.remove('hidden');
+    ui.vignette.classList.remove('hidden');
+    ui.hud.teamScores.classList.toggle('hidden', m.mode !== 'teams');
+    ui.join.play.disabled = false;
     connection.reconnectTry = -1;
     input.enabled = true;
     resize();
@@ -262,7 +263,7 @@ export const net = new Net({
       : m.k === m.v
         ? t('blewUp', { v: `<b class="v">${name(m.v)}</b>` })
         : `<b class="k">${name(m.k)}</b> 💥 <b class="v">${name(m.v)}</b>${m.b ? ' 🎯' : ''}`;
-    const feed = $('killfeed');
+    const feed = ui.hud.killfeed;
     feed.prepend(el);
     while (feed.children.length > KILLFEED_SIZE) feed.lastElementChild?.remove();
     setTimeout(() => el.remove(), 6000);
@@ -271,17 +272,17 @@ export const net = new Net({
 
   lb(m) {
     if (!state) return;
-    $('online').textContent = t('online', { n: m.n });
+    ui.hud.online.textContent = t('online', { n: m.n });
     state.roundSecs = m.r;
-    if (state.mode !== 'royale') $('round-time').textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
-    const ts = $('team-scores');
+    if (state.mode !== 'royale') ui.hud.roundTime.textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
+    const ts = ui.hud.teamScores;
     query(ts, '.red').textContent = String(m.teams[0]);
     query(ts, '.blue').textContent = String(m.teams[1]);
     const key = m.top.map((e) => e.join()).join('|');
     if (key === state.lastLb) return;
     state.lastLb = key;
     const st = state;
-    $('lb-list').innerHTML = m.top
+    ui.hud.leaderboardList.innerHTML = m.top
       .map(([id, name, score, kills, deaths]) => {
         const team = st.rosterInfo.get(id)?.team ?? 0;
         return `<li class="${id === st.myId ? 'me' : ''} team-${team}"><div class="row"><span class="n">${escapeHtml(name)}</span>` +
@@ -309,17 +310,17 @@ export const net = new Net({
 
   round(m) {
     if (!state) return;
-    const list = $('round-mvp');
+    const list = ui.round.mvp;
     list.innerHTML = m.mvp.map(([, name, score, kills]) => `<li>${escapeHtml(name)} — ${score} (${kills}K)</li>`).join('');
-    $('round-winner').textContent = m.win ? t('teamWins', { team: m.win === 1 ? t('red') : t('blue') }) : (m.mvp[0] ? `${t('mvp')}: ${m.mvp[0][1]}` : '');
-    $('round-over').classList.remove('hidden');
+    ui.round.winner.textContent = m.win ? t('teamWins', { team: m.win === 1 ? t('red') : t('blue') }) : (m.mvp[0] ? `${t('mvp')}: ${m.mvp[0][1]}` : '');
+    ui.round.root.classList.remove('hidden');
     renderer.effects.confetti();
     audio.mystery();
-    setTimeout(() => $('round-over').classList.add('hidden'), 6000);
+    setTimeout(() => ui.round.root.classList.add('hidden'), 6000);
   },
 
   err(m) {
-    $('join-error').textContent = m.m === 'server is full, try again later' ? t('fullServer') : m.m;
+    ui.join.error.textContent = m.m === 'server is full, try again later' ? t('fullServer') : m.m;
     connection.reconnectTry = -1;
   },
 
@@ -330,23 +331,23 @@ export const net = new Net({
     const wasPlaying = state !== null;
     setState(null);
     predictor.active = false;
-    $('hud').classList.add('hidden');
-    $('vignette').classList.add('hidden');
-    $('settings').classList.add('hidden');
+    ui.hud.root.classList.add('hidden');
+    ui.vignette.classList.add('hidden');
+    ui.settings.root.classList.add('hidden');
     // An unexpected drop mid-game: try to reconnect (the server keeps our
     // progress for 30 s).
     if ((wasPlaying || connection.reconnectTry >= 0) && connection.joinInfo && connection.reconnectTry + 1 < RECONNECT_DELAYS.length) {
       connection.reconnectTry++;
-      $('reconnecting').classList.remove('hidden');
+      ui.reconnecting.classList.remove('hidden');
       const info = connection.joinInfo;
       setTimeout(() => net.connect(info.arena, info.join), RECONNECT_DELAYS[connection.reconnectTry]);
       return;
     }
     connection.reconnectTry = -1;
-    $('reconnecting').classList.add('hidden');
-    $('join').classList.remove('hidden');
-    $('play', HTMLButtonElement).disabled = false;
-    if (!$('join-error').textContent) $('join-error').textContent = t('disconnected');
+    ui.reconnecting.classList.add('hidden');
+    ui.join.screen.classList.remove('hidden');
+    ui.join.play.disabled = false;
+    if (!ui.join.error.textContent) ui.join.error.textContent = t('disconnected');
     refreshLobbyLater();
   },
 }, (k) => (state ? findSnapshot(k) : null));
