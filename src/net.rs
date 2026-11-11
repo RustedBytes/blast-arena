@@ -33,6 +33,8 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 /// Inputs arrive up to 20/s for prediction, plus pings and the odd emote.
 const MAX_MSGS_PER_SEC: u32 = 80;
 const MAX_NAME_LEN: usize = 16;
+/// Largest message a client may send, in bytes.
+const MAX_CLIENT_MSG: usize = 4096;
 
 /// One running arena: its game task and live stats.
 #[derive(Clone)]
@@ -103,7 +105,11 @@ pub async fn ws_handler(
     // Every log line of the session carries the arena, the peer and, once
     // joined, the player id.
     let span = tracing::info_span!("session", arena = %handle.name, %peer, id = tracing::field::Empty);
-    ws.max_message_size(4096)
+    // Client messages are a few bytes and at most MAX_CLIENT_MSG. The read
+    // buffer would otherwise default to 128 KiB per connection, all of it
+    // resident (tungstenite zero-fills it before each read).
+    ws.max_message_size(MAX_CLIENT_MSG)
+        .read_buffer_size(MAX_CLIENT_MSG)
         .on_failed_upgrade(move |e| tracing::warn!(%peer, error = %e, "websocket upgrade failed"))
         .on_upgrade(move |socket| {
             let (sink, stream) = socket.split();

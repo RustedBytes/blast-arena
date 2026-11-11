@@ -40,6 +40,13 @@ All notable changes to Blast Arena are documented here. The format follows
   return freed memory to the OS at once (`MIMALLOC_PURGE_DELAY=0`) and to
   commit arena memory only as it's used (`MIMALLOC_ARENA_EAGER_COMMIT=0`).
 
+- About 230 KB less memory per connected player. Each WebSocket's read
+  buffer is 4 KiB (the largest client message) instead of tungstenite's
+  128 KiB, which it fills in full. Each client's snapshot history starts
+  sized for a typical view and grows only if needed, instead of reserving
+  room for 96 players and 64 bombs in each of its 32 slots. With 100
+  bots connected, the server used 17 MB instead of 35 MB.
+
 - Deno replaces Node.js and npm for the client build. `deno.json` holds
   the tasks (`deno task build`, `build:dev`, `watch`, `check`) and the
   build tools as `npm:` dependencies, pinned in `deno.lock`; the browser

@@ -26,12 +26,15 @@ impl Default for SnapHistory {
 }
 
 impl SnapHistory {
-    /// Pre-sized for a busy view, so recording rarely has to grow a list.
+    /// The lists start sized for a typical view and grow to the busiest one
+    /// this client has seen, then keep that capacity. Pre-sizing them for a
+    /// crowded view (96 players, 64 bombs) cost about 110 KB per client
+    /// across the 32 slots, most of it never used.
     fn new() -> Self {
         SnapHistory {
             ticks: [0; SNAP_HISTORY],
-            players: std::array::from_fn(|_| Vec::with_capacity(96)),
-            bombs: std::array::from_fn(|_| Vec::with_capacity(64)),
+            players: std::array::from_fn(|_| Vec::with_capacity(16)),
+            bombs: std::array::from_fn(|_| Vec::with_capacity(8)),
             me: [[0; ME_LEN]; SNAP_HISTORY],
         }
     }
