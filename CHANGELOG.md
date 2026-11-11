@@ -35,6 +35,18 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- Deno replaces Node.js and npm for the client build. `deno.json` holds
+  the tasks (`deno task build`, `build:dev`, `watch`, `check`) and the
+  build tools as `npm:` dependencies, pinned in `deno.lock`; the browser
+  list moved from `package.json` to `.browserslistrc`. The tools are the
+  same (esbuild, Sass, Lightning CSS, `tsc`, ESLint with typescript-eslint
+  and eslint-plugin-compat) and the output is unchanged. Docker builds the
+  client with `denoland/deno:2.9.8` and the release workflow with
+  `setup-deno`, both with `deno install --frozen`. Sass is 1.108.1, as
+  Deno skips releases younger than a day. Deno doesn't support npm
+  `overrides`, so `deno audit` again reports the moderate `minimatch`
+  advisory inside ESLint (dev tooling only, never sees untrusted input).
+
 - Faster builds. Docker compiles the dependencies in a cached layer of
   their own, so a code change rebuilds only the server. Fewer crates: log
   filters use `tracing-subscriber`'s `Targets` instead of `EnvFilter` (no

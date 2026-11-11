@@ -1,13 +1,16 @@
 # Client stage: bundle the TypeScript browser client into one minified
 # file per page in static/js.
-FROM node:26-alpine AS client
+# Deno runs the build tools; this stage never ships, so it uses the Debian
+# image (the tools' native binaries are glibc builds).
+FROM denoland/deno:2.9.8 AS client
 WORKDIR /src
-COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci
+COPY deno.json deno.lock tsconfig.json .browserslistrc ./
+# --frozen: fail if deno.lock doesn't match deno.json.
+RUN deno install --frozen
 COPY scripts ./scripts
 COPY client ./client
 COPY static ./static
-RUN npm run build
+RUN deno task build
 
 # Build stage: compile the server against musl for the Alpine runtime.
 # SQLite and mimalloc are compiled from C, hence musl-dev and gcc.

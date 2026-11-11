@@ -16,10 +16,10 @@ A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bomb
 
 ## Run
 
-You need [Rust](https://rustup.rs) 1.88 or newer and [Node.js](https://nodejs.org) 22.13 or newer (26, the current LTS, is what Docker and the release builds use).
+You need [Rust](https://rustup.rs) 1.88 or newer and [Deno](https://deno.com) 2.9 or newer (2.9.8 is what Docker and the release builds use). Deno runs the client's build tools (esbuild, Sass, Lightning CSS, TypeScript, ESLint) from npm; there is no Node.js or npm step.
 
 ```bash
-npm ci && npm run build   # build the client (client/) into static/js and static/style.css
+deno install && deno task build   # build the client (client/) into static/js and static/style.css
 cargo run --release
 ```
 
@@ -27,26 +27,29 @@ Open http://localhost:3000, pick an arena, enter a nickname and play.
 
 The live server dashboard is at http://localhost:3000/dashboard.html, and Prometheus metrics at `/metrics`.
 
-The release build embeds the compiled client in the binary, so `target/release/blast-arena` runs on its own. If you skip `npm run build`, `cargo build` stops and tells you to run it.
+The release build embeds the compiled client in the binary, so `target/release/blast-arena` runs on its own. If you skip `deno task build`, `cargo build` stops and tells you to run it.
 
 ### Development
 
 ```bash
-npm run watch   # rebuild the client on every save (readable, with source maps)
+deno task watch   # rebuild the client on every save (readable, with source maps)
 cargo run       # debug server: serves static/ from disk, so a reload picks up client changes
 ```
 
 | Command | What it does |
 |---|---|
-| `npm run build` | Production client: [esbuild](https://esbuild.github.io) bundles and minifies the TypeScript into one file per page (`static/js/main.js` for the game, plus `dashboard.js` and `tilelab.js`), and the SCSS in `client/styles/` is compiled by [Sass](https://sass-lang.com), its media queries merged, and minified by [Lightning CSS](https://lightningcss.dev) into `static/style.css` |
-| `npm run build:dev` | The same, readable and with source maps |
-| `node scripts/build-client.mjs --targets` | Shows the browser targets and how much of global usage they cover |
-| `npm run check` | Type-checks the client (strict) and lints it (typescript-eslint's strict rules); the bundler only strips types |
+| `deno task build` | Production client: [esbuild](https://esbuild.github.io) bundles and minifies the TypeScript into one file per page (`static/js/main.js` for the game, plus `dashboard.js` and `tilelab.js`), and the SCSS in `client/styles/` is compiled by [Sass](https://sass-lang.com), its media queries merged, and minified by [Lightning CSS](https://lightningcss.dev) into `static/style.css` |
+| `deno task build:dev` | The same, readable and with source maps |
+| `deno run -A scripts/build-client.mjs --targets` | Shows the browser targets and how much of global usage they cover |
+| `deno task check` | Type-checks the client (strict, with `tsc`) and lints it (ESLint with typescript-eslint's strict rules); the bundler only strips types |
+| `deno audit` | Checks the client's build dependencies for known vulnerabilities |
 | `cargo test` | Server tests (game rules, protocol, abilities, worms, the Warden, map generation) |
 | `cargo test --no-default-features` | The same without WebTransport: 118 crates to compile instead of 200, for faster clean builds; such a server serves everyone over the WebSocket |
 | `cargo clippy --all-targets` | Rust lints |
 
-**Browser support.** The client is built for the browsers in `package.json`'s `browserslist` (`cover 95%, not dead`): about 95% of global usage, including Chrome 103+, Firefox 115+, Safari and iOS Safari 15.6+, Samsung Internet, and UC and QQ Browser (built on older Chromium, so the JavaScript targets Chrome 78). esbuild rewrites newer syntax for them, Lightning CSS adds vendor prefixes and fallbacks, and the lint step (`eslint-plugin-compat`) flags browser APIs they lack. The game needs WebSockets, canvas and ES modules, so Internet Explorer is out.
+**Dependencies.** `deno.json` lists the build tools as `npm:` packages and `deno.lock` pins them; `deno install` puts them in `node_modules/` (ESLint and TypeScript look for plugins there). Deno skips packages published in the last 24 hours (a supply-chain safeguard), and runs no install scripts: esbuild and Lightning CSS don't need theirs, and the file-watcher add-on Sass can use is left unbuilt, so `deno install` reports it as ignored. `deno audit` currently reports one moderate advisory, in the `minimatch` that ESLint itself depends on (a slow pattern on hostile glob patterns). It only ever sees this repository's own lint settings and none of it ships in the game; Deno can't force a different version of a dependency's dependency, so it clears when ESLint moves to minimatch 11.
+
+**Browser support.** The client is built for the browsers in `.browserslistrc` (`cover 95%, not dead`): about 95% of global usage, including Chrome 103+, Firefox 115+, Safari and iOS Safari 15.6+, Samsung Internet, and UC and QQ Browser (built on older Chromium, so the JavaScript targets Chrome 78). esbuild rewrites newer syntax for them, Lightning CSS adds vendor prefixes and fallbacks, and the lint step (`eslint-plugin-compat`) flags browser APIs they lack. The game needs WebSockets, canvas and ES modules, so Internet Explorer is out.
 
 Open the game with `?debug` to get `window.__blast` (state, predictor stats, network) in the browser console. The Tile Lab (below) previews the pixel art.
 
@@ -110,7 +113,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
 | `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
-| `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `npm run watch` running to recompile the TypeScript). |
+| `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `deno task watch` running to recompile the TypeScript). |
 | `--public-url` | `PUBLIC_URL` | from the request | The site's public address (e.g. `https://blastarena.fun`) for link previews, the canonical link, `robots.txt` and `sitemap.xml`. Without it the address comes from each request (`Host`, or a proxy's `X-Forwarded-Proto` and `X-Forwarded-Host`). |
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter: a level plus `target=level` pairs, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
@@ -393,13 +396,14 @@ static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
 static/assets/        SVG art
 static/js/, static/style.css   the built client: one minified script per page and
-                      the stylesheet (generated by `npm run build`, not committed)
+                      the stylesheet (generated by `deno task build`, not committed)
 static/               also the link-preview image, icons and web app manifest
 config/abilities.json default ability tuning (embedded in the binary)
 docs/ABILITIES.md     design of the ability system and how to add one
 screenshots/          the pictures in this README
 Dockerfile, docker-compose.yml, Caddyfile   deployment
-package.json, tsconfig.json, eslint.config.js   client build, type-check and lint settings
+deno.json (tasks and npm dependencies), deno.lock, .browserslistrc,
+tsconfig.json, eslint.config.js   client build, type-check and lint settings
 scripts/build-client.mjs   builds the client (esbuild, Sass, Lightning CSS) for the browserslist targets;
                       merge-media.mjs merges the stylesheet's media queries
 ```

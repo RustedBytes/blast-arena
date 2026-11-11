@@ -1,0 +1,4 @@
+# Browsers the client is built for (esbuild targets, Lightning CSS
+# prefixes, eslint-plugin-compat): about 95% of global usage.
+cover 95%
+not dead

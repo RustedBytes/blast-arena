@@ -1,0 +1,29 @@
+{
+  "description": "Browser client for Blast Arena: client/*.ts bundled into one minified file per page in static/js/",
+  "tasks": {
+    "build": "deno run -A scripts/build-client.mjs",
+    "build:dev": "deno run -A scripts/build-client.mjs --dev",
+    "watch": "deno run -A scripts/build-client.mjs --watch",
+    "typecheck": "deno run -A npm:typescript/tsc -p .",
+    "lint": "deno run -A npm:eslint client scripts",
+    "check": {
+      "dependencies": [
+        "typecheck",
+        "lint"
+      ]
+    }
+  },
+  "imports": {
+    "@eslint/js": "npm:@eslint/js@^10.0.1",
+    "browserslist": "npm:browserslist@^4.29.5",
+    "esbuild": "npm:esbuild@^0.28.2",
+    "eslint": "npm:eslint@^10.14.0",
+    "eslint-plugin-compat": "npm:eslint-plugin-compat@^7.0.2",
+    "lightningcss": "npm:lightningcss@^1.33.0",
+    "postcss": "npm:postcss@^8.5.32",
+    "sass": "npm:sass@^1.108.1",
+    "typescript": "npm:typescript@~6.0.3",
+    "typescript-eslint": "npm:typescript-eslint@^8.72.2"
+  },
+  "nodeModulesDir": "auto"
+}

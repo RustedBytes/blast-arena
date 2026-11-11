@@ -1,5 +1,5 @@
-// Builds the client for the browsers in package.json's "browserslist"
-// (about 95% of global usage):
+// Builds the client for the browsers in .browserslistrc (about 95% of
+// global usage):
 // - JavaScript: one bundle per page in static/js/ — main.js (the game),
 //   dashboard.js (server monitor) and tilelab.js (Tile Lab) — with newer
 //   syntax rewritten for the oldest browsers in the list;
@@ -7,12 +7,13 @@
 //   (merge-media.mjs), then minified by Lightning CSS into static/style.css
 //   with the vendor prefixes and fallbacks those browsers need.
 //
-//   node scripts/build-client.mjs           production: minified, no source maps
-//   node scripts/build-client.mjs --dev     readable, with inline source maps
-//   node scripts/build-client.mjs --watch   --dev, rebuilding on every save
-//   node scripts/build-client.mjs --targets prints the targets and exits
+// Run with Deno (`deno task build`, see deno.json):
+//   deno run -A scripts/build-client.mjs           production: minified, no source maps
+//   deno run -A scripts/build-client.mjs --dev     readable, with inline source maps
+//   deno run -A scripts/build-client.mjs --watch   --dev, rebuilding on every save
+//   deno run -A scripts/build-client.mjs --targets prints the targets and exits
 //
-// esbuild only strips the types; `npm run check` is what type-checks.
+// esbuild only strips the types; `deno task check` is what type-checks.
 
 import { Buffer } from 'node:buffer';
 import { rmSync, watch as watchFiles, writeFileSync } from 'node:fs';

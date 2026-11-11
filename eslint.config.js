@@ -9,7 +9,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,
-  // Flags browser APIs missing from the targets in package.json's browserslist.
+  // Flags browser APIs missing from the targets in .browserslistrc.
   compat.configs['flat/recommended'],
   {
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
@@ -21,7 +21,8 @@ export default tseslint.config(
     },
   },
   {
-    // Node build scripts: plain JavaScript, so no type-aware rules.
+    // Build scripts (run by Deno through its Node compatibility): plain
+    // JavaScript, so no type-aware rules.
     files: ['scripts/**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
