@@ -1,16 +1,75 @@
+# Caddy in front of the game server (see docker-compose.yml): HTTPS with an
+# automatic certificate, security headers, compression and the WebSocket
+# proxy. WebTransport (UDP) bypasses Caddy and goes straight to the game.
+#
+#   DOMAIN  the site's host name (docker-compose.yml passes it in)
 {
-	# HTTP/1.1 and HTTP/2 only: UDP port 443 belongs to the game's
-	# WebTransport endpoint, so Caddy mustn't advertise HTTP/3 there.
+	# To get Let's Encrypt's notices about expiring certificates:
+	# email you@example.com
 	servers {
+		# HTTP/1.1 and HTTP/2 only: UDP port 443 belongs to the game's
+		# WebTransport endpoint, so Caddy mustn't advertise HTTP/3 there.
 		protocols h1 h2
 	}
 }
 
+(security_headers) {
+	header {
+		# HTTPS only from now on (a year; no preload list, which is hard to leave).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Everything is served from this site. Inline style attributes are
+		# allowed (the HUD sets some through templates); scripts are not.
+		# connect-src names the WebSocket and the WebTransport endpoint,
+		# which older browsers don't count as 'self'.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss://{$DOMAIN} https://{$DOMAIN}:*; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# The game needs none of these; gamepads and fullscreen stay allowed.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy same-origin
+		-Server
+	}
+}
+
 {$DOMAIN} {
-	encode zstd gzip
+	import security_headers
+	# Compressed when it's worth it; the game's own binary messages
+	# (WebSocket) are left alone.
+	encode {
+		zstd
+		gzip
+		minimum_length 512
+	}
+
 	# Keep the metrics endpoint off the public internet; scrape it from the
 	# Docker network (http://game:3000/metrics) instead.
 	@metrics path /metrics
 	respond @metrics 404
-	reverse_proxy game:3000
+
+	reverse_proxy game:3000 {
+		# While the game restarts (a deploy), hold requests for up to 10 s
+		# instead of answering 502.
+		lb_try_duration 10s
+		lb_try_interval 250ms
+		health_uri /api/arenas
+		health_interval 10s
+		# A Caddy config reload leaves running games connected for 5 more
+		# minutes instead of cutting every WebSocket at once.
+		stream_close_delay 5m
+	}
+
+	# Access log as JSON on stdout (`docker compose logs caddy`), without the
+	# lobby's polling and other frequent API reads.
+	@polling path /api/arenas /api/leaderboard /api/profile /api/transport /api/stats
+	log_skip @polling
+	log {
+		output stdout
+		format json
+	}
 }
+
+# The www. name redirects to the bare domain. Uncomment once its DNS
+# record exists (Caddy needs it to get the certificate):
+# www.{$DOMAIN} {
+# 	redir https://{$DOMAIN}{uri} permanent
+# }
