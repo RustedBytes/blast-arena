@@ -15,6 +15,11 @@ const SEC: u64 = TICK_RATE as u64;
 /// closing at this radius; and each ring is shown this long before closing.
 pub const SUDDEN_DEATH_TICKS: u64 = 60 * SEC;
 pub const SUDDEN_DEATH_MIN_RADIUS: i32 = 6;
+/// Rings never close faster than one every this many ticks (2.9 tiles a
+/// second, slower than a player walks), so there's always time to get
+/// inside. On very big maps that means the arena doesn't close all the way
+/// before the round ends.
+pub const SUDDEN_DEATH_MIN_RING_TICKS: u64 = 7;
 /// Map events: the first one comes after `EVENT_FIRST_TICKS`, then every
 /// `EVENT_GAP_MIN..=EVENT_GAP_MAX` seconds.
 const EVENT_FIRST_TICKS: u64 = 45 * SEC;
@@ -180,8 +185,9 @@ impl World {
         let c = (self.rng.between(w / 4, w - 1 - w / 4), self.rng.between(h / 4, h - 1 - h / 4));
         let radius = c.0.max(c.1).max(w - 1 - c.0).max(h - 1 - c.1);
         let rings = (radius - SUDDEN_DEATH_MIN_RADIUS).max(1) as u64;
-        // Close the rings over the first 85% of sudden death.
-        let every = (SUDDEN_DEATH_TICKS * 85 / 100 / rings).max(4);
+        // Close the rings over the first 85% of sudden death, if that can be
+        // done at walking pace.
+        let every = (SUDDEN_DEATH_TICKS * 85 / 100 / rings).max(SUDDEN_DEATH_MIN_RING_TICKS);
         let e = &mut self.events;
         (e.sd_active, e.sd_center, e.sd_radius, e.sd_every, e.sd_next) = (true, c, radius, every, self.tick + every);
         e.sd_saved.clear();

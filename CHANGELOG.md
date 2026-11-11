@@ -8,6 +8,14 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- A Horde arena (`Horde:ffa:321:1000` in the default list): a
+  free-for-all with a thousand bots on a 321×321 map, about 100 cells
+  each. An arena's player limit (`--max-players`) is now raised to fit
+  its bots, and a human joining a full arena still takes a bot's place.
+  A tick of it takes about 4 ms in `simbench --bots 1000 --map-size 321`
+  and about 8 ms in the running server (of the 50 ms per tick, shared
+  with the other arenas on the single game thread).
+
 - A Rockets arena (`rockets` mode, `Rockets:rockets:51:8` in the default
   list): a free-for-all where the bomb key fires a rocket in the
   direction you're walking or facing instead of dropping a bomb. Rockets
@@ -42,6 +50,12 @@ All notable changes to Blast Arena are documented here. The format follows
   logged with their transport, and the network readout shows `WT` or `WS`.
 
 ### Changed
+
+- Sudden death never closes a ring faster than one every 7 ticks (2.9
+  tiles a second, slower than walking), so players always have time to
+  get inside. On maps wider than about 200 cells that means the arena no
+  longer closes all the way before the round ends; smaller maps are
+  unchanged.
 
 - The first human to join an arena that only bots are playing in starts
   the round from the beginning: the full timer, everyone's score back to

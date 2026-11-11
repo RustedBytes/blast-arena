@@ -1342,3 +1342,19 @@ fn first_human_in_a_bot_royale_starts_a_new_match() {
     assert!(w.players[&human].alive, "in the match, not watching");
     assert_eq!(w.royale.started_with, 5);
 }
+
+#[test]
+fn sudden_death_on_a_huge_map_closes_at_walking_pace() {
+    let mut w = test_world(Map::empty(321, 321));
+    w.round_end = w.tick + events::SUDDEN_DEATH_TICKS;
+    w.update_events();
+    assert!(w.events.sd_active);
+    assert_eq!(w.events.sd_every, events::SUDDEN_DEATH_MIN_RING_TICKS, "capped: the plain schedule would be faster");
+    let tiles_per_sec = TICK_RATE as f32 / w.events.sd_every as f32;
+    assert!(tiles_per_sec < player::BASE_SPEED, "a ring a tick slower than walking: {tiles_per_sec}");
+    // A normal arena keeps its own, slower schedule.
+    let mut small = test_world(Map::empty(81, 81));
+    small.round_end = small.tick + events::SUDDEN_DEATH_TICKS;
+    small.update_events();
+    assert!(small.events.sd_every > events::SUDDEN_DEATH_MIN_RING_TICKS);
+}

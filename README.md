@@ -108,7 +108,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa`, `teams`, `royale`, `worms` or `rockets`. Repeat the flag, or comma-separate in the env var. |
 | `--map-size` | `MAP_SIZE` | `81` | Size of the default main arena |
 | `--bots` | `BOTS` | `10` | Bots in the default main arena |
-| `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included |
+| `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included (raised to fit an arena's bots) |
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
 | `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
@@ -118,13 +118,14 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter: a level plus `target=level` pairs, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
-Without `--arena` the server runs seven arenas:
+Without `--arena` the server runs eight arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
 - `Royale:royale:81:15`
 - `Worms:worms:61:6` (free-for-all with hunting worms)
 - `Rockets:rockets:51:8` (free-for-all where the bomb key fires rockets)
+- `Horde:ffa:321:1000` (a free-for-all with a thousand bots, about 100 cells each; an arena's player limit is raised to fit its bots, and a joining human takes a bot's place)
 - `Humans:ffa:51:0` (no bots: real players only)
 
 Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, open plazas, a winding maze with loops, or concentric rings with gates), optional mirror or rotational symmetry (walls, crates and spawn pockets alike, so no side is favoured), patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The generator builds three candidate layouts and keeps the best by a quality score: spawn points spread over the whole arena, crates balanced between the quarters, few dead ends. The log shows the seed and a summary of each map with its score (`map generated`). To preview layouts without starting a server, run `cargo run --release --bin mapview -- --size 41 --count 5` (add `--open` for battle royale maps). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
@@ -209,7 +210,7 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 
   Secret boxes also appear on their own around the map.
 - **Rounds** last 5 minutes. At the end, the MVPs and the winning team are shown, the MVP's profile gets a win and bonus XP, and scores reset. When the first human joins an arena where only bots are playing, the round starts over from the beginning (in battle royale, a new match), so they never land in the last minute of a bots' round.
-- **Sudden death** fills the last minute of every round: the arena closes in, one ring at a time, towards a random centre. The next ring to close glows red; whoever is still in it when it turns to stone is crushed. Jumping over the closing wall at the last moment works. The arena reopens for the next round.
+- **Sudden death** fills the last minute of every round: the arena closes in, one ring at a time, towards a random centre. Rings never close faster than you can walk, so on very big maps the arena doesn't close all the way. The next ring to close glows red; whoever is still in it when it turns to stone is crushed. Jumping over the closing wall at the last moment works. The arena reopens for the next round.
 - **Map events** every minute or two: a **meteor shower** (marked impact zones, then blasts), a **blizzard** in snowy maps (everyone slows down, the minimap fogs over), a **lava surge** in volcanic regions (the ground glows, then burns), an **earthquake** in volcanic regions (the screen rumbles; fissures of fire open along volcano lanes after a short warning; tremors jolt resting bombs a cell in a random direction; when it stops a third of the volcano's crates break and may drop power-ups, some armor cracks and a few pillars crumble into rubble until the next round) and **reversed conveyors** in the desert.
 - **Capture the flag** in the Teams arena: each team has a flag at its base. Walk over the enemy flag to take it and bring it to your base while your own flag is home: +5 points. Carriers can't jump or drop bombs. A carrier who dies drops the flag; touching your own dropped flag sends it home, and it goes home by itself after 15 s. You respawn near your base.
 - **Battle royale** (the Royale arena): last player standing. Everyone starts spread over an open map and the whole map is safe; then the safe zone shrinks in five phases. Each phase first shows the next, smaller circle (white dashed line, also on the minimap) for a while, then the zone closes in on it. Outside the zone is the blue storm: the HUD shows how long you can stay in it (5 s early on, down to 1 s at the end), and time inside lets you recover. No respawns during a match: you watch the nearest survivor, and a new match starts 6 s after a winner is decided (+5 points), with everyone back and power-ups reset. Joining is open until the zone first moves. Royale maps are built to be run across: fewer crates, a crate-free road every 8 cells, and no pocket that can't be walked out of.

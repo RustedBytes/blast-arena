@@ -58,7 +58,9 @@ struct Args {
     /// Main arena width/height in tiles (forced odd, at least 15).
     #[arg(long, env = "MAP_SIZE", default_value_t = 81)]
     map_size: i32,
-    /// Maximum simultaneous players per arena, bots included.
+    /// Maximum simultaneous players per arena, bots included. An arena with
+    /// more bots than this is raised to fit them (humans still get in: a
+    /// bot steps out for each).
     #[arg(long, env = "MAX_PLAYERS", default_value_t = 256)]
     max_players: usize,
     /// AI bots kept in the main arena (0 disables them).
@@ -69,7 +71,8 @@ struct Args {
     /// Default: a main free-for-all built from --map-size/--bots, plus
     /// "Teams:teams:61:8", "Mini:ffa:31:4", "Royale:royale:81:15" (battle
     /// royale), "Worms:worms:61:6" (worms hunt everyone), "Rockets:rockets:51:8"
-    /// (the bomb key fires rockets) and "Humans:ffa:51:0" (no bots).
+    /// (the bomb key fires rockets), "Horde:ffa:321:1000" (a thousand bots)
+    /// and "Humans:ffa:51:0" (no bots).
     #[arg(long = "arena", env = "ARENAS", value_delimiter = ',')]
     arenas: Vec<String>,
     /// Map seed. Each start picks a fresh one (and logs it) unless this pins
@@ -116,7 +119,9 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
     let size: i32 = size.parse().map_err(|_| format!("arena {spec:?}: bad size"))?;
     let bots: usize = bots.parse().map_err(|_| format!("arena {spec:?}: bad bot count"))?;
     let size = size.max(15) | 1; // odd, so the pillar grid lines up with the border
-    Ok(game::Config { name: name.to_string(), mode, map_w: size, map_h: size, bots, ..base.clone() })
+    // Room for every bot; a joining human takes a bot's place when it's full.
+    let max_players = base.max_players.max(bots);
+    Ok(game::Config { name: name.to_string(), mode, map_w: size, map_h: size, bots, max_players, ..base.clone() })
 }
 
 /// The ability tuning from `--abilities`, or the shipped defaults. Exits on
@@ -157,6 +162,8 @@ async fn main() {
             "Royale:royale:81:15".into(),
             "Worms:worms:61:6".into(),
             "Rockets:rockets:51:8".into(),
+            // A thousand bots, with about 100 cells each to play in.
+            "Horde:ffa:321:1000".into(),
             "Humans:ffa:51:0".into(),
         ]
     } else {
@@ -382,4 +389,18 @@ async fn robots_txt(axum::extract::State(site): SiteState, headers: HeaderMap) -
 async fn sitemap_xml(axum::extract::State(site): SiteState, headers: HeaderMap) -> Response {
     let body = page::sitemap(&page::origin(&headers, site.public_url.as_deref()));
     ([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], body).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arena_spec_raises_the_player_cap_to_fit_its_bots() {
+        let base = game::Config { max_players: 256, ..Default::default() };
+        let horde = parse_arena("Horde:ffa:321:1000", &base).unwrap();
+        assert_eq!((horde.map_w, horde.bots, horde.max_players), (321, 1000, 1000));
+        let mini = parse_arena("Mini:ffa:31:4", &base).unwrap();
+        assert_eq!(mini.max_players, 256, "small arenas keep the configured cap");
+    }
 }
