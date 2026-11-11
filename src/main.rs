@@ -23,7 +23,7 @@ use tracing::Level;
 mod embedded;
 
 // musl builds (the Alpine Docker image): musl's malloc is slow and scales
-// poorly across threads (the runtime, its blocking pool, SQLite's thread).
+// poorly across threads (the runtime, its blocking pool, the profile database's thread).
 #[cfg(target_env = "musl")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -89,8 +89,8 @@ struct Args {
     /// see config/abilities.json for every field.
     #[arg(long, env = "ABILITIES_CONFIG")]
     abilities: Option<String>,
-    /// SQLite database for player profiles ("" disables persistence).
-    #[arg(long, env = "DB_PATH", default_value = "blast.db")]
+    /// redb database file for player profiles ("" disables persistence).
+    #[arg(long, env = "DB_PATH", default_value = "blast.redb")]
     db: String,
     /// Serve the browser client from this directory. Without it, release
     /// builds serve the copy compiled into the binary, and debug builds the

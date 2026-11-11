@@ -11,7 +11,7 @@ A massively multiplayer bomb-maze game for the browser. Pick an arena, drop bomb
 | ![The vault, full of power-ups and guarded by the Warden, next to snow, desert and conveyor belts](screenshots/vault-warden.png) | ![The lobby: arenas with live player counts, profile and cosmetics](screenshots/lobby.png) |
 | **The vault and its Warden** in the Teams arena, among snow, desert and conveyor belts. | **The lobby:** pick an arena, see your level and unlock hats and trails. |
 
-- **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in SQLite.
+- **Server:** Rust (Axum + WebSocket). Several arenas run side by side, with smart AI bots, rounds, teams and persistent player profiles in redb (a pure-Rust embedded database).
 - **Client:** TypeScript on a plain HTML5 canvas (no framework, no bundler) with pixel art generated in code (or the classic hand-made SVG art) and procedural chiptune music (no audio files), in English, German, French, Spanish, Italian, Polish and Ukrainian. The language follows your browser and can be changed in the lobby or settings.
 
 ## Run
@@ -111,7 +111,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included (raised to fit an arena's bots) |
 | `--round-secs` | `ROUND_SECS` | `300` | Round length |
 | `--map-seed` | `MAP_SEED` | random | Seed for the map layouts. Each start picks a fresh one and logs it; pass it back to replay the same maps (with the same arenas). |
-| `--db` | `DB_PATH` | `blast.db` | SQLite file for profiles; `""` disables them |
+| `--db` | `DB_PATH` | `blast.redb` | redb database file for profiles; `""` disables them |
 | `--abilities` | `ABILITIES_CONFIG` | built in | JSON tuning of the six ability power-ups (charges, cooldowns, durations, radii, switches). Fields left out keep their defaults; `config/abilities.json` lists them all. An invalid file stops the server. |
 | `--static-dir` | `STATIC_DIR` | built in | Serve the client from a directory instead. Release builds embed `static/` in the binary, so the executable runs on its own; debug builds serve `static/` from the source tree, so client edits show up on reload (keep `deno task watch` running to recompile the TypeScript). |
 | `--public-url` | `PUBLIC_URL` | from the request | The site's public address (e.g. `https://blastarena.fun`) for link previews, the canonical link, `robots.txt` and `sitemap.xml`. Without it the address comes from each request (`Host`, or a proxy's `X-Forwarded-Proto` and `X-Forwarded-Host`). |
@@ -256,7 +256,7 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 ## Profiles, cosmetics, friends
 
 - **Profiles:**
-  - Your browser keeps a random profile token, with no sign-up. Kills, deaths, MVP wins, best streak and XP are saved in SQLite.
+  - Your browser keeps a random profile token, with no sign-up. Kills, deaths, MVP wins, best streak and XP are saved in an embedded redb database.
   - The lobby shows your level and an all-time top 20.
 - **Cosmetics:** hats (cap, party hat, horns, halo, crown, top hat) and trails (gold, ice, rainbow) unlock as you level up.
 - **Invites:** the 🔗 button copies an invite link (`?arena=…&near=<your id>`). Friends who open it spawn next to you.
@@ -389,7 +389,7 @@ src/logging.rs        tracing subscriber setup and the log-crate bridge
 src/net.rs            client sessions over any transport (arena choice, profile load, reader/writer), WebSocket
 src/wt.rs             WebTransport endpoint: datagram snapshots, certificates
 src/api.rs            /api/arenas, /api/leaderboard, /api/profile, /api/stats, /metrics
-src/db.rs             SQLite profiles, levels and cosmetic unlocks
+src/db.rs             redb profiles, levels and cosmetic unlocks
 src/metrics.rs        lock-free per-arena live stats
 src/protocol.rs       binary wire format (opcodes, varints), encoder, arena ring
 src/game/mod.rs       World state, config and constants

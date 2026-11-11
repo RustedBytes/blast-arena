@@ -1,11 +1,13 @@
-//! Persistent player profiles in SQLite.
+//! Persistent player profiles in redb, a pure-Rust embedded database.
 //!
 //! The database runs on its own blocking thread; the game and the HTTP
 //! handlers talk to it through a channel, so a slow disk never stalls a
 //! tick. A profile is keyed by a random token the browser keeps.
 
-use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use std::io::Read as _;
+
+use redb::{Database, ReadableDatabase as _, ReadableTable as _, ReadableTableMetadata as _, TableDefinition};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
@@ -80,6 +82,71 @@ impl Op {
     }
 }
 
+/// Token → the profile as a `MessagePack` map (see [`Record`]).
+const PROFILES: TableDefinition<&str, &[u8]> = TableDefinition::new("profiles");
+/// The leaderboard index: one key per profile with XP, in rank order.
+/// Counts are stored inverted (`!x`) so an ascending scan gives XP, wins
+/// and kills descending; deaths stay ascending; the token breaks ties.
+const RANKING: TableDefinition<RankKey, ()> = TableDefinition::new("ranking");
+type RankKey = (u64, u64, u64, u64, &'static str);
+
+/// A profile as stored. Named `MessagePack` fields with defaults, so fields
+/// can be added later without breaking older files.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct Record {
+    name: String,
+    kills: u64,
+    deaths: u64,
+    wins: u64,
+    xp: u64,
+    best_streak: u64,
+    games: u64,
+    hat: u8,
+    trail: u8,
+    /// Unix seconds of the last save.
+    updated: u64,
+}
+
+impl Record {
+    fn from_profile(p: &Profile) -> Record {
+        let updated = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        Record {
+            name: p.name.clone(),
+            kills: p.kills,
+            deaths: p.deaths,
+            wins: p.wins,
+            xp: p.xp,
+            best_streak: p.best_streak,
+            games: p.games,
+            hat: p.hat,
+            trail: p.trail,
+            updated,
+        }
+    }
+
+    fn into_profile(self, token: String) -> Profile {
+        Profile {
+            token,
+            name: self.name,
+            kills: self.kills,
+            deaths: self.deaths,
+            wins: self.wins,
+            xp: self.xp,
+            best_streak: self.best_streak,
+            games: self.games,
+            hat: self.hat,
+            trail: self.trail,
+        }
+    }
+}
+
+fn rank_key(token: &str, xp: u64, wins: u64, kills: u64, deaths: u64) -> (u64, u64, u64, u64, &str) {
+    (!xp, !wins, !kills, deaths, token)
+}
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 /// Cheap, cloneable handle to the profile database.
 #[derive(Clone)]
 pub struct Db {
@@ -90,39 +157,25 @@ impl Db {
     /// Opens (or creates) the database and starts its worker thread.
     ///
     /// # Errors
-    /// If the file can't be opened, the schema can't be created, or the
-    /// file can only be read (wrong owner or permissions): saves would fail.
+    /// If the file can't be opened or created (wrong owner or permissions:
+    /// saves would fail), is an old SQLite profile file, or isn't a valid
+    /// redb file.
     ///
     /// # Panics
     /// If the operating system refuses to start the worker thread.
-    pub fn open(path: &str) -> rusqlite::Result<Db> {
-        let conn = Connection::open(path)?;
-        // SQLite quietly opens a file it may not write as read-only, and then
-        // every save fails. Refuse it here, with the reason.
-        if conn.is_readonly(rusqlite::MAIN_DB)? {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_READONLY),
-                Some(format!("{path} is read-only for this process (check its owner and permissions, and its directory's)")),
-            ));
-        }
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS profiles (
-                 token TEXT PRIMARY KEY,
-                 name TEXT NOT NULL,
-                 kills INTEGER NOT NULL DEFAULT 0,
-                 deaths INTEGER NOT NULL DEFAULT 0,
-                 wins INTEGER NOT NULL DEFAULT 0,
-                 xp INTEGER NOT NULL DEFAULT 0,
-                 best_streak INTEGER NOT NULL DEFAULT 0,
-                 games INTEGER NOT NULL DEFAULT 0,
-                 hat INTEGER NOT NULL DEFAULT 0,
-                 trail INTEGER NOT NULL DEFAULT 0,
-                 updated INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-             );
-             CREATE INDEX IF NOT EXISTS profiles_xp ON profiles(xp DESC);",
-        )?;
-        let profiles: i64 = conn.query_row("SELECT COUNT(*) FROM profiles", [], |r| r.get(0))?;
+    pub fn open(path: &str) -> Result<Db, BoxError> {
+        refuse_sqlite(path)?;
+        let db = Database::create(path).map_err(|e| match e {
+            redb::DatabaseError::Storage(redb::StorageError::Io(io)) if io.kind() == std::io::ErrorKind::PermissionDenied => {
+                format!("{path} is read-only for this process (check its owner and permissions, and its directory's): {io}").into()
+            }
+            e => BoxError::from(e),
+        })?;
+        // Create both tables up front, so reads never meet a missing table.
+        let txn = db.begin_write()?;
+        let profiles = txn.open_table(PROFILES)?.len()?;
+        txn.open_table(RANKING)?;
+        txn.commit()?;
         tracing::info!("profile database {path} opened with {profiles} profiles");
         let (tx, mut rx) = mpsc::channel::<Op>(4096);
         std::thread::Builder::new()
@@ -130,7 +183,7 @@ impl Db {
             .spawn(move || {
                 while let Some(op) = rx.blocking_recv() {
                     let kind = op.kind();
-                    if let Err(e) = run(&conn, op) {
+                    if let Err(e) = run(&db, op) {
                         tracing::error!("profile db {kind} failed: {e}");
                     }
                 }
@@ -162,70 +215,63 @@ impl Db {
     }
 }
 
-fn row_to_profile(r: &rusqlite::Row) -> rusqlite::Result<Profile> {
-    // SQLite integers are signed. A negative count (a corrupted or
-    // hand-edited row) reads as 0 instead of wrapping to a huge number.
-    let count = |i| r.get::<_, i64>(i).map(|v| u64::try_from(v).unwrap_or(0));
-    Ok(Profile {
-        token: r.get(0)?,
-        name: r.get(1)?,
-        kills: count(2)?,
-        deaths: count(3)?,
-        wins: count(4)?,
-        xp: count(5)?,
-        best_streak: count(6)?,
-        games: count(7)?,
-        hat: r.get(8)?,
-        trail: r.get(9)?,
-    })
+/// Profiles used to live in SQLite, often at the same path. Opening such a
+/// file as redb fails with an obscure format error; say what it is instead.
+fn refuse_sqlite(path: &str) -> Result<(), BoxError> {
+    let mut magic = [0u8; 16];
+    let is_sqlite = std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && &magic == b"SQLite format 3\0";
+    if is_sqlite {
+        return Err(format!("{path} is a SQLite profile file from an older version; profiles are now stored with redb, so move it aside or point --db at a new file").into());
+    }
+    Ok(())
 }
 
-/// A count as a SQLite integer, saturating rather than wrapping.
-fn sql_count(v: u64) -> i64 {
-    i64::try_from(v).unwrap_or(i64::MAX)
+fn decode(token: &str, bytes: &[u8]) -> Result<Profile, BoxError> {
+    Ok(rmp_serde::from_slice::<Record>(bytes)?.into_profile(token.to_string()))
 }
 
-const COLUMNS: &str = "token, name, kills, deaths, wins, xp, best_streak, games, hat, trail";
-
-fn run(conn: &Connection, op: Op) -> rusqlite::Result<()> {
+fn run(db: &Database, op: Op) -> Result<(), BoxError> {
     match op {
         Op::Load { token, reply } => {
-            let p = conn
-                .query_row(&format!("SELECT {COLUMNS} FROM profiles WHERE token = ?1"), [&token], row_to_profile)
-                .optional()?;
+            let txn = db.begin_read()?;
+            let table = txn.open_table(PROFILES)?;
+            let p = table.get(token.as_str())?.map(|v| decode(&token, v.value())).transpose()?;
             tracing::debug!("profile loaded: {}", if p.is_some() { "existing" } else { "new player" });
             let _ = reply.send(p);
         }
         Op::Save(p) => {
-            conn.execute(
-                "INSERT INTO profiles (token, name, kills, deaths, wins, xp, best_streak, games, hat, trail, updated)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, strftime('%s','now'))
-                 ON CONFLICT(token) DO UPDATE SET name = ?2, kills = ?3, deaths = ?4, wins = ?5, xp = ?6,
-                     best_streak = ?7, games = ?8, hat = ?9, trail = ?10, updated = strftime('%s','now')",
-                params![
-                    p.token,
-                    p.name,
-                    sql_count(p.kills),
-                    sql_count(p.deaths),
-                    sql_count(p.wins),
-                    sql_count(p.xp),
-                    sql_count(p.best_streak),
-                    sql_count(p.games),
-                    p.hat,
-                    p.trail
-                ],
-            )?;
+            let bytes = rmp_serde::to_vec_named(&Record::from_profile(&p))?;
+            let txn = db.begin_write()?;
+            {
+                let mut profiles = txn.open_table(PROFILES)?;
+                let mut ranking = txn.open_table(RANKING)?;
+                // The old ranking entry goes, or the player would be listed twice.
+                let old = profiles.insert(p.token.as_str(), bytes.as_slice())?.map(|v| rmp_serde::from_slice::<Record>(v.value()));
+                if let Some(Ok(o)) = old {
+                    ranking.remove(rank_key(&p.token, o.xp, o.wins, o.kills, o.deaths))?;
+                }
+                // Profiles that never earned XP aren't records.
+                if p.xp > 0 {
+                    ranking.insert(rank_key(&p.token, p.xp, p.wins, p.kills, p.deaths), ())?;
+                }
+            }
+            txn.commit()?;
             tracing::debug!("profile saved for {} (level {}, xp {})", p.name, p.level(), p.xp);
         }
         Op::Top { limit, reply } => {
             // Ranked by XP (what the lobby list shows); ties go to more wins,
-            // then more kills, then fewer deaths. Profiles that never earned
-            // XP aren't records.
-            let mut stmt = conn.prepare(&format!(
-                "SELECT {COLUMNS} FROM profiles WHERE xp > 0
-                 ORDER BY xp DESC, wins DESC, kills DESC, deaths ASC LIMIT ?1"
-            ))?;
-            let rows = stmt.query_map([limit], row_to_profile)?.collect::<rusqlite::Result<Vec<_>>>()?;
+            // then more kills, then fewer deaths.
+            let txn = db.begin_read()?;
+            let ranking = txn.open_table(RANKING)?;
+            let profiles = txn.open_table(PROFILES)?;
+            let mut rows = Vec::new();
+            for entry in ranking.iter()?.take(limit as usize) {
+                let (key, ()) = entry.map(|(k, v)| (k, v.value()))?;
+                let token = key.value().4;
+                if let Some(v) = profiles.get(token)? {
+                    rows.push(decode(token, v.value())?);
+                }
+            }
             let _ = reply.send(rows);
         }
     }
@@ -301,6 +347,41 @@ mod tests {
         save("top", 40, 0, 4, 15);
         let top = db.top(10).await;
         assert_eq!(top.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["top", "winner", "careful", "low"]);
+        let _ = std::fs::remove_file(&dir);
+    }
+
+    #[tokio::test]
+    async fn resaving_moves_the_ranking_entry() {
+        let dir = std::env::temp_dir().join(format!("blast-rerank-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        let db = Db::open(dir.to_str().unwrap()).unwrap();
+        let p = Profile { token: "token-cccc-3".into(), name: "Cy".into(), xp: 10, ..Default::default() };
+        db.save(p.clone());
+        db.save(Profile { token: "token-dddd-4".into(), name: "Di".into(), xp: 20, ..Default::default() });
+        db.save(Profile { xp: 30, kills: 2, ..p });
+        let top = db.top(10).await;
+        assert_eq!(top.iter().map(|p| (p.name.as_str(), p.xp)).collect::<Vec<_>>(), [("Cy", 30), ("Di", 20)]);
+        drop(db);
+        // Reopened, the data is still there (once the worker lets go of the file).
+        let mut reopened = Db::open(dir.to_str().unwrap());
+        for _ in 0..100 {
+            if reopened.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            reopened = Db::open(dir.to_str().unwrap());
+        }
+        let db = reopened.unwrap();
+        assert_eq!(db.load("token-cccc-3").await.map(|p| p.kills), Some(2));
+        let _ = std::fs::remove_file(&dir);
+    }
+
+    #[test]
+    fn old_sqlite_files_are_refused() {
+        let dir = std::env::temp_dir().join(format!("blast-sqlite-{}.db", std::process::id()));
+        std::fs::write(&dir, b"SQLite format 3\0rest of the header").unwrap();
+        let err = Db::open(dir.to_str().unwrap()).err().expect("a SQLite file is refused");
+        assert!(err.to_string().contains("SQLite"), "{err}");
         let _ = std::fs::remove_file(&dir);
     }
 }

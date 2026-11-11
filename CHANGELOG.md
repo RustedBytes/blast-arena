@@ -31,6 +31,11 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- Player profiles are stored with **redb**, a pure-Rust embedded
+  database, instead of SQLite: no C code is compiled for the database any
+  more. The default file is now `blast.redb` (`/data/blast.redb` in the
+  Docker image). Profiles in an old SQLite file are not carried over; if
+  `--db` points at one, the server says so and runs without profiles.
 - The lobby's arena picker is a compact grid (three columns, two on
   phones, four in short landscape) with a mode icon, the name and live
   player and bot counts on each tile, plus one line under it with the
