@@ -77,7 +77,7 @@ function drawMap(): void {
   const chunk = makeCanvas(chunkPx);
   for (let cy = 0; cy * CHUNK < SIZE; cy++) {
     for (let cx = 0; cx * CHUNK < SIZE; cx++) {
-      renderer.paintChunk(chunk, map, cx, cy);
+      renderer.tiles.paintChunk(chunk, map, cx, cy);
       g.drawImage(chunk, cx * chunkPx, cy * chunkPx);
     }
   }
@@ -199,16 +199,16 @@ function drawScene(now: number): void {
   r.tileStyle = renderer.tileStyle;
   const chunk = document.createElement('canvas');
   chunk.width = chunk.height = CHUNK * 64;
-  r.paintChunk(chunk, sceneMap, 0, 0);
+  r.tiles.paintChunk(chunk, sceneMap, 0, 0);
   ctx.drawImage(chunk, 0, 0, CHUNK * T, CHUNK * T);
-  r.paintChunk(chunk, sceneMap, 1, 0);
+  r.tiles.paintChunk(chunk, sceneMap, 1, 0);
   ctx.drawImage(chunk, CHUNK * T, 0, CHUNK * T, CHUNK * T);
-  r.drawItems(sceneItems, 0, 0, T, sec, c.width, c.height);
-  r.drawBombs(bombs, 0, 0, T, sec, dt);
+  r.objects.drawItems(sceneItems, 0, 0, T, sec, c.width, c.height);
+  r.objects.drawBombs(bombs, 0, 0, T, sec, dt);
   // An explosion that goes off every two seconds.
   const left = Math.max(0, 10 - ((now / 50) % 40));
   const blast: FlameEntry = [8, 3, [1, 2, 1, 2], left, 0];
-  if (left > 0) r.drawExplosions([blast], 0, 0, T);
+  if (left > 0) r.effects.drawExplosions([blast], 0, 0, T);
   const walk = (sec * 1.2) % 1;
   const players = [
     player({ id: 1, x: 7.5 + walk * 2, y: 2.5, facing: 2, moving: true, shield: false, cursed: false, ghost: false, bounty: true }),
@@ -216,11 +216,11 @@ function drawScene(now: number): void {
     player({ id: 3, x: 1.5, y: 2.5, facing: 3, moving: true, shield: false, cursed: true, ghost: false, bounty: false }),
     player({ id: 7, x: 3.5 - walk, y: 2.5, facing: 4, moving: true, shield: false, cursed: false, ghost: true, bounty: false }),
   ];
-  for (const p of players) r.drawPlayer(p, 0, 0, T, sec, dt, sceneState);
+  for (const p of players) r.players.drawPlayer(p, 0, 0, T, sec, dt, sceneState);
   r.particles.update(dt);
   r.particles.pixel = r.tileStyle === 'pixel';
   r.particles.draw(ctx, 0, 0, T);
-  for (const p of players) r.drawName(p, 0, 0, T, sceneState, now);
+  for (const p of players) r.players.drawName(p, 0, 0, T, sceneState, now);
   requestAnimationFrame(drawScene);
 }
 

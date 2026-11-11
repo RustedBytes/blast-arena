@@ -51,12 +51,15 @@ fn check_client(manifest: &Path) {
         out.join("main.js").is_file(),
         "the browser client isn't built: run `npm ci && npm run build` first (compiles client/*.ts into static/js/)"
     );
-    let Ok(sources) = fs::read_dir(manifest.join("client")) else { return };
-    for src in sources.flatten().map(|e| e.path()) {
+    let client = manifest.join("client");
+    let mut sources = Vec::new();
+    collect(&client, &mut sources);
+    for src in sources {
         if src.extension().is_none_or(|e| e != "ts") {
             continue;
         }
-        let js = out.join(src.with_extension("js").file_name().expect("a file name"));
+        let rel = src.strip_prefix(&client).expect("inside client/");
+        let js = out.join(rel).with_extension("js");
         let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
         if let (Some(s), Some(j)) = (modified(&src), modified(&js))
             && s <= j

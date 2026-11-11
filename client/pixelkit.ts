@@ -6,6 +6,8 @@
 import { context2d, makeCanvas } from './dom.js';
 
 export const N = 16;
+/** Scale of sprites drawn straight onto the game canvas (see `Pix.canvas`). */
+export const X4 = 4;
 
 /** A seeded random source returning values in 0..1. */
 export type Rand = () => number;

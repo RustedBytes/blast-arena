@@ -57,3 +57,8 @@ export function setTrailingText(el: Element, text: string): void {
 export function fireAndForget(promise: Promise<unknown>, what: string): void {
   promise.catch((e: unknown) => console.warn(`${what} failed`, e));
 }
+
+/** Text made safe to put in HTML. */
+export function escapeHtml(s: unknown): string {
+  return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}

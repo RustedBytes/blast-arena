@@ -343,14 +343,15 @@ snapshot is the `EXTRA` section. The three runs after the change gave
    in `step` (see 1.2), and clean-up in `abilities_on_death` and
    `reset_abilities_for_round`.
 5. **Protocol.** A new sub-kind in `abilities::ab` (and `AB` in
-   `client/protocol.ts`); if its objects must be shown, an `EXTRA`
+   `client/protocol/constants.ts`); if its objects must be shown, an `EXTRA`
    sub-list in `protocol::snap`, `World::write_extra`, the test decoder in
-   `protocol::testing` and the decoder in `protocol.ts`; new `me` fields go at
-   the end of `ME_FIELDS` in both places.
-6. **Client.** An icon `static/assets/pu_<name>.svg` (+ `STATIC` and
-   `ITEM_SPRITES` in `assets.ts`, a halo colour in `HALO` in `render.ts`),
-   texts in `i18n.ts` (en, uk, ru), drawing in `render.ts`, sounds and notices
-   in `abilityEvent` (`main.ts`).
+   `protocol::testing` and the decoder in `client/protocol/snapshot.ts`; new
+   `me` fields go at the end of `ME_FIELDS` on both sides (the client's is in
+   `client/protocol/constants.ts`).
+6. **Client.** An icon `static/assets/pu_<name>.svg` (+ `SPRITES` and
+   `ITEM_SPRITES` in `client/assets.ts`, a halo colour in `HALO` in `client/render/constants.ts`),
+   texts in `client/i18n/*.ts`, drawing in a layer under `client/render/`, sounds and notices
+   in `abilityEvent` (`client/app/events.ts`).
 7. **Tests** in `ability_tests.rs`: at least a successful activation, a
    refusal that costs nothing, expiry, the owner's death, the end of a round,
    and serialization into the snapshot.

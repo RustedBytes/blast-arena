@@ -39,7 +39,7 @@ The live server dashboard is at http://localhost:3000/dashboard.html, and Promet
 | Gamepad | Stick or d-pad moves, A bomb, B gadget, Y jump, X action, shoulder buttons zoom, right trigger ability, left trigger (hold) shake off a sticky bomb |
 | Touch | Drag on the left to steer (floating joystick), bomb, jump (⤒), gadget (Q), ability (R) and action buttons, ✋ (hold, while a sticky bomb is on you), pinch to zoom |
 
-The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart.ts` and sprites in `client/pixelsprites.ts`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
+The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart/` and sprites in `client/pixelsprites/`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art. A short interactive tutorial runs on your first game.
 
 The pixel art follows a few rules:
 - **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).
@@ -322,9 +322,19 @@ src/bin/simbench.rs   tick-time and allocation benchmark
 src/bin/mapview.rs    prints generated maps as text, with their quality scores
 static/index.html     lobby and game page; dashboard.html is the server monitor;
                       tiles.html is the Tile Lab
-client/               the browser client in TypeScript: main, render, prediction,
-                      particles, input, audio, i18n, tutorial, settings, net,
-                      protocol, msgpack, dashboard, tilelab, state (shared types);
+client/               the browser client in TypeScript. main.ts wires up app/:
+                      services (shared singletons), session (the game in
+                      progress), messages (server messages), events (game
+                      events), controls, view (camera and minimap watching),
+                      hud, settings-ui, lobby, loop. render/ holds the
+                      renderer's layers (tiles, objects, players, worms,
+                      warden, effects, events, minimap, interpolation);
+                      protocol/ the wire format (types, snapshot and welcome
+                      decoding, encoding); i18n/ one file per language;
+                      pixelart/ and pixelsprites/ the pixel-art generators.
+                      Plus prediction, input, audio, particles, alerts,
+                      tutorial, settings, net, msgpack, dom, state, dashboard
+                      and tilelab;
                       `npm run build` compiles it into static/js (generated, not
                       committed), `npm run watch` recompiles on save, and
                       `npm run check` type-checks (strict) and lints it
