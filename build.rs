@@ -41,23 +41,24 @@ fn main() {
     fs::write(dest, out).expect("write the generated table");
 }
 
-/// The browser client is written in TypeScript (`client/`) and bundled by
-/// `npm run build` into one minified file per page in `static/js/`, which
-/// is what gets embedded. Stops the build when it hasn't been bundled, and
-/// warns when a client source file is newer than the bundles.
+/// The browser client is written in TypeScript and CSS (`client/`) and built
+/// by `npm run build` into one minified script per page in `static/js/` plus
+/// `static/style.css`, which is what gets embedded. Stops the build when it
+/// hasn't been built, and warns when a client source file is newer than the
+/// output.
 fn check_client(manifest: &Path) {
-    let out = manifest.join("static/js");
-    let bundles = ["main.js", "dashboard.js", "tilelab.js"].map(|b| out.join(b));
+    let out = manifest.join("static");
+    let bundles = ["js/main.js", "js/dashboard.js", "js/tilelab.js", "style.css"].map(|b| out.join(b));
     assert!(
         bundles.iter().all(|b| b.is_file()),
-        "the browser client isn't built: run `npm ci && npm run build` first (bundles client/ into static/js/)"
+        "the browser client isn't built: run `npm ci && npm run build` first (builds client/ into static/js/ and static/style.css)"
     );
     let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
     let Some(built) = bundles.iter().filter_map(|b| modified(b)).min() else { return };
     let mut sources = Vec::new();
     collect(&manifest.join("client"), &mut sources);
     if let Some(src) = sources.iter().find(|s| modified(s).is_some_and(|t| t > built)) {
-        println!("cargo:warning=static/js is out of date with client/ ({}): run `npm run build`", src.display());
+        println!("cargo:warning=the built client in static/ is out of date with client/ ({}): run `npm run build`", src.display());
     }
 }
 

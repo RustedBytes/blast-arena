@@ -437,11 +437,12 @@ body.in-storm #storm-tint { display: block; }
 
 /* ---------- Alerts (see js/alerts.js) ---------- */
 #alerts { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
-[data-tone] { --tone: #7fb8ff; --tone-bg: rgba(20, 40, 80, 0.88); }
-[data-tone="good"] { --tone: #6ff2a0; --tone-bg: rgba(14, 52, 34, 0.88); }
-[data-tone="warn"] { --tone: #ffc24a; --tone-bg: rgba(64, 44, 8, 0.9); }
-[data-tone="danger"] { --tone: #ff6a5a; --tone-bg: rgba(78, 16, 12, 0.92); }
-[data-tone="epic"] { --tone: #ff9df2; --tone-bg: rgba(58, 20, 70, 0.92); }
+/* --tone-rgb is --tone as r, g, b, for translucent variants (rgba works in every browser, color-mix doesn't yet). */
+[data-tone] { --tone: #7fb8ff; --tone-rgb: 127, 184, 255; --tone-bg: rgba(20, 40, 80, 0.88); }
+[data-tone="good"] { --tone: #6ff2a0; --tone-rgb: 111, 242, 160; --tone-bg: rgba(14, 52, 34, 0.88); }
+[data-tone="warn"] { --tone: #ffc24a; --tone-rgb: 255, 194, 74; --tone-bg: rgba(64, 44, 8, 0.9); }
+[data-tone="danger"] { --tone: #ff6a5a; --tone-rgb: 255, 106, 90; --tone-bg: rgba(78, 16, 12, 0.92); }
+[data-tone="epic"] { --tone: #ff9df2; --tone-rgb: 255, 157, 242; --tone-bg: rgba(58, 20, 70, 0.92); }
 
 .alerts-top {
   position: absolute; top: calc(var(--top) + 52px); left: 50%; transform: translateX(-50%);
@@ -452,8 +453,8 @@ body.in-storm #storm-tint { display: block; }
 .alert-card {
   position: relative; display: flex; align-items: center; gap: 12px; overflow: hidden;
   padding: 10px 18px 12px; border-radius: 14px; max-width: 100%;
-  background: var(--tone-bg); border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 22px color-mix(in srgb, var(--tone) 35%, transparent);
+  background: var(--tone-bg); border: 1px solid rgba(var(--tone-rgb), 0.55);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 22px rgba(var(--tone-rgb), 0.35);
   animation: alert-in 0.32s cubic-bezier(.2, 1.4, .4, 1);
 }
 .alert-card.leaving { animation: alert-out 0.26s ease-in forwards; }
@@ -480,7 +481,7 @@ body.in-storm #storm-tint { display: block; }
 .alert-status.leaving { animation: alert-out 0.22s ease-in forwards; }
 .alert-status .alert-icon { font-size: 18px; }
 .alert-status .alert-bar { height: 4px; }
-@keyframes status-pulse { to { box-shadow: 0 0 16px color-mix(in srgb, var(--tone) 70%, transparent); } }
+@keyframes status-pulse { to { box-shadow: 0 0 16px rgba(var(--tone-rgb), 0.7); } }
 
 .alerts-toasts {
   position: absolute; bottom: calc(var(--bottom) + 80px); left: 50%; transform: translateX(-50%);

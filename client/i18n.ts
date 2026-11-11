@@ -33,7 +33,7 @@ export function detectLanguage(saved: string | null | undefined): Lang {
 }
 
 function isLang(l: string): l is Lang {
-  return Object.hasOwn(STRINGS, l);
+  return Object.prototype.hasOwnProperty.call(STRINGS, l);
 }
 
 export function setLanguage(l: string): void {
@@ -60,7 +60,7 @@ export function text(key: string): string {
 }
 
 function isStringKey(key: string): key is StringKey {
-  return Object.hasOwn(STRINGS.en, key);
+  return Object.prototype.hasOwnProperty.call(STRINGS.en, key);
 }
 
 /** Replaces `{name}` placeholders. */

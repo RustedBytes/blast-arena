@@ -46,6 +46,12 @@ export function makeCanvas(width: number, height = width): HTMLCanvasElement {
   return c;
 }
 
+/** Replaces an element's children (`replaceChildren` is too new for some browsers we support). */
+export function setChildren(parent: ParentNode & Node, ...nodes: Node[]): void {
+  parent.textContent = '';
+  parent.append(...nodes);
+}
+
 /** Sets the text of an element's last child node (the label after an icon). */
 export function setTrailingText(el: Element, text: string): void {
   const last = el.lastChild;

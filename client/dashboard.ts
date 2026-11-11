@@ -38,6 +38,8 @@ interface Line { name: string; values: number[]; color: string }
 const history: { t: number[]; arenas: Record<string, ArenaHistory>; cpu: number[]; mem: number[] } = { t: [], arenas: {}, cpu: [], mem: [] };
 let lastBytes: Record<string, number> | null = null, lastTime = 0;
 
+const last = (arr: readonly number[]): number | undefined => arr[arr.length - 1];
+
 function push(arr: number[], v: number): void {
   arr.push(v);
   if (arr.length > HISTORY) arr.shift();
@@ -87,7 +89,7 @@ async function poll(): Promise<void> {
   ui.kpi.players.textContent = sum((a) => a.players);
   ui.kpi.humans.textContent = sum((a) => a.humans);
   ui.kpi.tick.textContent = Math.max(0, ...s.arenas.map((a) => a.tick_ms)).toFixed(2);
-  ui.kpi.net.textContent = Object.values(history.arenas).reduce((n, h) => n + (h.kbs.at(-1) ?? 0), 0).toFixed(1);
+  ui.kpi.net.textContent = Object.values(history.arenas).reduce((n, h) => n + (last(h.kbs) ?? 0), 0).toFixed(1);
   ui.kpi.cpu.textContent = s.cpu_percent.toFixed(1);
   ui.kpi.mem.textContent = s.memory_mb.toFixed(1);
   const up = s.uptime_s;
@@ -143,7 +145,7 @@ function chart(id: ChartId, lines: Line[], unit = ''): void {
     g.stroke();
   }
   ui.charts[id].legend.innerHTML = lines.map((l) =>
-    `<span><i style="background:${l.color}"></i>${l.name}: ${(l.values.at(-1) ?? 0).toFixed(unit === 'count' ? 0 : 1)} ${unit === 'count' ? '' : unit}</span>`).join('');
+    `<span><i style="background:${l.color}"></i>${l.name}: ${(last(l.values) ?? 0).toFixed(unit === 'count' ? 0 : 1)} ${unit === 'count' ? '' : unit}</span>`).join('');
 }
 
 const pollNow = (): void => fireAndForget(poll(), 'stats poll');

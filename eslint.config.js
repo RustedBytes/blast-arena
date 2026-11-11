@@ -2,12 +2,15 @@
 // type-aware rule sets.
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import compat from 'eslint-plugin-compat';
 
 export default tseslint.config(
   { ignores: ['static/', 'target/', 'node_modules/', 'eslint.config.js'] },
   eslint.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,
+  // Flags browser APIs missing from the targets in package.json's browserslist.
+  compat.configs['flat/recommended'],
   {
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
     rules: {

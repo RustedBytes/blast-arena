@@ -8,6 +8,18 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The client is built for about 95% of the world's browsers (browserslist
+  `cover 95%, not dead`: Chrome 103+, Firefox 115+, Safari and iOS 15.6+,
+  Samsung Internet, UC and QQ Browser). esbuild compiles the JavaScript down
+  to their oldest engine (Chrome 78), and the stylesheet moved to
+  `client/style.css`, minified by Lightning CSS into `static/style.css` with
+  vendor prefixes and fallbacks. Newer APIs those browsers lack
+  (`Array.at`, `Object.hasOwn`, `replaceAll`, `replaceChildren`, top-level
+  `await`) are no longer used, and `eslint-plugin-compat` checks for them.
+- Fixed: colour-blind player shades and alert borders used CSS
+  `color-mix()`, which Chrome before 111 and Safari before 16.2 don't
+  support (shades turned black, alerts lost their glow).
+
 - A new tutorial: an illustrated slide deck in a modal window, in every
   language. 14 short slides, each with a picture drawn from the game's pixel
   art (little scenes such as the blast cross or a hop over a pillar, and the

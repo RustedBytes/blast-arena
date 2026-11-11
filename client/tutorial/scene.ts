@@ -36,7 +36,6 @@ export function drawScene(canvas: HTMLCanvasElement, scene: Scene, assets: Asset
   const dpr = window.devicePixelRatio || 1;
   canvas.width = cols * CELL * dpr;
   canvas.height = rows * CELL * dpr;
-  canvas.style.aspectRatio = `${cols} / ${rows}`;
   const g = context2d(canvas);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.imageSmoothingEnabled = false;

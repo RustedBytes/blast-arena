@@ -10,7 +10,7 @@
 //
 // Tones colour them: info, good, warn, danger, epic.
 
-import { query } from './dom.js';
+import { query, setChildren } from './dom.js';
 
 const QUEUE_MAX = 4;
 const TOASTS_MAX = 4;
@@ -154,7 +154,7 @@ export class Alerts {
     this.queue.length = 0;
     if (this.current) this.dismiss(true);
     for (const key of [...this.statuses.keys()]) this.clear(key);
-    this.toastBox.replaceChildren();
+    setChildren(this.toastBox);
     this.toasts.clear();
   }
 
@@ -203,7 +203,7 @@ export class Alerts {
     const bar = element('div', 'alert-bar');
     const fill = element('i');
     bar.append(fill);
-    el.replaceChildren(...icon(o.icon), text, bar);
+    setChildren(el, ...icon(o.icon), text, bar);
     return fill;
   }
 

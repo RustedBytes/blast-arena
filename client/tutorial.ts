@@ -4,7 +4,7 @@
 // the close button ends it.
 
 import type { Assets } from './assets.js';
-import { query } from './dom.js';
+import { query, setChildren } from './dom.js';
 import { t } from './i18n.js';
 import { drawIcon, drawScene, hasFire } from './tutorial/scene.js';
 import { SLIDES } from './tutorial/slides.js';
@@ -116,7 +116,7 @@ export class Tutorial {
     this.titleEl.textContent = text.title;
     this.bodyEl.textContent = text.body;
     this.renderVisual(slide, 'labels' in text ? text.labels : []);
-    this.keysEl.replaceChildren(...(slide.keys ?? []).map((k) => {
+    setChildren(this.keysEl, ...(slide.keys ?? []).map((k) => {
       const kbd = document.createElement('kbd');
       kbd.textContent = k;
       return kbd;
@@ -130,7 +130,7 @@ export class Tutorial {
     this.next.textContent = last ? ui.done : ui.next;
     this.close.setAttribute('aria-label', ui.close);
     this.count.textContent = t('guideUi').slide.replace('{n}', String(this.index + 1)).replace('{total}', String(SLIDES.length));
-    this.dots.replaceChildren(...SLIDES.map((_, i) => {
+    setChildren(this.dots, ...SLIDES.map((_, i) => {
       const dot = document.createElement('button');
       dot.type = 'button';
       dot.className = i === this.index ? 'tut-dot current' : 'tut-dot';
@@ -155,7 +155,7 @@ export class Tutorial {
       canvas.className = 'tut-scene';
       let frame = 0;
       drawScene(canvas, v.scene, this.assets, frame);
-      this.visual.replaceChildren(canvas);
+      setChildren(this.visual, canvas);
       if (hasFire(v.scene)) {
         this.flicker = setInterval(() => drawScene(canvas, v.scene, this.assets, ++frame), FLICKER_MS);
       }
@@ -164,7 +164,7 @@ export class Tutorial {
     const grid = document.createElement('div');
     grid.className = 'tut-icons';
     grid.append(...v.icons.map((icon) => this.iconFigure(icon, labels)));
-    this.visual.replaceChildren(grid);
+    setChildren(this.visual, grid);
   }
 
   private iconFigure(icon: Icon, labels: readonly string[]): HTMLElement {

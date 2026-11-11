@@ -7,7 +7,7 @@ import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
 import { Particles } from './particles.js';
 import { Renderer, T_ARMORED, T_CRATE, T_FLOOR, T_ICE, T_TELEPORT, T_WALL, biome } from './render.js';
 import type { PixelSet } from './assets.js';
-import { byId, context2d, makeCanvas } from './dom.js';
+import { byId, context2d, makeCanvas, setChildren } from './dom.js';
 import type { PlayerView } from './pixelsprites.js';
 import type { FlameEntry } from './protocol.js';
 import type { Frame, FrameBomb, FramePlayer, PlayerScene } from './render.js';
@@ -76,7 +76,6 @@ function sampleMap(): GameMap {
 }
 
 const assets = new Assets();
-await assets.load();
 const renderer = new Renderer(document.createElement('canvas'), document.createElement('canvas'), assets, new Particles(16));
 const map = sampleMap();
 
@@ -240,7 +239,7 @@ function update(): void {
   assets.setPixelSeed(seed);
   renderer.tileStyle = ui.style.value === 'classic' ? 'classic' : 'pixel';
   drawMap();
-  ui.sheet.replaceChildren();
+  setChildren(ui.sheet);
   drawSheet(assets.pixel);
   drawSprites(assets.pixel);
 }
@@ -252,5 +251,11 @@ ui.reroll.addEventListener('click', () => {
   update();
 });
 ui.actualSize.addEventListener('change', () => ui.map.classList.toggle('actual', ui.actualSize.checked));
-update();
-requestAnimationFrame(drawScene);
+// Start once the art is in (no top-level await: some supported browsers lack it).
+assets.load().then(
+  () => {
+    update();
+    requestAnimationFrame(drawScene);
+  },
+  (e: unknown) => console.error('could not load the art', e),
+);

@@ -6,3 +6,4 @@ target
 .claude
 node_modules
 static/js
+static/style.css

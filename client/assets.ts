@@ -71,7 +71,10 @@ export function playerHue(id: number): number {
 }
 
 // Okabe-Ito palette: distinguishable with common colour-vision deficiencies.
-const SAFE_COLORS = ['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D55E00', '#CC79A7', '#999999'] as const;
+// Each with its shade: the colour mixed 55% with black.
+const SAFE_COLORS: readonly PlayerColors[] = [
+  ['#E69F00', '#7f5700'], ['#56B4E9', '#2f6380'], ['#009E73', '#00573f'], ['#F0E442', '#847d24'], ['#0072B2', '#003f62'], ['#D55E00', '#753400'], ['#CC79A7', '#70435c'], ['#999999', '#545454'],
+];
 
 /**
  * Body colour of a player: team colours in team mode, otherwise a colour
@@ -81,8 +84,7 @@ export function playerColors(id: number, team: number, colorblind: boolean): Pla
   if (team === 1) return colorblind ? ['#E69F00', '#8a5f00'] : ['hsl(2,80%,52%)', 'hsl(2,75%,32%)'];
   if (team === 2) return colorblind ? ['#0072B2', '#00446b'] : ['hsl(215,85%,55%)', 'hsl(215,80%,33%)'];
   if (colorblind) {
-    const c = SAFE_COLORS[id % SAFE_COLORS.length];
-    return [c, `color-mix(in srgb, ${c} 55%, black)`];
+    return SAFE_COLORS[id % SAFE_COLORS.length];
   }
   const hue = playerHue(id);
   return [`hsl(${hue},78%,54%)`, `hsl(${hue},70%,34%)`];
@@ -153,7 +155,7 @@ export class Assets {
     const template = this.templates.get(view);
     if (template === undefined) return null;
     this.players.set(key, 'loading');
-    const svg = template.replaceAll('#BODYDARK', shade).replaceAll('#BODY', body);
+    const svg = template.split('#BODYDARK').join(shade).split('#BODY').join(body);
     fireAndForget(svgImage(svg).then((img) => this.players.set(key, rasterize(img, SPRITE_PX))), 'player sprite');
     return null;
   }
