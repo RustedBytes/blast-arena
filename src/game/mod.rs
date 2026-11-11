@@ -305,6 +305,10 @@ pub struct World {
     buckets_w: i32,
     /// Messages for everyone (joins, leaves, kills), flushed each tick.
     broadcasts: Vec<Bytes>,
+    /// Back-pressure on the bots' thinking (1 = none, up to
+    /// `MAX_AI_SLOWDOWN`): far-away bots plan this many times less often.
+    /// The arena task raises it while ticks run over budget (see `tick`).
+    pub ai_slowdown: u32,
     /// Brains of the server-side bots, keyed by player id.
     pub bots: HashMap<u32, ai::BotBrain>,
     /// Bot ids in ascending order, for a stable update order.
@@ -449,6 +453,7 @@ impl World {
             buckets: vec![Vec::new(); (buckets_w * buckets_h) as usize],
             buckets_w,
             broadcasts: Vec::new(),
+            ai_slowdown: 1,
             bots: HashMap::new(),
             bot_ids: Vec::new(),
             target_bots: 0,

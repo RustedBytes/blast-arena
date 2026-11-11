@@ -6,6 +6,25 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Less CPU for big bot crowds (back-pressure on the arena task):
+  - An arena with no humans in it steps once a second instead of 20
+    times: nobody sees it, and the first human to join starts the round
+    over anyway. Joins are still handled every tick.
+  - Level of detail for bots: in an arena with 100 or more bots, a bot no
+    human can see (beyond the widest view plus 8 cells) plans every 8–14
+    ticks instead of every 2–4. It still reacts at once to danger and to a
+    blocked path. With one human in the Horde a tick takes 2.3 ms instead
+    of 4.2 ms in `simbench --bots 1000 --map-size 321 --clients 1`.
+  - When an arena's ticks average over 8 ms for a second, far-away bots
+    slow down a further step (up to 4×), and speed back up below 4 ms.
+
+### Fixed
+
+- The dashboard and `/metrics` showed a huge "round left" for the Royale
+  arena (its matches have no clock); it is 0 now.
+
 ## [0.9.0] - 2026-11-11
 
 ### Added

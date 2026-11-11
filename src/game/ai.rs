@@ -17,9 +17,9 @@ use std::collections::HashMap;
 use super::bomb::{Blast, FUSE_TICKS, NUKE_FUSE_TICKS};
 use super::items::Item;
 use super::map::Tile;
-use super::player::{DIRS, MAX_BOMBS, MAX_RANGE};
+use super::player::{AOI_MAX, DIRS, MAX_BOMBS, MAX_RANGE};
 use super::rng::Rng;
-use super::{DT, World};
+use super::{BUCKET, DT, World};
 
 /// Danger value of a cell no known blast will reach.
 pub const SAFE: u16 = u16::MAX;
@@ -39,6 +39,14 @@ const ROCKET_SIGHT: i32 = 12;
 const ROCKET_CRATE_SIGHT: i32 = 5;
 /// What hitting an enemy is worth to a bot, against 1 for a crate.
 const ROCKET_ENEMY: u32 = 4;
+/// Level of detail: in an arena with at least this many bots, a bot no
+/// human can see (farther than the widest view plus `WATCH_MARGIN` cells
+/// from every human) plans every `FAR_THINK` ticks instead of every 2 to
+/// 4, times `World::ai_slowdown`. It still reacts at once to danger and to
+/// its path being blocked, so it plays the same, only less sharply.
+pub const LOD_MIN_BOTS: usize = 100;
+const WATCH_MARGIN: i32 = 8;
+const FAR_THINK: (i32, i32) = (8, 14);
 
 const NAMES: &[&str] = &[
     "Sparky", "Boomer", "Kaboom", "Fuse", "Dynamo", "Pixel", "Zapper", "Turbo", "Nova", "Gizmo",
@@ -196,6 +204,9 @@ pub struct AiScratch {
     bombs: Vec<DangerBomb>,
     bomb_index: HashMap<u32, usize>,
     search: Search,
+    /// Per player bucket (see `World::buckets`): whether a human can see
+    /// into it; empty when every bot thinks at full rate.
+    watched: Vec<bool>,
 }
 
 impl AiScratch {
@@ -209,6 +220,7 @@ impl AiScratch {
             bombs: Vec::with_capacity(256),
             bomb_index: HashMap::with_capacity(256),
             search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4), jumps: true },
+            watched: Vec::new(),
         }
     }
 }
@@ -268,6 +280,7 @@ impl World {
         }
         let mut sc = std::mem::take(&mut self.ai_scratch);
         self.fill_senses(&mut sc);
+        self.fill_watched(&mut sc);
         // Stable (ascending id) order, so no bot systematically reacts first.
         for k in 0..self.bot_ids.len() {
             let id = self.bot_ids[k];
@@ -276,6 +289,44 @@ impl World {
             self.bots.insert(id, brain);
         }
         self.ai_scratch = sc;
+    }
+
+    /// Marks the buckets some human can see into (with a margin), for the
+    /// level of detail; left empty in arenas with fewer than `LOD_MIN_BOTS`.
+    fn fill_watched(&self, sc: &mut AiScratch) {
+        sc.watched.clear();
+        if self.bot_ids.len() < LOD_MIN_BOTS {
+            return;
+        }
+        let bw = self.buckets_w;
+        let bh = (self.map.h + BUCKET - 1) / BUCKET;
+        sc.watched.resize((bw * bh) as usize, false);
+        let (rx, ry) = (AOI_MAX.0 + WATCH_MARGIN, AOI_MAX.1 + WATCH_MARGIN);
+        for p in self.players.values().filter(|p| !p.is_bot()) {
+            let (x, y) = p.cell();
+            let (bx0, by0) = ((x - rx).max(0) / BUCKET, (y - ry).max(0) / BUCKET);
+            let (bx1, by1) = ((x + rx).min(self.map.w - 1) / BUCKET, (y + ry).min(self.map.h - 1) / BUCKET);
+            for by in by0..=by1 {
+                for bx in bx0..=bx1 {
+                    sc.watched[(by * bw + bx) as usize] = true;
+                }
+            }
+        }
+    }
+
+    /// Ticks until a bot plans again: 2 to 4, or `FAR_THINK` times the
+    /// back-pressure for one no human can see.
+    fn think_gap(&mut self, far: bool) -> u64 {
+        if far {
+            self.rng.between(FAR_THINK.0, FAR_THINK.1) as u64 * u64::from(self.ai_slowdown.max(1))
+        } else {
+            self.rng.between(2, 4) as u64
+        }
+    }
+
+    /// Whether a bot at `cell` plans at the reduced, far-away rate.
+    fn bot_far(&self, sc: &AiScratch, (x, y): (i32, i32)) -> bool {
+        !sc.watched.is_empty() && !sc.watched[((y / BUCKET) * self.buckets_w + x / BUCKET) as usize]
     }
 
     fn fill_senses(&self, sc: &mut AiScratch) {
@@ -607,12 +658,14 @@ impl World {
         let mut want_bomb = false;
         // Rockets arena: the direction to fire in when `want_bomb`.
         let mut fire_dir = 0;
+        let far = self.bot_far(sc, cur);
+        // A far bot with nothing to do waits for its next planning tick.
         let think = self.tick >= brain.next_think
             || next_unsafe
             || (in_danger && !brain.escaping)
-            || (brain.path.is_empty() && !brain.goal_bomb);
+            || (brain.path.is_empty() && !brain.goal_bomb && !far);
         if think {
-            brain.next_think = self.tick + self.rng.between(2, 4) as u64;
+            brain.next_think = self.tick + self.think_gap(far);
             brain.push_dir = 0;
             if in_danger {
                 brain.escaping = true;
@@ -1001,6 +1054,65 @@ mod tests {
             self.bots.get_mut(&id).unwrap().mistake_chance = 0.0;
             id
         }
+    }
+
+    #[test]
+    fn far_bots_plan_less_often_in_a_crowded_arena() {
+        // Room for more bots than `test_world` allows.
+        let mut w = World::with_map(Map::empty(161, 161), Rng::new(3), 400);
+        w.input_lockstep = false;
+        w.spawn_test_player(5.5, 5.5);
+        w.set_target_bots(LOD_MIN_BOTS + 40);
+        assert_eq!(w.bot_ids.len(), LOD_MIN_BOTS + 40);
+        for _ in 0..10 {
+            w.step();
+        }
+        let mut sc = std::mem::take(&mut w.ai_scratch);
+        w.fill_watched(&mut sc);
+        assert!(!w.bot_far(&sc, (5, 5)), "the human's surroundings are watched");
+        assert!(w.bot_far(&sc, (150, 150)), "the far corner is not");
+        w.ai_scratch = sc;
+        // A bot planned on a tick when its next planning tick moved.
+        let far = |w: &World, id: u32| w.players[&id].alive && (w.players[&id].cell().0 >= 40 || w.players[&id].cell().1 >= 40);
+        let (mut thinks_far, mut far_bots) = (0u32, 0u32);
+        for _ in 0..200 {
+            let before: HashMap<u32, u64> = w.bots.iter().map(|(&id, b)| (id, b.next_think)).collect();
+            w.step();
+            for (&id, b) in &w.bots {
+                if far(&w, id) {
+                    far_bots += 1;
+                    thinks_far += u32::from(before.get(&id).is_some_and(|&t| t != b.next_think));
+                }
+            }
+        }
+        // Near bots plan every 2-4 ticks; far ones every 8-14 unless danger
+        // or a blocked path makes them.
+        let rate = f64::from(thinks_far) / f64::from(far_bots.max(1));
+        assert!(rate < 0.2, "far bots planned {rate:.2} times a tick each");
+        // A small arena keeps every bot at full rate.
+        let mut small = test_world(Map::empty(41, 41));
+        small.spawn_test_player(5.5, 5.5);
+        small.set_target_bots(10);
+        let mut sc = std::mem::take(&mut small.ai_scratch);
+        small.fill_watched(&mut sc);
+        assert!(!small.bot_far(&sc, (35, 35)));
+    }
+
+    #[test]
+    fn back_pressure_follows_the_tick_time() {
+        use std::time::Duration;
+        let mut w = test_world(Map::empty(15, 15));
+        assert_eq!(w.ai_slowdown, 1);
+        for _ in 0..10 {
+            w.adapt_ai_load(Duration::from_millis(12));
+        }
+        assert_eq!(w.ai_slowdown, crate::game::tick::MAX_AI_SLOWDOWN, "capped");
+        w.adapt_ai_load(Duration::from_millis(6));
+        assert_eq!(w.ai_slowdown, crate::game::tick::MAX_AI_SLOWDOWN, "in between: holds");
+        for _ in 0..10 {
+            w.adapt_ai_load(Duration::from_millis(1));
+        }
+        assert_eq!(w.ai_slowdown, 1);
     }
 
     #[test]
