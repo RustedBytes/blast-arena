@@ -4,53 +4,34 @@
 import { decodeServer, encodeClient } from './protocol.js';
 import type { ClientMsg, JoinFields, ServerMsg, ServerMsgOf, SnapshotBase } from './protocol.js';
 
+const PING_MS = 2000;
+
 /** A handler per server message tag, plus `close` when the socket drops. */
 export type NetHandlers = { [T in ServerMsg['t']]?: (msg: ServerMsgOf<T>) => void } & { close?: () => void };
 
 export class Net {
-  handlers: NetHandlers;
-  snapshotBase: SnapshotBase;
-  ws: WebSocket | null;
-  ping: number;
-  bytesIn: number;
-  pingTimer: ReturnType<typeof setInterval> | undefined;
+  /** Round-trip time of the last ping, in ms. */
+  ping = 0;
+  /** Bytes received since the caller last reset it (for the network readout). */
+  bytesIn = 0;
+  private ws: WebSocket | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | undefined;
 
   /** `snapshotBase(k)` returns the decoded snapshot for tick `k`, the base of deltas. */
-  constructor(handlers: NetHandlers, snapshotBase: SnapshotBase) {
-    this.handlers = handlers;
-    this.snapshotBase = snapshotBase;
-    this.ws = null;
-    this.ping = 0;
-    this.bytesIn = 0;
-    this.pingTimer = undefined;
-  }
+  constructor(private readonly handlers: NetHandlers, private readonly snapshotBase: SnapshotBase) {}
 
   /** Joins arena `arena` with the given join fields (name, token, hat, ...). */
-  connect(arena: number | string, join: JoinFields): void {
+  connect(arena: number, join: JoinFields): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws?arena=${arena}`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {
       this.send({ t: 'join', ...join });
-      this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), 2000);
+      this.pingTimer = setInterval(() => this.send({ t: 'ping', c: performance.now() }), PING_MS);
     };
-    ws.onmessage = (ev) => {
-      if (!(ev.data instanceof ArrayBuffer)) return;
-      this.bytesIn += ev.data.byteLength;
-      let msg: ServerMsg | null;
-      try {
-        msg = decodeServer(new Uint8Array(ev.data), this.snapshotBase);
-      } catch (e) {
-        console.warn('dropping malformed frame', e);
-        return;
-      }
-      if (!msg) return;
-      if (msg.t === 'pong') {
-        this.ping = Math.round(performance.now() - msg.c);
-        return;
-      }
-      (this.handlers[msg.t] as ((m: ServerMsg) => void) | undefined)?.(msg);
+    ws.onmessage = (ev: MessageEvent<unknown>) => {
+      if (ev.data instanceof ArrayBuffer) this.receive(ev.data);
     };
     ws.onclose = () => {
       clearInterval(this.pingTimer);
@@ -65,13 +46,34 @@ export class Net {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  send(obj: ClientMsg): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encodeClient(obj));
+  send(msg: ClientMsg): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encodeClient(msg));
   }
 
   close(): void {
     const ws = this.ws;
     this.ws = null;
     ws?.close();
+  }
+
+  private receive(data: ArrayBuffer): void {
+    this.bytesIn += data.byteLength;
+    let msg: ServerMsg | null;
+    try {
+      msg = decodeServer(new Uint8Array(data), this.snapshotBase);
+    } catch (e) {
+      console.warn('dropping malformed frame', e);
+      return;
+    }
+    if (!msg) return;
+    if (msg.t === 'pong') this.ping = Math.round(performance.now() - msg.c);
+    else this.dispatch(msg);
+  }
+
+  private dispatch(msg: Exclude<ServerMsg, { t: 'pong' }>): void {
+    // TypeScript can't correlate the handler's parameter with the message's
+    // own tag, so the lookup is widened here: `handlers[msg.t]` takes `msg`.
+    const handler = this.handlers[msg.t] as ((m: ServerMsg) => void) | undefined;
+    handler?.(msg);
   }
 }

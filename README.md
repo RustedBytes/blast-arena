@@ -326,7 +326,9 @@ client/               the browser client in TypeScript: main, render, prediction
                       particles, input, audio, i18n, tutorial, settings, net,
                       protocol, msgpack, dashboard, tilelab, state (shared types);
                       `npm run build` compiles it into static/js (generated, not
-                      committed), `npm run watch` recompiles on save
+                      committed), `npm run watch` recompiles on save, and
+                      `npm run check` type-checks (strict) and lints it
+                      (typescript-eslint strict rules)
 static/assets/        SVG art
 config/abilities.json default ability tuning (embedded in the binary)
 docs/ABILITIES.md     design of the ability system and how to add one

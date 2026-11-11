@@ -1,22 +1,22 @@
 import { Alerts } from './alerts.js';
-import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
+import { Assets, ITEM_SPRITES, itemSprite, playerColors } from './assets.js';
+import type { SpriteName } from './assets.js';
 import { GameAudio } from './audio.js';
 import { LANGUAGES, applyI18n, detectLanguage, getLanguage, setLanguage, t } from './i18n.js';
 import { Input } from './input.js';
 import { Net } from './net.js';
 import { Particles } from './particles.js';
 import { Predictor } from './prediction.js';
-import { AB, EV, GUARD_NEWS, WORM_NEWS, meObject } from './protocol.js';
+import { AB, BOMB_FLAG, EV, GUARD_NEWS, PLAYER_FLAG, WORM_NEWS, hasFlag, meObject } from './protocol.js';
 import { EMOTES, NUKE_SHOW_TICKS, Renderer } from './render.js';
 import { MINIMAP_MAX, MINIMAP_MIN, Settings } from './settings.js';
 import { Tutorial } from './tutorial.js';
 
-import { byId as $ } from './dom.js';
-import type { BombView, GameSnapshot, GameState, SnapshotRing } from './state.js';
-import type { Me, Snapshot } from './protocol.js';
+import { byId as $, closest, fireAndForget, query, setTrailingText } from './dom.js';
+import type { BombView, GameSnapshot, GameState, RosterInfo, SnapshotRing } from './state.js';
+import type { Me } from './protocol.js';
 import type { JoinFields } from './protocol.js';
 import type { StatusOpts, Tone } from './alerts.js';
-import type { SettingKey } from './settings.js';
 const KILLFEED_SIZE = 5;
 const VIEW_DEBOUNCE_MS = 200;
 const RECONNECT_DELAYS = [500, 1500, 3000, 5000];
@@ -58,7 +58,7 @@ setLanguage(detectLanguage(settings.get('lang')));
 const audio = new GameAudio();
 const assets = new Assets();
 const particles = new Particles(2048);
-const renderer = new Renderer($<HTMLCanvasElement>('game'), $<HTMLCanvasElement>('minimap'), assets, particles);
+const renderer = new Renderer($('game', HTMLCanvasElement), $('minimap', HTMLCanvasElement), assets, particles);
 const predictor = new Predictor();
 const tutorial = new Tutorial($('tutorial'), () => settings.set('tutorialDone', true));
 let state: GameState | null = null;
@@ -70,7 +70,7 @@ const token = (() => {
   try {
     let tok = localStorage.getItem('blast-token');
     if (!tok) {
-      tok = crypto.randomUUID ? crypto.randomUUID() : `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      tok = 'randomUUID' in crypto ? crypto.randomUUID() : `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       localStorage.setItem('blast-token', tok);
     }
     return tok;
@@ -87,7 +87,8 @@ let nextExplosions = new Set();
 
 /** The decoded snapshot for server tick `k`, if still in the ring. */
 function findSnapshot(k: number): GameSnapshot | null {
-  const ring = state!.snaps;
+  if (!state) return null;
+  const ring = state.snaps;
   for (let i = ring.len - 1; i >= 0; i--) {
     const s = ring.get(i);
     if (s.k === k) return s;
@@ -110,17 +111,17 @@ const net = new Net({
       tiles.fill(tile, i, i + n);
       i += n;
     }
-    const rosterInfo = new Map();
+    const rosterInfo = new Map<number, RosterInfo>();
     for (const [id, name, team, hat, trail] of m.roster) rosterInfo.set(id, { name, team, hat, trail });
     state = {
       myId: m.id,
-      arena: joinInfo!.arena,
+      arena: joinInfo?.arena ?? 0,
       arenaName: m.arena,
       mode: m.mode,
       team: m.team,
       map: { w: m.w, h: m.h, tiles, biomes: m.biomes },
       aoi: m.aoi,
-      aoiMax: m.aoi_max ?? m.aoi,
+      aoiMax: m.aoi_max,
       tickMs: 1000 / m.rate,
       rosterInfo,
       snaps: new SnapRing(100),
@@ -159,7 +160,7 @@ const net = new Net({
       roundSecs: m.round,
       movedAt: null,
       // Ability tuning from the server (ticks; see protocol::AbilityInfo).
-      abilities: m.abilities ?? null,
+      abilities: m.abilities,
     };
     // A new game watches your own player (the server too).
     lookDrag = null;
@@ -176,7 +177,7 @@ const net = new Net({
     $('hud').classList.remove('hidden');
     $('vignette').classList.remove('hidden');
     $('team-scores').classList.toggle('hidden', m.mode !== 'teams');
-    $<HTMLButtonElement>('play').disabled = false;
+    $('play', HTMLButtonElement).disabled = false;
     reconnectTry = -1;
     input.enabled = true;
     resize();
@@ -186,14 +187,16 @@ const net = new Net({
 
   s(raw) {
     if (!state) return;
-    const m = raw as GameSnapshot;
     const now = performance.now();
     // The decoder has already rebuilt full lists from the delta (see
     // protocol.ts). Bombs carry their absolute detonation tick; derive the
     // fuse left.
-    m.b = m.rawB.map(([id, x, y, at, f]): BombView => [id, x, y, f & 2 ? 99 : Math.max(0, at - m.k), f]);
+    const m: GameSnapshot = {
+      ...raw,
+      b: raw.rawB.map(([id, x, y, at, f]): BombView => [id, x, y, hasFlag(f, BOMB_FLAG.REMOTE) ? 99 : Math.max(0, at - raw.k), f]),
+      me: meObject(raw.rawMe),
+    };
     state.lastK = m.k;
-    m.me = meObject(m.rawMe);
     // Map server ticks onto local time. The offset follows the earliest
     // arrivals (quickly down, slowly up), so `est - offset` is how late this
     // snapshot is; a decaying peak of that sets the interpolation delay.
@@ -213,12 +216,12 @@ const net = new Net({
     // Hidden mines (flag 32) don't block anyone, so they're not obstacles;
     // nor do sticky bombs riding on someone.
     const stuck = new Set(m.x.stuck.map((s) => s[0]));
-    for (const b of m.b) if (!(b[4] & 32) && !stuck.has(b[0])) state.bombCells.add(b[2] * state.map.w + b[1]);
+    for (const b of m.b) if (!hasFlag(b[4], BOMB_FLAG.MINE) && !stuck.has(b[0])) state.bombCells.add(b[2] * state.map.w + b[1]);
 
     const prevMe = state.me;
     state.me = m.me;
-    let mine = null;
-    for (let i = 0; i < m.p.length; i++) if (m.p[i][0] === state.myId) { mine = m.p[i]; break; }
+    const myId = state.myId;
+    const mine = m.p.find((e) => e[0] === myId) ?? null;
     state.mine = mine;
     if (mine && m.me.alive) {
       const mx = mine[1] / 100, my = mine[2] / 100;
@@ -228,7 +231,7 @@ const net = new Net({
         state.self.y = my;
         if (prevMe && !prevMe.alive) renderer.spawnBeam(mx, my, now);
       } else {
-        predictor.reconcile(mx, my, (mine[4] & 1) !== 0, mine[3], m.me.ack, state, input.current);
+        predictor.reconcile(mx, my, hasFlag(mine[4], PLAYER_FLAG.MOVING), mine[3], m.me.ack, state, input.current);
       }
     } else if (!m.me.alive) {
       predictor.active = false;
@@ -326,14 +329,14 @@ const net = new Net({
       ? `🗿 ${t('wasCrushed', { v: `<b class="v">${name(m.v)}</b>` })}`
       : eaten
       ? `🪱 ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
-      : m.k === null || m.k === undefined
+      : m.k === null
       ? t('wasBlasted', { v: `<b class="v">${name(m.v)}</b>` })
       : m.k === m.v
         ? t('blewUp', { v: `<b class="v">${name(m.v)}</b>` })
         : `<b class="k">${name(m.k)}</b> 💥 <b class="v">${name(m.v)}</b>${m.b ? ' 🎯' : ''}`;
     const feed = $('killfeed');
     feed.prepend(el);
-    while (feed.children.length > KILLFEED_SIZE) feed.lastChild!.remove();
+    while (feed.children.length > KILLFEED_SIZE) feed.lastElementChild?.remove();
     setTimeout(() => el.remove(), 6000);
     if (m.b && m.k === state.myId) alerts.announce({ text: t('bountyKill'), icon: '🎯', tone: 'epic', priority: 2 });
   },
@@ -344,8 +347,8 @@ const net = new Net({
     state.roundSecs = m.r;
     if (state.mode !== 'royale') $('round-time').textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
     const ts = $('team-scores');
-    ts.querySelector('.red')!.textContent = String(m.teams[0]);
-    ts.querySelector('.blue')!.textContent = String(m.teams[1]);
+    query(ts, '.red').textContent = String(m.teams[0]);
+    query(ts, '.blue').textContent = String(m.teams[1]);
     const key = m.top.map((e) => e.join()).join('|');
     if (key === state.lastLb) return;
     state.lastLb = key;
@@ -447,11 +450,11 @@ const net = new Net({
           icon: id < 0 ? '💀' : '🏆', tone: id === state.myId ? 'good' : 'epic', priority: 4, duration: 4500,
         });
         audio.mystery();
-        renderer.confetti(state);
+        renderer.confetti();
         break;
       }
       case EV.ABILITY:
-        abilityEvent(v, now);
+        abilityEvent(v);
         break;
       case EV.WORM:
         wormEvent(v);
@@ -475,7 +478,7 @@ const net = new Net({
     list.innerHTML = m.mvp.map(([, name, score, kills]) => `<li>${escapeHtml(name)} — ${score} (${kills}K)</li>`).join('');
     $('round-winner').textContent = m.win ? t('teamWins', { team: m.win === 1 ? t('red') : t('blue') }) : (m.mvp[0] ? `${t('mvp')}: ${m.mvp[0][1]}` : '');
     $('round-over').classList.remove('hidden');
-    renderer.confetti(state);
+    renderer.confetti();
     audio.mystery();
     setTimeout(() => $('round-over').classList.add('hidden'), 6000);
   },
@@ -507,9 +510,9 @@ const net = new Net({
     reconnectTry = -1;
     $('reconnecting').classList.add('hidden');
     $('join').classList.remove('hidden');
-    $<HTMLButtonElement>('play').disabled = false;
+    $('play', HTMLButtonElement).disabled = false;
     if (!$('join-error').textContent) $('join-error').textContent = t('disconnected');
-    refreshLobby();
+    refreshLobbyLater();
   },
 }, (k) => (state ? findSnapshot(k) : null));
 
@@ -536,7 +539,7 @@ const input = new Input({
     else if (name === 'minimap') settings.set('showMinimap', !settings.get('showMinimap'));
     else if (name === 'zoomReset') setZoom(1);
     else if (name === 'menu') toggleSettings();
-    else if (name === 'emoteWheel') $('emote-wheel').classList.toggle('hidden');
+    else $('emote-wheel').classList.toggle('hidden'); // 'emoteWheel'
   },
 });
 
@@ -597,7 +600,7 @@ function wormEvent([what, x, y, who]: number[]): void {
 }
 
 /** Ability events (EV.ABILITY): effects, sounds and notices. */
-function abilityEvent(v: number[], now: number): void {
+function abilityEvent(v: number[]): void {
   if (!state) return;
   const st = state;
   const [kind, , ...a] = v;
@@ -696,7 +699,7 @@ function escapeHtml(s: unknown): string {
 /** A small notice; `kind` '' (good news), 'mystery' or 'curse'; `icon` a sprite name. */
 function toast(text: string, icon: string | null, kind: '' | 'mystery' | 'curse' | 'info'): void {
   const tone = kind === 'curse' ? 'danger' : kind === 'mystery' ? 'epic' : kind === 'info' ? 'info' : 'good';
-  alerts.toast(text, { icon: icon ? `img:${icon}` : undefined, tone });
+  alerts.toast(text, { icon: icon ? `img:${icon}` : null, tone });
 }
 
 /**
@@ -710,7 +713,7 @@ function updateStatusAlerts(now: number): void {
   const alive = me.alive;
   const show = (key: string, on: boolean, text: string, opts: StatusOpts): void => (on ? alerts.status(key, text, opts) : alerts.clear(key));
   show('storm', alive && me.storm > 0, t('inStorm'),
-    { icon: '🌀', tone: 'danger', progress: 1 - me.storm / Math.max(1, me.storm_max ?? 1) });
+    { icon: '🌀', tone: 'danger', progress: 1 - me.storm / Math.max(1, me.storm_max) });
   const nuke = alive ? renderer.inNukeZone : null;
   show('nuke', !!nuke, t('nukeRun', { n: Math.ceil((nuke?.fuse ?? 0) * 0.05) }),
     { icon: '☢️', tone: 'danger', progress: (nuke?.fuse ?? 0) / 70 });
@@ -726,12 +729,12 @@ function updateStatusAlerts(now: number): void {
   const touch = document.body.classList.contains('touch');
   const stuck = alive && me.stuck > 0;
   const detachTotal = st.abilities?.detach ?? 16;
-  show('stuck', stuck, t(touch ? 'stuckTouch' : 'stuckOn', { n: Math.ceil((me.stuck ?? 0) * st.tickMs / 1000) }),
-    { icon: 'img:pu_sticky', tone: 'danger', progress: (me.detach ?? 0) / detachTotal });
+  show('stuck', stuck, t(touch ? 'stuckTouch' : 'stuckOn', { n: Math.ceil(me.stuck * st.tickMs / 1000) }),
+    { icon: 'img:pu_sticky', tone: 'danger', progress: me.detach / detachTotal });
   $('detach-btn').classList.toggle('hidden', !stuck);
   show('gas', alive && me.gassed > 0, t('inGas'), { icon: 'img:pu_gas', tone: 'warn' });
   document.body.classList.toggle('in-gas', alive && me.gassed > 0);
-  const wait = alive ? me.portal_wait ?? 0 : 0;
+  const wait = alive ? me.portal_wait : 0;
   show('portal', wait > 0, t('portalWaiting', { n: Math.ceil(wait * st.tickMs / 1000) }),
     { icon: 'img:pu_portal', tone: 'info', progress: wait / (st.abilities?.portal_wait ?? 100) });
   show('flag', alive && !!me.carrying, t('carryFlag'), { icon: '🚩', tone: 'info' });
@@ -742,11 +745,11 @@ function updateStatusAlerts(now: number): void {
 
 let viewTimer = 0;
 function setZoom(z: number): void {
-  let zz = Math.min(renderer.maxZoom ?? 2.2, Math.max(renderer.minZoom ?? 0.4, z));
+  let zz = Math.min(renderer.maxZoom, Math.max(renderer.minZoom, z));
   if (!Number.isFinite(zz)) zz = 1;
   if (state) state.zoomTarget = zz;
   settings.set('zoom', zz);
-  $<HTMLInputElement>('set-zoom').value = String(zz);
+  $('set-zoom', HTMLInputElement).value = String(zz);
   requestView();
 }
 
@@ -852,8 +855,8 @@ function requestView() {
 function resize() {
   if (!state) return;
   renderer.resize(state.aoi, state.aoiMax);
-  $<HTMLInputElement>('set-zoom').min = (renderer.minZoom ?? 0.4).toFixed(2);
-  $<HTMLInputElement>('set-zoom').max = String(renderer.maxZoom ?? 2.2);
+  $('set-zoom', HTMLInputElement).min = renderer.minZoom.toFixed(2);
+  $('set-zoom', HTMLInputElement).max = String(renderer.maxZoom);
   setZoom(state.zoomTarget);
 }
 addEventListener('resize', resize);
@@ -885,20 +888,18 @@ function updateHud(me: Me): void {
   const g = $('st-gadget');
   g.classList.toggle('hidden', !me.gadget_n);
   if (me.gadget_n) {
-    const name = ITEM_SPRITES[me.gadget] ?? 'pu_mystery';
-    if (g.dataset.icon !== name) { g.dataset.icon = name; g.querySelector('img')!.src = `assets/${name}.svg`; }
-    g.lastChild!.textContent = `×${me.gadget_n}`;
+    setStatIcon(g, itemSprite(me.gadget));
+    setTrailingText(g, `×${me.gadget_n}`);
     g.title = `${t('items')[me.gadget] ?? ''} (Q)`;
   }
-  $('st-nuke').lastChild!.textContent = me.nukes > 1 ? `×${me.nukes}` : '';
+  setTrailingText($('st-nuke'), me.nukes > 1 ? `×${me.nukes}` : '');
   // The active ability: charges, and a sweep while the next one recharges.
   const ab = $('st-ability');
   ab.classList.toggle('hidden', !me.ability);
   if (me.ability) {
-    const name = ITEM_SPRITES[me.ability] ?? 'pu_mystery';
-    if (ab.dataset.icon !== name) { ab.dataset.icon = name; ab.querySelector('img')!.src = `assets/${name}.svg`; }
-    ab.lastChild!.textContent = me.ability_max > 1 ? `${me.ability_n}/${me.ability_max}` : '';
-    const cd = state.abilities?.cooldowns?.find((c) => c[0] === me.ability)?.[1] ?? 1;
+    setStatIcon(ab, itemSprite(me.ability));
+    setTrailingText(ab, me.ability_max > 1 ? `${me.ability_n}/${me.ability_max}` : '');
+    const cd = state.abilities?.cooldowns.find((c) => c[0] === me.ability)?.[1] ?? 1;
     ab.style.setProperty('--cd', me.ability_cd > 0 ? Math.min(1, me.ability_cd / Math.max(1, cd)).toFixed(3) : '0');
     ab.classList.toggle('empty', me.ability_n === 0);
     ab.title = `${t('items')[me.ability] ?? ''} (R)` + (me.ability_cd > 0 ? ` · ${Math.ceil(me.ability_cd * state.tickMs / 1000)} s` : '');
@@ -909,8 +910,8 @@ function updateHud(me: Me): void {
   mod.classList.toggle('hidden', !modN);
   if (modN) {
     const name = me.gas_bombs ? 'pu_gas' : 'pu_sticky';
-    if (mod.dataset.icon !== name) { mod.dataset.icon = name; mod.querySelector('img')!.src = `assets/${name}.svg`; }
-    mod.lastChild!.textContent = `×${modN}`;
+    setStatIcon(mod, name);
+    setTrailingText(mod, `×${modN}`);
     mod.title = t('items')[me.gas_bombs ? 22 : 24] ?? '';
   }
   const tickS = state.tickMs / 1000;
@@ -938,12 +939,12 @@ function updateHud(me: Me): void {
 
 /** Battle royale: players left and the zone's timer, in place of the round clock. */
 function updateRoyaleHud(now: number): void {
-  if (!state || state.mode !== 'royale') return;
+  if (state?.mode !== 'royale') return;
   const r = state.royale, z = state.zone;
   let text = '';
   if (r && !r.on) text = t('nextMatch', { n: Math.max(0, Math.ceil((r.nextAt - now) / 1000)) });
-  else if (z && z.state === 0) text = t('zoneNext', { n: Math.max(0, Math.ceil((z.end - now) / 1000)) });
-  else if (z && z.state === 1) text = t('zoneClosingShort');
+  else if (z?.state === 0) text = t('zoneNext', { n: Math.max(0, Math.ceil((z.end - now) / 1000)) });
+  else if (z?.state === 1) text = t('zoneClosingShort');
   $('round-time').textContent = `👤 ${r?.alive ?? '?'} · ${text}`;
 }
 
@@ -952,14 +953,21 @@ function updateCaptures() {
   const el = $('ctf-caps');
   if (!state?.flags) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  el.querySelector('.red')!.textContent = String(state.captures[0]);
-  el.querySelector('.blue')!.textContent = String(state.captures[1]);
+  query(el, '.red').textContent = String(state.captures[0]);
+  query(el, '.blue').textContent = String(state.captures[1]);
+}
+
+/** Points a HUD stat's icon at a sprite (only touching the image when it changes). */
+function setStatIcon(el: HTMLElement, name: SpriteName): void {
+  if (el.dataset.icon === name) return;
+  el.dataset.icon = name;
+  query(el, 'img', HTMLImageElement).src = `assets/${name}.svg`;
 }
 
 function timer(el: HTMLElement, on: boolean, seconds: number, total: number): void {
   el.classList.toggle('hidden', !on);
   if (!on) return;
-  el.lastChild!.textContent = String(Math.ceil(seconds));
+  setTrailingText(el, String(Math.ceil(seconds)));
   el.style.setProperty('--p', Math.min(1, seconds / total).toFixed(2));
 }
 
@@ -969,16 +977,23 @@ function buildEmoteWheel() {
     `<button data-e="${i}" title="${escapeHtml(labels[i])}">${e}<kbd>${i + 1}</kbd></button>`).join('');
 }
 $('emote-wheel').addEventListener('click', (e) => {
-  const b = (e.target as Element).closest<HTMLButtonElement>('button');
+  const b = closest(e.target, 'button', HTMLButtonElement);
   if (b) sendEmote(Number(b.dataset.e));
 });
 $('emote-toggle').addEventListener('click', () => $('emote-wheel').classList.toggle('hidden'));
-$('invite').addEventListener('click', async () => {
+/** Copies a link that joins this arena near us (or shows it, if copying isn't allowed). */
+async function invite(): Promise<void> {
   if (!state) return;
   const url = `${location.origin}${location.pathname}?arena=${state.arena}&near=${state.myId}`;
-  try { await navigator.clipboard.writeText(url); } catch { prompt(t('invite'), url); return; }
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    prompt(t('invite'), url);
+    return;
+  }
   alerts.toast(t('inviteCopied'), { icon: '🔗', tone: 'info' });
-});
+}
+$('invite').addEventListener('click', () => fireAndForget(invite(), 'invite'));
 
 // ------------------------------------------------------------- settings
 
@@ -1005,7 +1020,7 @@ function buildLegend() {
 }
 
 function fillLanguageSelects() {
-  for (const sel of [$<HTMLSelectElement>('set-lang'), $<HTMLSelectElement>('join-lang')]) {
+  for (const sel of [$('set-lang', HTMLSelectElement), $('join-lang', HTMLSelectElement)]) {
     sel.innerHTML = Object.entries(LANGUAGES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
     sel.value = getLanguage();
   }
@@ -1019,18 +1034,18 @@ function applySettings() {
   const mapSize = Math.min(MINIMAP_MAX, Math.max(MINIMAP_MIN, settings.get('minimapSize')));
   document.documentElement.style.setProperty('--minimap', `${mapSize}px`);
   document.body.classList.toggle('no-minimap', !settings.get('showMinimap'));
-  $<HTMLInputElement>('set-minimap').checked = settings.get('showMinimap');
-  $<HTMLInputElement>('set-minimap-size').value = String(mapSize);
-  $<HTMLInputElement>('set-minimap-size').disabled = !settings.get('showMinimap');
+  $('set-minimap', HTMLInputElement).checked = settings.get('showMinimap');
+  $('set-minimap-size', HTMLInputElement).value = String(mapSize);
+  $('set-minimap-size', HTMLInputElement).disabled = !settings.get('showMinimap');
   renderer.lastMinimap = 0; // redraw at the new size right away
-  $<HTMLInputElement>('set-music').value = String(settings.get('music'));
-  $<HTMLInputElement>('set-sfx').value = String(settings.get('sfx'));
-  $<HTMLInputElement>('set-muted').checked = settings.get('muted');
-  $<HTMLInputElement>('set-fps').checked = settings.get('showFps');
-  $<HTMLInputElement>('set-zoom').value = String(settings.get('zoom'));
-  $<HTMLInputElement>('set-colorblind').checked = settings.get('colorblind');
-  $<HTMLInputElement>('set-contrast').checked = settings.get('highContrast');
-  $<HTMLSelectElement>('set-style').value = settings.get('tileStyle');
+  $('set-music', HTMLInputElement).value = String(settings.get('music'));
+  $('set-sfx', HTMLInputElement).value = String(settings.get('sfx'));
+  $('set-muted', HTMLInputElement).checked = settings.get('muted');
+  $('set-fps', HTMLInputElement).checked = settings.get('showFps');
+  $('set-zoom', HTMLInputElement).value = String(settings.get('zoom'));
+  $('set-colorblind', HTMLInputElement).checked = settings.get('colorblind');
+  $('set-contrast', HTMLInputElement).checked = settings.get('highContrast');
+  $('set-style', HTMLSelectElement).value = settings.get('tileStyle');
   applyVisualSettings();
 }
 
@@ -1042,24 +1057,32 @@ function applyLanguage(lang: string): void {
   buildEmoteWheel();
   $('lb-hint').textContent = t('holdTab', { k: 'Tab' });
   hudKey = '';
-  refreshLobby();
+  refreshLobbyLater();
 }
 
 settings.onChange(applySettings);
 applySettings();
 
-$<HTMLInputElement>('set-music').addEventListener('input', (e) => settings.set('music', Number((e.target as HTMLInputElement).value)));
-$<HTMLInputElement>('set-sfx').addEventListener('input', (e) => settings.set('sfx', Number((e.target as HTMLInputElement).value)));
-$<HTMLInputElement>('set-zoom').addEventListener('input', (e) => setZoom(Number((e.target as HTMLInputElement).value)));
-$<HTMLInputElement>('set-muted').addEventListener('change', (e) => settings.set('muted', (e.target as HTMLInputElement).checked));
-$<HTMLInputElement>('set-fps').addEventListener('change', (e) => settings.set('showFps', (e.target as HTMLInputElement).checked));
-$<HTMLInputElement>('set-minimap').addEventListener('change', (e) => settings.set('showMinimap', (e.target as HTMLInputElement).checked));
-$<HTMLInputElement>('set-minimap-size').addEventListener('input', (e) => settings.set('minimapSize', Number((e.target as HTMLInputElement).value)));
-$<HTMLInputElement>('set-colorblind').addEventListener('change', (e) => settings.set('colorblind', (e.target as HTMLInputElement).checked));
-$<HTMLInputElement>('set-contrast').addEventListener('change', (e) => settings.set('highContrast', (e.target as HTMLInputElement).checked));
-$<HTMLSelectElement>('set-style').addEventListener('change', (e) => settings.set('tileStyle', (e.target as HTMLSelectElement).value === 'classic' ? 'classic' : 'pixel'));
-$<HTMLSelectElement>('set-lang').addEventListener('change', (e) => applyLanguage((e.target as HTMLSelectElement).value));
-$<HTMLSelectElement>('join-lang').addEventListener('change', (e) => applyLanguage((e.target as HTMLSelectElement).value));
+/** Calls `fn` with a settings control each time it changes. */
+function control<T extends HTMLInputElement | HTMLSelectElement>(
+  id: string, type: new () => T, event: 'input' | 'change', fn: (el: T) => void,
+): void {
+  const el = $(id, type);
+  el.addEventListener(event, () => fn(el));
+}
+
+control('set-music', HTMLInputElement, 'input', (el) => settings.set('music', Number(el.value)));
+control('set-sfx', HTMLInputElement, 'input', (el) => settings.set('sfx', Number(el.value)));
+control('set-zoom', HTMLInputElement, 'input', (el) => setZoom(Number(el.value)));
+control('set-muted', HTMLInputElement, 'change', (el) => settings.set('muted', el.checked));
+control('set-fps', HTMLInputElement, 'change', (el) => settings.set('showFps', el.checked));
+control('set-minimap', HTMLInputElement, 'change', (el) => settings.set('showMinimap', el.checked));
+control('set-minimap-size', HTMLInputElement, 'input', (el) => settings.set('minimapSize', Number(el.value)));
+control('set-colorblind', HTMLInputElement, 'change', (el) => settings.set('colorblind', el.checked));
+control('set-contrast', HTMLInputElement, 'change', (el) => settings.set('highContrast', el.checked));
+control('set-style', HTMLSelectElement, 'change', (el) => settings.set('tileStyle', el.value === 'classic' ? 'classic' : 'pixel'));
+control('set-lang', HTMLSelectElement, 'change', (el) => applyLanguage(el.value));
+control('join-lang', HTMLSelectElement, 'change', (el) => applyLanguage(el.value));
 $('settings-close').addEventListener('click', () => toggleSettings(false));
 $('gear').addEventListener('click', () => toggleSettings(true));
 $('tutorial-again').addEventListener('click', () => {
@@ -1083,19 +1106,57 @@ let arenas: ArenaInfo[] = [];
 let selectedArena = Number(params.get('arena') ?? settings.get('arena')) || 0;
 let profile: Profile | null = null;
 
-async function refreshLobby() {
+/** Refreshes the lobby lists in the background. */
+function refreshLobbyLater(): void {
+  fireAndForget(refreshLobby(), 'lobby refresh');
+}
+
+/** Fetches JSON and checks its shape; throws on a network error or an unexpected body. */
+async function fetchJson<T>(url: string, guard: (v: unknown) => v is T): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  const body: unknown = await res.json();
+  if (!guard(body)) throw new Error(`${url}: unexpected response`);
+  return body;
+}
+
+type Fields<T> = Partial<Record<keyof T, unknown>>;
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const numbersIn = (v: Record<string, unknown>, keys: readonly string[]): boolean => keys.every((k) => typeof v[k] === 'number');
+const isNumberList = (v: unknown): v is number[] => Array.isArray(v) && v.every((x) => typeof x === 'number');
+
+function isArenaInfo(v: unknown): v is ArenaInfo {
+  if (!isObject(v)) return false;
+  const a: Fields<ArenaInfo> = v;
+  return typeof a.name === 'string' && typeof a.mode === 'string' && numbersIn(v, ['id', 'map', 'humans', 'bots']);
+}
+
+function isProfile(v: unknown): v is Profile {
+  if (!isObject(v)) return false;
+  const p: Fields<Profile> = v;
+  return numbersIn(v, ['level', 'xp', 'level_xp', 'next_xp', 'kills', 'wins', 'best_streak'])
+    && isNumberList(p.hat_levels) && isNumberList(p.trail_levels);
+}
+
+function isLeaderRow(v: unknown): v is LeaderRow {
+  return isObject(v) && typeof v.name === 'string' && numbersIn(v, ['level', 'kills', 'wins']);
+}
+
+const listOf = <T>(item: (v: unknown) => v is T) => (v: unknown): v is T[] => Array.isArray(v) && v.every(item);
+
+async function refreshLobby(): Promise<void> {
   if (!$('join').classList.contains('hidden') || !state) {
     try {
-      arenas = await (await fetch('/api/arenas')).json() as ArenaInfo[];
+      arenas = await fetchJson('/api/arenas', listOf(isArenaInfo));
       renderArenas();
     } catch { /* server unreachable: keep the old list */ }
   }
   try {
-    profile = await (await fetch(`/api/profile?token=${encodeURIComponent(token)}`)).json() as Profile;
+    profile = await fetchJson(`/api/profile?token=${encodeURIComponent(token)}`, isProfile);
     renderProfile();
   } catch { /* no profile service */ }
   try {
-    const top = await (await fetch('/api/leaderboard')).json() as LeaderRow[];
+    const top = await fetchJson('/api/leaderboard', listOf(isLeaderRow));
     $('alltime').innerHTML = top.length
       ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${r.kills}K ${r.wins}★</span></li>`).join('')
       : `<li class="muted">${t('noRecords')}</li>`;
@@ -1110,7 +1171,7 @@ function renderArenas() {
     `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
 }
 $('arena-list').addEventListener('click', (e) => {
-  const b = (e.target as Element).closest<HTMLButtonElement>('.arena');
+  const b = closest(e.target, '.arena', HTMLButtonElement);
   if (!b) return;
   selectedArena = Number(b.dataset.id);
   settings.set('arena', selectedArena);
@@ -1124,12 +1185,11 @@ function renderProfile() {
   const span = Math.max(1, profile.next_xp - profile.level_xp);
   $('pf-xpbar').style.width = `${Math.min(100, ((profile.xp - profile.level_xp) / span) * 100)}%`;
   $('pf-stats').textContent = t('profileStats', { k: profile.kills, w: profile.wins, s: profile.best_streak });
-  picker($('hat-picker'), t('hats'), profile.hat_levels, 'hat');
-  picker($('trail-picker'), t('trails'), profile.trail_levels, 'trail');
+  picker($('hat-picker'), profile, t('hats'), profile.hat_levels, 'hat');
+  picker($('trail-picker'), profile, t('trails'), profile.trail_levels, 'trail');
 }
 
-function picker(el: HTMLElement, names: readonly string[], levels: readonly number[], key: 'hat' | 'trail'): void {
-  const pf = profile!;
+function picker(el: HTMLElement, pf: Profile, names: readonly string[], levels: readonly number[], key: 'hat' | 'trail'): void {
   const current = settings.get(key);
   el.innerHTML = names.map((n, i) => {
     const locked = pf.level < levels[i];
@@ -1137,7 +1197,7 @@ function picker(el: HTMLElement, names: readonly string[], levels: readonly numb
     return `<button type="button" data-v="${i}" class="${i === current && !locked ? 'selected' : ''}" ${locked ? 'disabled' : ''} title="${escapeHtml(title)}">${escapeHtml(n)}${locked ? ' 🔒' : ''}</button>`;
   }).join('');
   el.onclick = (e) => {
-    const b = (e.target as Element).closest<HTMLButtonElement>('button');
+    const b = closest(e.target, 'button', HTMLButtonElement);
     if (!b || b.disabled) return;
     settings.set(key, Number(b.dataset.v));
     renderProfile();
@@ -1230,15 +1290,15 @@ function frame(now: number): void {
   }
 }
 
-$<HTMLInputElement>('name').value = (() => { try { return localStorage.getItem('blast-name') ?? ''; } catch { return ''; } })();
+$('name', HTMLInputElement).value = (() => { try { return localStorage.getItem('blast-name') ?? ''; } catch { return ''; } })();
 $('join-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  const name = $<HTMLInputElement>('name').value.trim() || 'Blaster';
+  const name = $('name', HTMLInputElement).value.trim() || 'Blaster';
   try { localStorage.setItem('blast-name', name); } catch { /* storage unavailable */ }
   audio.start(); // browsers only allow audio after a user gesture
   applySettings();
   $('join-error').textContent = '';
-  $<HTMLButtonElement>('play').disabled = true;
+  $('play', HTMLButtonElement).disabled = true;
   const near = Number(params.get('near')) || 0;
   joinInfo = {
     arena: selectedArena,
@@ -1250,11 +1310,17 @@ $('join-form').addEventListener('submit', (e) => {
 });
 
 // With ?debug, expose internals for testing from the browser console.
+declare global {
+  interface Window { __blast?: unknown }
+}
 if (params.has('debug')) {
-  (window as unknown as Record<string, unknown>).__blast = { get state() { return state; }, predictor, net, audio, input, renderer, alerts };
+  window.__blast = { get state() { return state; }, predictor, net, audio, input, renderer, alerts };
 }
 
 applyLanguage(getLanguage());
 applyI18n();
-setInterval(() => { if (!state) refreshLobby(); }, 4000);
-assets.load().then(() => requestAnimationFrame(frame));
+setInterval(() => { if (!state) refreshLobbyLater(); }, 4000);
+assets.load().then(
+  () => requestAnimationFrame(frame),
+  (e: unknown) => console.error('could not load the game art', e),
+);

@@ -1,7 +1,7 @@
 // Types of the client-side game state that main.ts keeps and render.ts
 // draws. Type-only module: it compiles to nothing.
 
-import type { AbilityInfo, FlameEntry, Me, PlayerEntry, Snapshot } from './protocol.js';
+import type { AbilityInfo, ArenaMode, FlameEntry, Me, PlayerEntry, Snapshot } from './protocol.js';
 
 /** The arena's tiles plus the biome regions they are coloured by. */
 export interface GameMap {
@@ -54,7 +54,7 @@ export interface GameState {
   myId: number;
   arena: number;
   arenaName: string;
-  mode: string;
+  mode: ArenaMode;
   team: number;
   map: GameMap;
   aoi: [number, number];

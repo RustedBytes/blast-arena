@@ -3,6 +3,8 @@
 // seamless noise, ordered dithering, and the shared lighting conventions.
 // Light comes from the top left; ramps run dark to light and shift hue.
 
+import { context2d, makeCanvas } from './dom.js';
+
 export const N = 16;
 
 /** A seeded random source returning values in 0..1. */
@@ -80,13 +82,11 @@ export class Pix {
    * smoothing, when it scales them to the tile size, stays crisp.
    */
   canvas(scale = 1): HTMLCanvasElement {
-    const c = document.createElement('canvas');
-    c.width = c.height = N;
-    c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(this.d), N, N), 0, 0);
+    const c = makeCanvas(N);
+    context2d(c).putImageData(new ImageData(new Uint8ClampedArray(this.d), N, N), 0, 0);
     if (scale === 1) return c;
-    const big = document.createElement('canvas');
-    big.width = big.height = N * scale;
-    const g = big.getContext('2d')!;
+    const big = makeCanvas(N * scale);
+    const g = context2d(big);
     g.imageSmoothingEnabled = false;
     g.drawImage(c, 0, 0, N * scale, N * scale);
     return big;
@@ -169,13 +169,10 @@ export function mix(a: string, b: string, t: number): string {
   return `#${h(0)}${h(1)}${h(2)}`;
 }
 
-let probe: CanvasRenderingContext2D | null = null;
+let probeCtx: CanvasRenderingContext2D | null = null;
 /** Any CSS colour (hsl(), color-mix(), names) as '#rrggbb'. */
 export function cssColor(css: string): string {
-  if (!probe) {
-    probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
-    probe.canvas.width = probe.canvas.height = 1;
-  }
+  const probe = (probeCtx ??= context2d(makeCanvas(1), { willReadFrequently: true }));
   probe.clearRect(0, 0, 1, 1);
   probe.fillStyle = '#000';
   probe.fillStyle = css;

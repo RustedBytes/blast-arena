@@ -12,7 +12,7 @@ export const P_STAR = 3;    // twinkling additive stars (pickups, secret box)
 export const P_CURSE = 4;   // purple swirl motes
 
 // Colours indexed by the `color` argument of emit().
-export const COLORS = [
+export const COLORS: readonly string[] = [
   '#fff6c0', '#ffd23f', '#ff8a1f', '#ff3b0a', // 0-3 fire
   '#5a5a66', '#8a8a96',                       // 4-5 smoke
   '#a46a33', '#c98a4b',                       // 6-7 wood
@@ -31,42 +31,37 @@ const BUCKETS = 2 * COLORS.length * LEVELS;
 const NONE = 0xffff;
 
 export class Particles {
-  cap: number;
-  x: Float32Array;
-  y: Float32Array;
-  vx: Float32Array;
-  vy: Float32Array;
-  life: Float32Array;
-  maxLife: Float32Array;
-  size: Float32Array;
-  kind: Uint8Array;
-  color: Uint8Array;
-  count: number;
-  bucketOf: Uint16Array;
-  order: Uint16Array;
-  start: Int32Array;
-  fill: Int32Array;
   /** Draw as pixel art (set by the renderer from the art style). */
-  pixel: boolean;
+  pixel = false;
+  /** Live particles, packed at the front of the arrays. */
+  count = 0;
+  private readonly x: Float32Array;
+  private readonly y: Float32Array;
+  private readonly vx: Float32Array;
+  private readonly vy: Float32Array;
+  private readonly life: Float32Array;
+  private readonly maxLife: Float32Array;
+  private readonly size: Float32Array;
+  private readonly kind: Uint8Array;
+  private readonly color: Uint8Array;
+  // Draw batching scratch: a bucket per (blend, colour, opacity level).
+  private readonly bucketOf: Uint16Array;
+  private readonly order: Uint16Array;
+  private readonly start = new Int32Array(BUCKETS + 1);
+  private readonly fill = new Int32Array(BUCKETS);
 
-  constructor(capacity = 2048) {
-    this.cap = capacity;
-    this.x = new Float32Array(capacity);
-    this.y = new Float32Array(capacity);
-    this.vx = new Float32Array(capacity);
-    this.vy = new Float32Array(capacity);
-    this.life = new Float32Array(capacity);
-    this.maxLife = new Float32Array(capacity);
-    this.size = new Float32Array(capacity);
-    this.kind = new Uint8Array(capacity);
-    this.color = new Uint8Array(capacity);
-    this.count = 0;
-    // Draw batching scratch: a bucket per (blend, colour, opacity level).
-    this.bucketOf = new Uint16Array(capacity);
-    this.order = new Uint16Array(capacity);
-    this.start = new Int32Array(BUCKETS + 1);
-    this.fill = new Int32Array(BUCKETS);
-    this.pixel = false;
+  constructor(private readonly cap = 2048) {
+    this.x = new Float32Array(cap);
+    this.y = new Float32Array(cap);
+    this.vx = new Float32Array(cap);
+    this.vy = new Float32Array(cap);
+    this.life = new Float32Array(cap);
+    this.maxLife = new Float32Array(cap);
+    this.size = new Float32Array(cap);
+    this.kind = new Uint8Array(cap);
+    this.color = new Uint8Array(cap);
+    this.bucketOf = new Uint16Array(cap);
+    this.order = new Uint16Array(cap);
   }
 
   /** Positions and sizes are in tiles; velocities in tiles per second. */
@@ -89,7 +84,7 @@ export class Particles {
   }
 
   /** Moves particle `j` into slot `i`. */
-  move(j: number, i: number): void {
+  private move(j: number, i: number): void {
     this.x[i] = this.x[j]; this.y[i] = this.y[j]; this.vx[i] = this.vx[j]; this.vy[i] = this.vy[j];
     this.life[i] = this.life[j]; this.maxLife[i] = this.maxLife[j]; this.size[i] = this.size[j];
     this.kind[i] = this.kind[j]; this.color[i] = this.color[j];
@@ -118,7 +113,7 @@ export class Particles {
   }
 
   /** Opacity of particle `i` (0..1), as the shapes below draw it. */
-  alpha(i: number): number {
+  private alpha(i: number): number {
     const k = this.kind[i], t = this.life[i] / this.maxLife[i];
     if (k === P_STAR) return t * (0.6 + 0.4 * Math.sin(this.life[i] * 30));
     if (k === P_SMOKE) return t * (this.pixel ? 0.5 : 0.55);
@@ -127,7 +122,7 @@ export class Particles {
   }
 
   /** Adds particle `i`'s shape to the current path. */
-  shape(ctx: CanvasRenderingContext2D, i: number, camX: number, camY: number, T: number): void {
+  private shape(ctx: CanvasRenderingContext2D, i: number, camX: number, camY: number, T: number): void {
     const k = this.kind[i], life = this.life[i], t = life / this.maxLife[i], size = this.size[i];
     const px = this.x[i] * T - camX, py = this.y[i] * T - camY;
     if (this.pixel) {

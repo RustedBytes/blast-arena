@@ -1,13 +1,6 @@
 // Player preferences, persisted in localStorage when available.
 
-const KEY = 'blast-settings';
-const DEFAULTS: SettingValues = {
-  music: 0.35, sfx: 0.6, muted: false, showFps: true, zoom: 1,
-  colorblind: false, highContrast: false, lang: '', hat: 0, trail: 0, arena: 0, tutorialDone: false,
-  tileStyle: 'pixel', // or 'classic'
-  showMinimap: true,
-  minimapSize: 170, // CSS px, MINIMAP_MIN..MINIMAP_MAX
-};
+export type TileStyle = 'pixel' | 'classic';
 
 export interface SettingValues {
   music: number;
@@ -22,42 +15,80 @@ export interface SettingValues {
   trail: number;
   arena: number;
   tutorialDone: boolean;
-  tileStyle: 'pixel' | 'classic';
+  tileStyle: TileStyle;
   showMinimap: boolean;
+  /** CSS px, MINIMAP_MIN..MINIMAP_MAX. */
   minimapSize: number;
 }
 
 export type SettingKey = keyof SettingValues;
-type Listener = <K extends SettingKey>(key: K, value: SettingValues[K]) => void;
+export type SettingListener = (key: SettingKey) => void;
 
 /** Range of the minimap size setting, in CSS px. */
 export const MINIMAP_MIN = 110;
 export const MINIMAP_MAX = 280;
 
+const KEY = 'blast-settings';
+const DEFAULTS: Readonly<SettingValues> = {
+  music: 0.35, sfx: 0.6, muted: false, showFps: true, zoom: 1,
+  colorblind: false, highContrast: false, lang: '', hat: 0, trail: 0, arena: 0, tutorialDone: false,
+  tileStyle: 'pixel',
+  showMinimap: true,
+  minimapSize: 170,
+};
+
+const isTileStyle = (v: unknown): v is TileStyle => v === 'pixel' || v === 'classic';
+
+/** Saved values that still fit their setting; anything else keeps the default. */
+function restore(saved: unknown): SettingValues {
+  const out: SettingValues = { ...DEFAULTS };
+  if (typeof saved !== 'object' || saved === null) return out;
+  const raw = saved as Partial<Record<SettingKey, unknown>>;
+  const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
+  out.music = num(raw.music, out.music);
+  out.sfx = num(raw.sfx, out.sfx);
+  out.muted = bool(raw.muted, out.muted);
+  out.showFps = bool(raw.showFps, out.showFps);
+  out.zoom = num(raw.zoom, out.zoom);
+  out.colorblind = bool(raw.colorblind, out.colorblind);
+  out.highContrast = bool(raw.highContrast, out.highContrast);
+  out.lang = typeof raw.lang === 'string' ? raw.lang : out.lang;
+  out.hat = num(raw.hat, out.hat);
+  out.trail = num(raw.trail, out.trail);
+  out.arena = num(raw.arena, out.arena);
+  out.tutorialDone = bool(raw.tutorialDone, out.tutorialDone);
+  out.tileStyle = isTileStyle(raw.tileStyle) ? raw.tileStyle : out.tileStyle;
+  out.showMinimap = bool(raw.showMinimap, out.showMinimap);
+  out.minimapSize = num(raw.minimapSize, out.minimapSize);
+  return out;
+}
+
 export class Settings {
-  values: SettingValues;
-  listeners: Listener[];
+  private readonly values: SettingValues;
+  private readonly listeners: SettingListener[] = [];
 
   constructor() {
-    this.values = { ...DEFAULTS };
+    let saved: unknown = null;
     try {
-      const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-      const values = this.values as unknown as Record<string, unknown>;
-      for (const k of Object.keys(DEFAULTS) as SettingKey[]) {
-        if (typeof saved[k] === typeof DEFAULTS[k]) values[k] = saved[k];
-      }
+      saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     } catch { /* storage unavailable or corrupt: keep defaults */ }
-    this.listeners = [];
+    this.values = restore(saved);
   }
 
-  get<K extends SettingKey>(k: K): SettingValues[K] { return this.values[k]; }
+  get<K extends SettingKey>(k: K): SettingValues[K] {
+    return this.values[k];
+  }
 
   set<K extends SettingKey>(k: K, v: SettingValues[K]): void {
     if (this.values[k] === v) return;
     this.values[k] = v;
     try { localStorage.setItem(KEY, JSON.stringify(this.values)); } catch { /* not persisted */ }
-    for (const fn of this.listeners) fn(k, v);
+    for (const fn of this.listeners) fn(k);
   }
 
-  onChange(fn: (key: SettingKey, value: SettingValues[SettingKey]) => void): void { this.listeners.push(fn); }
+  /** Calls `fn` with the key of every setting that changes. */
+  onChange(fn: SettingListener): void {
+    this.listeners.push(fn);
+  }
 }

@@ -5,17 +5,16 @@
 const textDecoder = new TextDecoder();
 
 /** A decoded MessagePack value. */
-export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | { [key: string]: MsgValue };
+export type MsgValue = null | boolean | number | string | Uint8Array | MsgValue[] | MsgMap;
+/** A decoded MessagePack map; keys are strings (the protocol only uses string keys). */
+export interface MsgMap { [key: string]: MsgValue }
 
 class Reader {
-  bytes: Uint8Array;
-  view: DataView;
-  pos: number;
+  private readonly view: DataView;
+  private pos = 0;
 
-  constructor(bytes: Uint8Array) {
-    this.bytes = bytes;
+  constructor(private readonly bytes: Uint8Array) {
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    this.pos = 0;
   }
 
   u8(): number { return this.view.getUint8(this.pos++); }
@@ -40,10 +39,11 @@ class Reader {
     return out;
   }
 
-  map(len: number): { [key: string]: MsgValue } {
-    const out: { [key: string]: MsgValue } = {};
+  map(len: number): MsgMap {
+    const out: MsgMap = {};
     for (let i = 0; i < len; i++) {
       const k = this.read();
+      if (typeof k !== 'string' && typeof k !== 'number') throw new Error('msgpack: map keys must be strings or numbers');
       out[String(k)] = this.read();
     }
     return out;

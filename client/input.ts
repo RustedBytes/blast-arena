@@ -36,69 +36,43 @@ export interface InputHandlers {
 export interface HeldInput { d: number; s: number; j: boolean; h: boolean }
 
 export class Input {
-  h: InputHandlers;
-  enabled: boolean;
+  /** Input is only read while a game is running. */
+  enabled = false;
+  /** The held input, read every prediction step. */
+  readonly current: HeldInput = { d: 0, s: 0, j: false, h: false };
   /** Keyboard directions, most recent last. */
-  held: number[];
-  padDir: number;
-  padAlt: number;
-  padBomb: boolean;
-  padJump: boolean;
-  keyJump: boolean;
-  joyJump: boolean;
-  keyDetach: boolean;
-  padDetach: boolean;
-  joyDetach: boolean;
-  padAbility: boolean;
-  padZoom: number;
-  joyDir: number;
-  joyAlt: number;
-  /** Last (d << 3 | s) reported. */
-  sent: number;
-  current: HeldInput;
-  padAct: boolean;
-  padGadget: boolean;
+  private held: number[] = [];
+  private padDir = 0;
+  private padAlt = 0;
+  private padBomb = false;
+  private padJump = false;
+  private padDetach = false;
+  private padAbility = false;
+  private padAct = false;
+  private padGadget = false;
+  private keyJump = false;
+  private keyDetach = false;
+  private joyDir = 0;
+  private joyAlt = 0;
+  private joyJump = false;
+  private joyDetach = false;
+  /** The last input reported, packed (see update()). */
+  private sent = -1;
 
-  /**
-   * handlers: onDir(d, s, j), onBomb(), onAct(), onGadget(), onAbility(), onCancel(), onEmote(e), onZoom(factor),
-   * onAction(name, down) where action is one of 'zoomReset', 'mute', 'fps',
-   * 'menu', 'board', 'emoteWheel'.
-   */
-  constructor(handlers: InputHandlers) {
-    this.h = handlers;
-    this.enabled = false;
-    this.held = [];        // keyboard directions, most recent last
-    this.padDir = 0;
-    this.padAlt = 0;
-    this.padBomb = false;
-    this.padJump = false;
-    this.keyJump = false;
-    this.joyJump = false;
-    this.keyDetach = false;
-    this.padDetach = false;
-    this.joyDetach = false;
-    this.padAbility = false;
-    this.padZoom = 0;
-    this.joyDir = 0;
-    this.joyAlt = 0;
-    this.sent = -1;        // last (d << 3 | s) reported
-    this.current = { d: 0, s: 0, j: false, h: false }; // read every prediction step
-    this.padAct = false;
-    this.padGadget = false;
-
+  constructor(private readonly h: InputHandlers) {
     addEventListener('keydown', (e) => this.keydown(e));
     addEventListener('keyup', (e) => this.keyup(e));
     addEventListener('blur', () => this.clear());
     addEventListener('wheel', (e) => {
-      if (!this.enabled || (e.target as Element | null)?.closest?.('#settings')) return;
+      if (!this.enabled || (e.target instanceof Element && e.target.closest('#settings'))) return;
       e.preventDefault();
       this.h.onZoom(Math.exp(-e.deltaY * 0.0015));
     }, { passive: false });
     this.setupTouch();
   }
 
-  keydown(e: KeyboardEvent): void {
-    if (!this.enabled || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+  private keydown(e: KeyboardEvent): void {
+    if (!this.enabled || e.target instanceof HTMLInputElement) return;
     const d = KEY_DIRS[e.code];
     if (d) {
       e.preventDefault();
@@ -145,7 +119,7 @@ export class Input {
     }
   }
 
-  keyup(e: KeyboardEvent): void {
+  private keyup(e: KeyboardEvent): void {
     const d = KEY_DIRS[e.code];
     if (d) {
       this.held = this.held.filter((x) => x !== d);
@@ -171,7 +145,7 @@ export class Input {
   }
 
   /** Picks the active source (touch > gamepad > keyboard) and sends changes. */
-  update(): void {
+  private update(): void {
     let d: number, s: number;
     if (this.joyDir) { d = this.joyDir; s = this.joyAlt; }
     else if (this.padDir) { d = this.padDir; s = this.padAlt; }
@@ -195,7 +169,7 @@ export class Input {
 
   /** Call once per frame: reads connected gamepads. */
   pollGamepad(): void {
-    if (!this.enabled || !navigator.getGamepads) return;
+    if (!this.enabled || !('getGamepads' in navigator)) return;
     let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0, ability = false, detach = false;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
@@ -234,7 +208,7 @@ export class Input {
     }
   }
 
-  setupTouch(): void {
+  private setupTouch(): void {
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (!isTouch) return;
     document.body.classList.add('touch');
@@ -309,7 +283,7 @@ export class Input {
     bomb.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       bomb.classList.add('active');
-      navigator.vibrate?.(15);
+      vibrate(15);
       this.h.onBomb();
     });
     const up = () => bomb.classList.remove('active');
@@ -319,13 +293,13 @@ export class Input {
     const act = byId('act-btn');
     act.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      navigator.vibrate?.(10);
+      vibrate(10);
       this.h.onAct();
     });
     const jumpBtn = byId('jump-btn');
     jumpBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      navigator.vibrate?.(10);
+      vibrate(10);
       jumpBtn.classList.add('active');
       this.joyJump = true;
       this.update();
@@ -340,19 +314,19 @@ export class Input {
     jumpBtn.addEventListener('pointerleave', jumpUp);
     byId('gadget-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      navigator.vibrate?.(10);
+      vibrate(10);
       this.h.onGadget();
     });
     byId('ability-btn').addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      navigator.vibrate?.(10);
+      vibrate(10);
       this.h.onAbility();
     });
     // Shaking off a sticky bomb: hold the button.
     const detachBtn = byId('detach-btn');
     detachBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      navigator.vibrate?.(10);
+      vibrate(10);
       detachBtn.classList.add('active');
       this.joyDetach = true;
       this.update();
@@ -370,4 +344,9 @@ export class Input {
       this.h.onAction('emoteWheel', true);
     });
   }
+}
+
+/** A short buzz on phones that support it (not iOS Safari). */
+function vibrate(ms: number): void {
+  if ('vibrate' in navigator) navigator.vibrate(ms);
 }

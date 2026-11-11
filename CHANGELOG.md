@@ -6,6 +6,18 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Client type safety: stricter compiler settings (`exactOptionalPropertyTypes`,
+  unused code, implicit returns) and typescript-eslint's strict type-aware
+  rules, run by `npm run check` and in the release workflow. No `!`
+  assertions or `any` left: DOM lookups check element types at run time
+  (`client/dom.ts`), and the welcome message, saved settings and `/api`
+  responses are validated before use. Snapshot flags have names
+  (`PLAYER_FLAG`, `BOMB_FLAG`), classes use `private`/`readonly` fields,
+  sprites are looked up by a typed `SpriteName`, and promises are no longer
+  left unhandled. Toasts with the same `key` now replace each other.
+
 ## [0.8.0] - 2026-11-10
 
 ### Added

@@ -769,7 +769,7 @@ export type Strings = {
 export type StringKey = keyof Strings;
 export type Lang = keyof typeof STRINGS;
 type Params = Record<string, string | number | null | undefined>;
-const TABLES = STRINGS as unknown as Record<string, Partial<Strings>>;
+const TABLES: Record<Lang, Partial<Strings>> = STRINGS;
 
 export const LANGUAGES: Record<Lang, string> = {
   en: 'English', de: 'Deutsch', fr: 'Français', es: 'Español', it: 'Italiano', pl: 'Polski', uk: 'Українська',
@@ -798,16 +798,29 @@ export function getLanguage(): Lang {
 }
 
 /** A string (or nested value such as an array) in the current language. */
-export function t<K extends StringKey>(key: K, params?: Params): Strings[K];
-export function t(key: string, params?: Params): string;
-export function t(key: string, params?: Params): unknown {
-  let v: unknown = TABLES[lang][key as StringKey] ?? TABLES.en[key as StringKey] ?? key;
-  if (params && typeof v === 'string') v = v.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ''));
+export function t<K extends StringKey>(key: K, params?: Params): Strings[K] {
+  const v = TABLES[lang][key] ?? STRINGS.en[key];
+  if (params && typeof v === 'string') return fill(v, params) as Strings[K];
   return v;
 }
 
+/** A plain string by a key only known at run time (page markup); the key itself if there's none. */
+export function text(key: string): string {
+  const v: unknown = isStringKey(key) ? t(key) : undefined;
+  return typeof v === 'string' ? v : key;
+}
+
+function isStringKey(key: string): key is StringKey {
+  return Object.hasOwn(STRINGS.en, key);
+}
+
+/** Replaces `{name}` placeholders. */
+function fill(template: string, params: Params): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ''));
+}
+
 export function applyI18n(root: ParentNode = document): void {
-  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
-  for (const el of root.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder!);
-  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle!);
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = text(el.dataset.i18n ?? '');
+  for (const el of root.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]')) el.placeholder = text(el.dataset.i18nPlaceholder ?? '');
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-title]')) el.title = text(el.dataset.i18nTitle ?? '');
 }

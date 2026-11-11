@@ -5,6 +5,7 @@
 // snapshot this client acknowledged, so decoding one needs that base.
 
 import { decode as decodeMsgpack } from './msgpack.js';
+import type { MsgMap, MsgValue } from './msgpack.js';
 
 /** Four flame/gas arm lengths: up, down, left, right (each 0..15). */
 export type Arms = readonly number[];
@@ -52,28 +53,38 @@ export interface Extras {
 const OP = {
   WELCOME: 1, ERR: 2, SNAP: 3, PJ: 4, PL: 5, KILL: 6, LB: 7, WORLD: 8,
   FX: 9, EMOTE: 10, STREAK: 11, HILLS: 12, ROUND: 13, PONG: 14, EVENT: 15,
-};
+} as const;
+/** Bits of a player entry's flags; mirrors the server's snapshot encoding. */
+export const PLAYER_FLAG = {
+  MOVING: 1, SHIELD: 2, CURSED: 4, GHOST: 8, BOUNTY: 16, JUMPING: 32, STUNNED: 64, CARRYING: 128, DASHING: 256, GASSED: 512,
+} as const;
+/** Bits of a bomb entry's flags; mirrors `game::snapshot::bomb_flags` (mines are 32). */
+export const BOMB_FLAG = {
+  PIERCE: 1, REMOTE: 2, NUKE: 4, FREEZE: 8, ROCKET: 16, MINE: 32, STICKY: 64, GAS: 128,
+} as const;
+/** True when `bit` is set in `flags`. */
+export const hasFlag = (flags: number, bit: number): boolean => (flags & bit) !== 0;
 /** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
-export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11, WORM: 12, GUARD: 13 };
+export const EV = { SHRINK: 1, ANNOUNCE: 2, STRIKES: 3, LAVA: 4, FLAGS: 5, FLAG_NEWS: 6, SWAP: 7, ZONE: 8, ROYALE: 9, WINNER: 10, ABILITY: 11, WORM: 12, GUARD: 13 } as const;
 /** What a worm event reports (values: [what, x, y, player id + 1]); mirrors `game::worms::news`. */
-export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 };
+export const WORM_NEWS = { ATE: 1, KILLED: 2, CUT: 3 } as const;
 /** What a Warden event reports (values: [what, x, y, player id + 1]); mirrors `game::guard::news`. */
-export const GUARD_NEWS = { CRUSHED: 1, KILLED: 2, BACK: 3, SLAM: 4, LOB: 5 };
+export const GUARD_NEWS = { CRUSHED: 1, KILLED: 2, BACK: 3, SLAM: 4, LOB: 5 } as const;
 /** Warden flags in snapshots; mirrors `game::guard::flag`. */
-export const GUARD_FLAG = { HUNTING: 1, SLAM: 2, CHARGE_WINDUP: 4, CHARGING: 8, SKIN: 16, ENRAGED: 32, HURT: 64 };
+export const GUARD_FLAG = { HUNTING: 1, SLAM: 2, CHARGE_WINDUP: 4, CHARGING: 8, SKIN: 16, ENRAGED: 32, HURT: 64 } as const;
 /** Worm flags in snapshots; mirrors `game::worms::flag`. */
-export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4, LUNGE: 8, LURK: 16 };
+export const WORM_FLAG = { CHASING: 1, EMERGING: 2, FAR: 4, LUNGE: 8, LURK: 16 } as const;
 /** Sub-kinds of ability events (values: [kind, tick, ...]); mirrors `game::abilities::ab`. */
 export const AB = {
   ACTIVATED: 1, REJECTED: 2, COOLDOWN: 3, WALL_CREATED: 4, WALL_REMOVED: 5, GAS_CREATED: 6, GAS_EXPIRED: 7,
   GAS_IGNITED: 8, CLONE_SPAWNED: 9, CLONE_DESTROYED: 10, STICKY_ATTACHED: 11, STICKY_DETACHED: 12,
   PORTAL_CREATED: 13, PORTAL_LINKED: 14, PORTAL_DESTROYED: 15, TELEPORTED: 16, DASH_STARTED: 17, DASH_ENDED: 18,
-};
+} as const;
 const CLIENT_OP: Record<ClientMsg['t'], number> = { join: 1, in: 2, bomb: 3, act: 4, emote: 5, ping: 6, view: 7, gadget: 8, ability: 9, cancel: 10, look: 11 };
 const NO_ARMS = Object.freeze([0, 0, 0, 0]);
-const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 };
-const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32, GUARD: 64 };
-const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 };
+const SECTION = { PLAYERS: 1, PLAYERS_GONE: 2, BOMBS: 4, BOMBS_GONE: 8, FLAMES: 16, ME: 32, DRONES: 64, EXTRA: 128 } as const;
+const EXTRA = { GAS: 1, PORTALS: 2, CLONES: 4, DECOYS: 8, STUCK: 16, WORMS: 32, GUARD: 64 } as const;
+const PLAYER = { DX: 1, DY: 2, LOOK: 4, NEW: 8 } as const;
 
 /** Order of the values in a snapshot's `me` block; mirrors the server. */
 export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 'curse_t', 'respawn', 'score', 'bombs',
@@ -82,17 +93,26 @@ export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 
   'ability', 'ability_n', 'ability_max', 'ability_cd', 'gas_bombs', 'sticky_bombs', 'stuck', 'detach', 'gassed', 'dash',
   'dash_dir', 'portal_wait'] as const;
 export type MeField = (typeof ME_FIELDS)[number];
-const ME_EMPTY: number[] = new Array<number>(ME_FIELDS.length).fill(0);
+const ME_EMPTY: readonly number[] = new Array<number>(ME_FIELDS.length).fill(0);
+/** Index of each field in the `me` block. */
+const ME_INDEX = new Map<MeField, number>(ME_FIELDS.map((f, i) => [f, i]));
 
-const ME_FLAGS = ['alive', 'kick', 'pierce', 'remote', 'line', 'punch', 'freeze', 'stomp'] as const;
-type MeFlag = (typeof ME_FLAGS)[number];
+type MeFlag = 'alive' | 'kick' | 'pierce' | 'remote' | 'line' | 'punch' | 'freeze' | 'stomp';
 
 /** The decoded `me` block (see `meObject`). */
-export type Me = { [K in Exclude<MeField, MeFlag | 'killer' | 'spec'>]: number } & { [K in MeFlag]: boolean } & {
-  killer: number | null;
-  spec: number | null;
-  aoi: [number, number];
-};
+export type Me = Readonly<
+  Record<Exclude<MeField, MeFlag | 'killer' | 'spec'>, number> & Record<MeFlag, boolean> & {
+    /** Who killed us last, if anyone. */
+    killer: number | null;
+    /** Who we watch while dead, if anyone. */
+    spec: number | null;
+    /** Half extents of the area the server sends, in tiles. */
+    aoi: readonly [number, number];
+  }
+>;
+
+/** Arena modes; mirrors `game::Mode`. */
+export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'worms';
 
 /** A full snapshot rebuilt from a delta. */
 export interface Snapshot {
@@ -138,7 +158,7 @@ export interface WelcomeMsg {
   /** Everyone online: [id, name, team, hat, trail]. */
   roster: [number, string, number, number, number][];
   arena: string;
-  mode: 'ffa' | 'teams';
+  mode: ArenaMode;
   team: number;
   hills: [number, number][];
   round: number;
@@ -189,14 +209,11 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 class Reader {
-  bytes: Uint8Array;
-  view: DataView;
-  pos: number;
+  private readonly view: DataView;
+  private pos = 0;
 
-  constructor(bytes: Uint8Array) {
-    this.bytes = bytes;
+  constructor(private readonly bytes: Uint8Array) {
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    this.pos = 0;
   }
 
   u8(): number {
@@ -242,13 +259,8 @@ class Reader {
 }
 
 class Writer {
-  buf: Uint8Array;
-  pos: number;
-
-  constructor() {
-    this.buf = new Uint8Array(64);
-    this.pos = 0;
-  }
+  private buf = new Uint8Array(64);
+  private pos = 0;
 
   ensure(n: number): void {
     if (this.pos + n <= this.buf.length) return;
@@ -337,7 +349,7 @@ function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | null {
       } else {
         const old = players.get(id);
         if (!old) throw new Error(`protocol: delta for unknown player ${id}`);
-        const e = old.slice() as PlayerEntry; // base entries stay untouched for later deltas
+        const e: PlayerEntry = [...old]; // base entries stay untouched for later deltas
         if (flags & PLAYER.DX) e[1] += r.ivar();
         if (flags & PLAYER.DY) e[2] += r.ivar();
         if (flags & PLAYER.LOOK) { const look = r.uvar(); e[3] = look & 7; e[4] = look >> 3; }
@@ -354,7 +366,7 @@ function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | null {
     for (let n = r.uvar(); n > 0; n--) {
       id += r.uvar();
       const x = r.uvar(), y = r.uvar(), f = r.u8();
-      bombs.set(id, [id, x, y, f & 2 ? 0 : k + r.ivar(), f]);
+      bombs.set(id, [id, x, y, hasFlag(f, BOMB_FLAG.REMOTE) ? 0 : k + r.ivar(), f]);
     }
   }
   if (sections & SECTION.BOMBS_GONE) for (const id of ids(r)) bombs.delete(id);
@@ -424,14 +436,116 @@ function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | null {
 
 /** The `me` block as a named object, with booleans, ids and the view size restored. */
 export function meObject(raw: readonly number[]): Me {
-  const me: Record<string, unknown> = {};
-  for (let i = 0; i < ME_FIELDS.length; i++) me[ME_FIELDS[i]] = raw[i];
-  for (const k of ME_FLAGS) me[k] = me[k] !== 0;
-  const killer = me.killer as number, spec = me.spec as number;
-  me.killer = killer ? killer - 1 : null;
-  me.spec = spec ? spec - 1 : null;
-  me.aoi = [me.aoi_w, me.aoi_h];
-  return me as Me;
+  const n = (f: MeField): number => raw[ME_INDEX.get(f) ?? -1] ?? 0;
+  const flag = (f: MeFlag): boolean => n(f) !== 0;
+  /** Ids are sent + 1, so 0 means none. */
+  const id = (f: 'killer' | 'spec'): number | null => (n(f) ? n(f) - 1 : null);
+  return {
+    ack: n('ack'), alive: flag('alive'), active: n('active'), shield: n('shield'), ghost: n('ghost'), curse: n('curse'),
+    curse_t: n('curse_t'), respawn: n('respawn'), score: n('score'), bombs: n('bombs'), range: n('range'), speed: n('speed'),
+    kick: flag('kick'), pierce: flag('pierce'), remote: flag('remote'), line: flag('line'), punch: flag('punch'),
+    killer: id('killer'), spec: id('spec'), aoi_w: n('aoi_w'), aoi_h: n('aoi_h'), aoi: [n('aoi_w'), n('aoi_h')],
+    team: n('team'), streak: n('streak'), nukes: n('nukes'), jump: n('jump'), jump_cd: n('jump_cd'), gadget: n('gadget'),
+    gadget_n: n('gadget_n'), freeze: flag('freeze'), stomp: flag('stomp'), stun: n('stun'), blizzard: n('blizzard'),
+    carrying: n('carrying'), storm: n('storm'), storm_max: n('storm_max'), ability: n('ability'), ability_n: n('ability_n'),
+    ability_max: n('ability_max'), ability_cd: n('ability_cd'), gas_bombs: n('gas_bombs'), sticky_bombs: n('sticky_bombs'),
+    stuck: n('stuck'), detach: n('detach'), gassed: n('gassed'), dash: n('dash'), dash_dir: n('dash_dir'),
+    portal_wait: n('portal_wait'),
+  };
+}
+
+// ------------------------------------------------------------ welcome
+// The welcome body is MessagePack decoded without a schema, so it's checked
+// here before the rest of the client relies on its types.
+
+class WelcomeError extends Error {
+  constructor(what: string) {
+    super(`protocol: bad welcome message (${what})`);
+  }
+}
+
+const isMap = (v: MsgValue | undefined): v is MsgMap =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Uint8Array);
+
+function num(m: MsgMap, k: string): number {
+  const v = m[k];
+  if (typeof v !== 'number') throw new WelcomeError(k);
+  return v;
+}
+
+function str(m: MsgMap, k: string): string {
+  const v = m[k];
+  if (typeof v !== 'string') throw new WelcomeError(k);
+  return v;
+}
+
+function list(m: MsgMap, k: string): MsgValue[] {
+  const v = m[k];
+  if (!Array.isArray(v)) throw new WelcomeError(k);
+  return v;
+}
+
+/** A list of number tuples of length `n` (cells, map runs, regions...). */
+function tuples<T extends number[]>(m: MsgMap, k: string, n: T['length']): T[] {
+  return list(m, k).map((e) => {
+    if (!Array.isArray(e) || e.length !== n || !e.every((x) => typeof x === 'number')) throw new WelcomeError(k);
+    return e as T;
+  });
+}
+
+function pair(m: MsgMap, k: string): [number, number] {
+  const v = m[k];
+  if (!Array.isArray(v) || v.length !== 2) throw new WelcomeError(k);
+  const [a, b] = v;
+  if (typeof a !== 'number' || typeof b !== 'number') throw new WelcomeError(k);
+  return [a, b];
+}
+
+function numbers<K extends string>(m: MsgValue | undefined, what: string, keys: readonly K[]): Record<K, number> {
+  if (!isMap(m)) throw new WelcomeError(what);
+  const out = {} as Record<K, number>;
+  for (const k of keys) out[k] = num(m, k);
+  return out;
+}
+
+const ARENA_MODES: readonly ArenaMode[] = ['ffa', 'teams', 'royale', 'worms'];
+const isArenaMode = (v: string): v is ArenaMode => (ARENA_MODES as readonly string[]).includes(v);
+
+function parseWelcome(body: MsgValue): WelcomeMsg {
+  if (!isMap(body)) throw new WelcomeError('body');
+  const mode = str(body, 'mode');
+  if (!isArenaMode(mode)) throw new WelcomeError('mode');
+  const roster = list(body, 'roster').map((e): WelcomeMsg['roster'][number] => {
+    if (!Array.isArray(e)) throw new WelcomeError('roster');
+    const [id, name, team, hat, trail] = e;
+    if (typeof id !== 'number' || typeof name !== 'string' || typeof team !== 'number' || typeof hat !== 'number' || typeof trail !== 'number') {
+      throw new WelcomeError('roster');
+    }
+    return [id, name, team, hat, trail];
+  });
+  const ab = body.abilities;
+  if (!isMap(ab)) throw new WelcomeError('abilities');
+  const disabled = list(ab, 'disabled');
+  const resumed = body.resumed;
+  if (typeof resumed !== 'boolean') throw new WelcomeError('resumed');
+  const profile = body.profile ?? null;
+  return {
+    t: 'welcome',
+    id: num(body, 'id'), w: num(body, 'w'), h: num(body, 'h'),
+    map: tuples(body, 'map', 2), biomes: tuples(body, 'biomes', 3), items: tuples(body, 'items', 3),
+    rate: num(body, 'rate'), aoi: pair(body, 'aoi'), aoi_max: pair(body, 'aoi_max'),
+    roster, arena: str(body, 'arena'), mode, team: num(body, 'team'), hills: tuples(body, 'hills', 2),
+    round: num(body, 'round'), resumed,
+    profile: profile === null ? null : numbers(profile, 'profile', ['level', 'xp', 'next_xp', 'kills', 'deaths', 'wins', 'best_streak']),
+    abilities: {
+      ...numbers(ab, 'abilities', ['v', 'wall', 'gas', 'gas_fuse', 'gas_mult', 'clone', 'portal', 'portal_wait', 'sticky_fuse', 'detach', 'dash', 'dash_step']),
+      cooldowns: tuples(ab, 'cooldowns', 2),
+      disabled: disabled.map((d) => {
+        if (typeof d !== 'number') throw new WelcomeError('abilities.disabled');
+        return d;
+      }),
+    },
+  };
 }
 
 /** Decodes a server frame into `{t, ...fields}`; null if it can't be used. */
@@ -439,7 +553,7 @@ export function decodeServer(bytes: Uint8Array, baseFor: SnapshotBase): ServerMs
   const r = new Reader(bytes);
   const op = r.u8();
   switch (op) {
-    case OP.WELCOME: return { ...(decodeMsgpack(bytes.subarray(1)) as unknown as Omit<WelcomeMsg, 't'>), t: 'welcome' };
+    case OP.WELCOME: return parseWelcome(decodeMsgpack(bytes.subarray(1)));
     case OP.ERR: return { t: 'err', m: r.str() };
     case OP.SNAP: return decodeSnapshot(r, baseFor);
     case OP.PJ: return { t: 'pj', id: r.uvar(), name: r.str(), team: r.u8(), hat: r.u8(), trail: r.u8() };

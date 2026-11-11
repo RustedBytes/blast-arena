@@ -211,11 +211,10 @@ const FLAME_GLYPH = [
   '   oooooo ',
 ];
 
-/** The 12 power-up tokens, indexed like the protocol's item kinds (1..12). */
-function powerUps() {
+/** The power-up tokens, in the order of the protocol's item kinds (from 1). */
+function powerUps(): Pix[] {
   const flame = { o: '#5c140e', '#': '#ff7a1a', '+': '#ffd66b', w: '#fff4c2', '-': '#c2391b' };
   return [
-    null,
     token('common', BOMB_GLYPH, { o: '#0b0a16', x: STEEL[5], '#': '#3a3f5c', '+': '#8a93b8', w: '#ffffff', '-': '#22233d', f: FUSE[2], s: '#ffd34a' }),
     token('common', FLAME_GLYPH, flame),
     token('blue', [
@@ -538,7 +537,11 @@ function player(colors: readonly [string, string], view: PlayerView, frame: numb
 // --------------------------------------------------------------------- hats
 
 /** Hat bitmaps, indexed like the cosmetic hat ids (1..6), each with its colours. */
-const HATS: (readonly [rows: string[], colors: Record<string, string>] | null)[] = [
+type HatArt = readonly [rows: readonly string[], colors: Readonly<Record<string, string>>];
+/** A hat sprite and its height in art pixels. */
+export interface PixelHat { canvas: HTMLCanvasElement; rows: number }
+
+const HATS: readonly (HatArt | null)[] = [
   null,
   [['   oooo     ', '  o+##-o    ', ' o+####-o   ', ' o######oooo', ' oooooooo--o'],
     { o: '#4a0f0c', '#': '#d23a2f', '+': '#ff8a7a', '-': '#8c1f1a' }],
@@ -555,10 +558,9 @@ const HATS: (readonly [rows: string[], colors: Record<string, string>] | null)[]
 ];
 
 /** A hat as a 4x canvas (16 wide, bitmap at the top, centred), plus its art-pixel height. */
-function hat(id: number): { canvas: HTMLCanvasElement; rows: number } {
-  const [rows, colors] = HATS[id]!;
+function hat([rows, colors]: HatArt): PixelHat {
   const p = new Pix();
-  bitmap(p, rows, colors, Math.floor((N - rows[0].length) / 2), 0);
+  bitmap(p, rows, colors, Math.floor((N - (rows[0]?.length ?? 0)) / 2), 0);
   return { canvas: p.canvas(X4), rows: rows.length };
 }
 
@@ -763,10 +765,16 @@ export function buildPixelSprites() {
   const big = (p: Pix): HTMLCanvasElement => p.canvas(X4);
   const f = flames();
   const items = powerUps();
-  const names = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
+  // Sprite names of the tokens, in the same order (item kinds 1, 2, ...).
+  const names = ['pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
     'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke',
     'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm'];
-  const out = {
+  /** Power-up tokens by sprite name (looked up by name, see Assets.tile). */
+  const tokens: Record<string, HTMLCanvasElement> = {};
+  if (items.length !== names.length) throw new Error('pixelsprites: a power-up token without a name');
+  names.forEach((name, i) => { tokens[name] = big(items[i]); });
+  return {
+    tokens,
     bomb_nuke: big(nukeBomb()),
     bomb: big(bomb(IRON, false)),
     bomb_pierce: big(bomb(RED_IRON, true)),
@@ -776,7 +784,8 @@ export function buildPixelSprites() {
     flame_arm: big(f.arm[0]),
     flame_end: big(f.end[0]),
     scorch: big(scorch()),
-    hats: HATS.map((h, i) => h && hat(i)),
+    /** By cosmetic hat id; 0 (none) is null. */
+    hats: HATS.map((h): PixelHat | null => (h ? hat(h) : null)),
     worm_segment: big(wormSegment()),
     worm_head: big(wormHead(false)),
     worm_head_angry: big(wormHead(true)),
@@ -787,10 +796,6 @@ export function buildPixelSprites() {
     warden: big(warden(false)),
     warden_rage: big(warden(true)),
   };
-  const tokens: Record<string, HTMLCanvasElement> = {};
-  for (let k = 1; k < names.length; k++) tokens[names[k]!] = big(items[k]!);
-  // Power-up tokens are looked up by name (see Assets.tile).
-  return Object.assign(out, tokens) as typeof out;
 }
 
 /** A player sprite for given colours as a 4x canvas. */

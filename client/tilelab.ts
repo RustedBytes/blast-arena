@@ -7,11 +7,11 @@ import { Assets, ITEM_SPRITES, playerColors } from './assets.js';
 import { Particles } from './particles.js';
 import { Renderer, T_ARMORED, T_CRATE, T_FLOOR, T_ICE, T_TELEPORT, T_WALL, biome } from './render.js';
 import type { PixelSet } from './assets.js';
-import { byId as $ } from './dom.js';
+import { byId as $, context2d, makeCanvas } from './dom.js';
 import type { PlayerView } from './pixelsprites.js';
 import type { FlameEntry } from './protocol.js';
-import type { Frame, FrameBomb, FramePlayer } from './render.js';
-import type { GameMap, GameState } from './state.js';
+import type { Frame, FrameBomb, FramePlayer, PlayerScene } from './render.js';
+import type { GameMap } from './state.js';
 
 const SIZE = 49;
 const CHUNK = 8;
@@ -70,12 +70,11 @@ const renderer = new Renderer(document.createElement('canvas'), document.createE
 const map = sampleMap();
 
 function drawMap(): void {
-  const out = $<HTMLCanvasElement>('map');
+  const out = $('map', HTMLCanvasElement);
   const chunkPx = CHUNK * 64;
   out.width = out.height = SIZE * 64;
-  const g = out.getContext('2d')!;
-  const chunk = document.createElement('canvas');
-  chunk.width = chunk.height = chunkPx;
+  const g = context2d(out);
+  const chunk = makeCanvas(chunkPx);
   for (let cy = 0; cy * CHUNK < SIZE; cy++) {
     for (let cx = 0; cx * CHUNK < SIZE; cx++) {
       renderer.paintChunk(chunk, map, cx, cy);
@@ -87,9 +86,8 @@ function drawMap(): void {
 function figure(canvas: CanvasImageSource, caption: string, under?: CanvasImageSource): HTMLElement {
   const f = document.createElement('figure');
   // Tiles are 16px and sprites 64px (4x); both are shown at 64px, crisp.
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
+  const c = makeCanvas(64);
+  const g = context2d(c);
   g.imageSmoothingEnabled = false;
   for (const img of [under, canvas]) if (img) g.drawImage(img, 0, 0, 64, 64);
   const cap = document.createElement('figcaption');
@@ -119,7 +117,7 @@ function drawSheet(px: PixelSet): void {
     figure(px.teleport, 'teleport', grass),
   ]);
   const masks = ['', 'north', 'west', 'north+west', 'north-west', 'north + nw', 'west + nw', 'all'];
-  section('Shadows (on grass)', px.shadows.slice(1).map((c, i) => figure(c as HTMLCanvasElement, masks[i + 1], grass)));
+  section('Shadows (on grass)', px.shadows.flatMap((c, i) => (c ? [figure(c, masks[i], grass)] : [])));
   const dirs = ['from north', 'from east', 'from south', 'from west'];
   section('Biome borders (on desert sand)', px.edges.flatMap((ds, b) => (b === 2 ? [] : ds.map((c, d) => figure(c, `${BIOMES[b]} ${dirs[d]}`, px.floors[2][0])))));
 }
@@ -134,34 +132,35 @@ function drawSprites(px: PixelSet): void {
     ...(['center', 'arm', 'end'] as const).flatMap((part) => px.flames[part].map((c, i) => figure(c, `${part} ${i + 1}`, grass))),
   ]);
   const names = ['bomb', 'range', 'speed', 'kick', 'shield', 'pierce', 'full fire', 'secret box', 'remote', 'line', 'punch', 'ghost'];
-  section('Power-ups', ITEM_SPRITES.slice(1).map((n, i) => figure((px as unknown as Record<string, HTMLCanvasElement>)[n!], names[i], grass)));
+  section('Power-ups', ITEM_SPRITES.flatMap((n, kind) => (n ? [figure(assets.tile(n, 'pixel'), names[kind - 1] ?? n, grass)] : [])));
   const players: HTMLElement[] = [];
   for (const [id, team] of [[1, 1], [2, 2], [3, 0], [7, 0]]) {
     const colors = playerColors(id, team, false);
-    for (const view of ['down', 'up', 'side'] as PlayerView[]) {
+    const views: readonly PlayerView[] = ['down', 'up', 'side'];
+    for (const view of views) {
       for (let frame = 0; frame < 3; frame++) {
         if (view === 'side' && frame === 2) continue;
-        players.push(figure(assets.pixelPlayer(colors, view, frame), `${view} ${frame ? 'step ' + frame : 'stand'}`, grass));
+        players.push(figure(assets.pixelPlayer(colors, view, frame), `${view} ${frame ? `step ${frame}` : 'stand'}`, grass));
       }
     }
   }
   section('Players (red team, blue team, two solo colours)', players);
   const hats = ['cap', 'party hat', 'horns', 'halo', 'crown', 'top hat'];
-  section('Hats', px.hats.slice(1).map((h, i) => figure(h!.canvas, hats[i], grass)));
+  section('Hats', px.hats.flatMap((h, id) => (h ? [figure(h.canvas, hats[id - 1] ?? `hat ${id}`, grass)] : [])));
 }
 
 // ------------------------------------------------------------- live scene
 
 // A second renderer draws straight into the scene canvas, so players,
 // bombs, fire and particles are animated by the game's own code.
-const sceneRenderer = new Renderer($<HTMLCanvasElement>('scene'), document.createElement('canvas'), assets, new Particles(512));
+const sceneRenderer = new Renderer($('scene', HTMLCanvasElement), document.createElement('canvas'), assets, new Particles(512));
 const SCENE = { w: 12, h: 5 };
 const sceneMap: GameMap = { w: SCENE.w, h: SCENE.h, tiles: new Uint8Array(SCENE.w * SCENE.h) };
 for (const [x, y] of [[0, 0], [11, 0], [4, 1], [7, 1], [0, 4], [11, 4]]) sceneMap.tiles[y * SCENE.w + x] = T_WALL;
 for (const [x, y] of [[5, 0], [6, 4], [10, 2]]) sceneMap.tiles[y * SCENE.w + x] = T_CRATE;
 sceneMap.tiles[1 * SCENE.w + 9] = T_ARMORED;
-// The renderer only reads these fields of the game state when drawing players.
-const sceneState = {
+const sceneState: PlayerScene = {
+  map: sceneMap,
   myId: 1,
   emotes: new Map(),
   rosterInfo: new Map([
@@ -170,7 +169,7 @@ const sceneState = {
     [3, { name: 'Solo', team: 0, hat: 2, trail: 3 }],
     [7, { name: 'Ghost', team: 0, hat: 4, trail: 2 }],
   ]),
-} as unknown as GameState;
+};
 const sceneItems: [number, number, number][] = [[1, 3, 1], [2, 3, 2], [3, 3, 3], [4, 3, 8], [5, 3, 5], [6, 3, 7]];
 const bomb = (o: Partial<FrameBomb>): FrameBomb => ({
   x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, sticky: false,
@@ -226,9 +225,9 @@ function drawScene(now: number): void {
 }
 
 function update(): void {
-  const seed = Math.max(1, Math.floor(Number($<HTMLInputElement>('seed').value)) || 1);
+  const seed = Math.max(1, Math.floor(Number($('seed', HTMLInputElement).value)) || 1);
   assets.setPixelSeed(seed);
-  renderer.tileStyle = $<HTMLSelectElement>('style').value === 'classic' ? 'classic' : 'pixel';
+  renderer.tileStyle = $('style', HTMLSelectElement).value === 'classic' ? 'classic' : 'pixel';
   drawMap();
   $('sheet').replaceChildren();
   drawSheet(assets.pixel);
@@ -238,9 +237,9 @@ function update(): void {
 $('seed').addEventListener('change', update);
 $('style').addEventListener('change', update);
 $('reroll').addEventListener('click', () => {
-  $<HTMLInputElement>('seed').value = String(1 + Math.floor(Math.random() * 99999));
+  $('seed', HTMLInputElement).value = String(1 + Math.floor(Math.random() * 99999));
   update();
 });
-$('actual').addEventListener('change', (e) => $('map').classList.toggle('actual', (e.target as HTMLInputElement).checked));
+$('actual').addEventListener('change', () => $('map').classList.toggle('actual', $('actual', HTMLInputElement).checked));
 update();
 requestAnimationFrame(drawScene);

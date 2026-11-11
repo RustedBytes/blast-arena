@@ -329,7 +329,7 @@ function obsidianPillar(seed: number, kind: number) {
     if (facet(x, y) !== facet(x - 1, y - 1)) return OBSIDIAN[4]; // glint along facet edges
     return OBSIDIAN[1 + facet(x, y)];
   };
-  const front = (x: number, y: number) => (y === TOP ? OBSIDIAN[2] : OBSIDIAN[1]);
+  const front = (_x: number, y: number) => (y === TOP ? OBSIDIAN[2] : OBSIDIAN[1]);
   const p = block(OBSIDIAN, top, front);
   // The vein runs across the top, spills over the lip and down the front.
   let vx = 4 + int(rand, 4);
@@ -575,7 +575,7 @@ export function buildPixelTiles(seed = 1) {
     teleport: cv(teleport(s(22))),
     floors: floors.map((vs) => vs.map(cv)),
     pillars: pillars.map((vs) => vs.map(cv)),
-    shadows: [null, 1, 2, 3, 4, 5, 6, 7].map((m) => m && cv(shadow(m))),
+    shadows: Array.from({ length: 8 }, (_, mask) => (mask ? cv(shadow(mask)) : null)),
     edges: floors.map((vs, b) => [0, 1, 2, 3].map((d) => cv(fringe(vs[0], borders[b], d, s(30 + b * 4 + d))))),
   };
 }

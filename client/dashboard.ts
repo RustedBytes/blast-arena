@@ -1,7 +1,7 @@
 // Live server dashboard: polls /api/stats and draws simple line charts of
 // the last 10 minutes.
 
-import { byId as $ } from './dom.js';
+import { byId as $, context2d, fireAndForget } from './dom.js';
 
 const POLL_MS = 2000;
 const HISTORY = 300; // samples (10 minutes)
@@ -24,10 +24,20 @@ function push(arr: number[], v: number): void {
   if (arr.length > HISTORY) arr.shift();
 }
 
+/** Checks the shape of `/api/stats` before trusting it. */
+function isStats(v: unknown): v is Stats {
+  if (typeof v !== 'object' || v === null) return false;
+  const s = v as Partial<Record<keyof Stats, unknown>>;
+  return typeof s.cpu_percent === 'number' && typeof s.memory_mb === 'number' && typeof s.uptime_s === 'number'
+    && Array.isArray(s.arenas);
+}
+
 async function poll(): Promise<void> {
   let s: Stats;
   try {
-    s = await (await fetch('/api/stats', { cache: 'no-store' })).json() as Stats;
+    const body: unknown = await (await fetch('/api/stats', { cache: 'no-store' })).json();
+    if (!isStats(body)) throw new Error('unexpected /api/stats response');
+    s = body;
   } catch {
     $('status').textContent = 'server unreachable';
     return;
@@ -84,11 +94,11 @@ function draw(): void {
 }
 
 function chart(id: string, lines: Line[], unit = ''): void {
-  const c = $<HTMLCanvasElement>(`c-${id}`);
+  const c = $(`c-${id}`, HTMLCanvasElement);
   const dpr = devicePixelRatio || 1;
   const w = c.clientWidth * dpr, h = c.clientHeight * dpr;
   if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-  const g = c.getContext('2d')!;
+  const g = context2d(c);
   g.clearRect(0, 0, w, h);
   const pad = 34 * dpr;
   const max = Math.max(1, ...lines.flatMap((l) => l.values)) * 1.15;
@@ -117,6 +127,7 @@ function chart(id: string, lines: Line[], unit = ''): void {
     `<span><i style="background:${l.color}"></i>${l.name}: ${(l.values.at(-1) ?? 0).toFixed(unit === 'count' ? 0 : 1)} ${unit === 'count' ? '' : unit}</span>`).join('');
 }
 
-poll();
-setInterval(poll, POLL_MS);
+const pollNow = (): void => fireAndForget(poll(), 'stats poll');
+pollNow();
+setInterval(pollNow, POLL_MS);
 addEventListener('resize', draw);

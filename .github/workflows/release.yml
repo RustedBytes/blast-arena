@@ -46,6 +46,7 @@ jobs:
       - name: Build the browser client
         run: |
           npm ci
+          npm run check
           npm run build
 
       - uses: dtolnay/rust-toolchain@stable

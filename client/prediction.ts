@@ -69,7 +69,7 @@ export function stepMove(p: Point, dir: number, dist: number, blocked: Blocked):
   if (!dx && !dy) return;
   const horizontal = dx !== 0;
   const step = horizontal ? dx : dy;
-  let main = horizontal ? p.x : p.y;
+  const main = horizontal ? p.x : p.y;
   let side = horizontal ? p.y : p.x;
   const cm = Math.floor(main), cs = Math.floor(side);
   const off = side - (cs + 0.5);
@@ -80,13 +80,17 @@ export function stepMove(p: Point, dir: number, dist: number, blocked: Blocked):
       const a = Math.min(rem, Math.abs(off));
       side -= a * Math.sign(off);
       rem -= a;
-      if (rem <= 0) return write(p, horizontal, main, side);
+      if (rem <= 0) {
+        write(p, horizontal, main, side);
+        return;
+      }
     } else {
       const ns = cs + Math.sign(off);
       if (Math.abs(off) >= CORNER_ASSIST_MIN && !cellAt(blocked, horizontal, cm + step, ns) && !cellAt(blocked, horizontal, cm, ns)) {
         side += Math.min(rem, 1 - Math.abs(off)) * Math.sign(off);
       }
-      return write(p, horizontal, main, side);
+      write(p, horizontal, main, side);
+      return;
     }
   }
   const center = cm + 0.5;
@@ -103,49 +107,30 @@ function write(p: Point, horizontal: boolean, main: number, side: number): void 
 }
 
 export class Predictor {
-  seq: number;
-  hSeq: Int32Array;
-  hDir: Uint8Array;
-  hAlt: Uint8Array;
-  hJump: Uint8Array;
-  pos: PredictState;
-  acc: number;
-  active: boolean;
-  tmp: PredictState;
-  ext: PredictState;
+  /** Whether the local player is being predicted (alive, with a known position). */
+  active = false;
   /** Called when a predicted jump takes off (for sound). */
-  onJump: (() => void) | null;
-  offX: number;
-  offY: number;
-  lastD: number;
-  lastS: number;
-  lastJ: boolean;
-  lastInput: PredictInput;
-  stats: { samples: number; sumError: number; maxError: number; corrections: number };
-
-  constructor() {
-    this.seq = 0;
-    // Ring of recent steps: input used and position after it.
-    this.hSeq = new Int32Array(HISTORY).fill(-1);
-    this.hDir = new Uint8Array(HISTORY);
-    this.hAlt = new Uint8Array(HISTORY);
-    this.hJump = new Uint8Array(HISTORY);
-    this.pos = newState();
-    this.acc = 0;
-    this.active = false;
-    this.tmp = newState();
-    this.ext = newState();
-    this.onJump = null;
-    // Visual offset (drawn - predicted), decaying to zero.
-    this.offX = 0;
-    this.offY = 0;
-    // Input the extrapolation used last frame.
-    this.lastD = 0;
-    this.lastS = 0;
-    this.lastJ = false;
-    this.lastInput = { d: 0, s: 0, j: false };
-    this.stats = { samples: 0, sumError: 0, maxError: 0, corrections: 0 };
-  }
+  onJump: (() => void) | null = null;
+  /** Prediction error against the server (for the debug readout). */
+  readonly stats = { samples: 0, sumError: 0, maxError: 0, corrections: 0 };
+  /** Sequence number of the last step. */
+  private seq = 0;
+  // Ring of recent steps: the input each used.
+  private readonly hSeq = new Int32Array(HISTORY).fill(-1);
+  private readonly hDir = new Uint8Array(HISTORY);
+  private readonly hAlt = new Uint8Array(HISTORY);
+  private readonly hJump = new Uint8Array(HISTORY);
+  /** Time since the last step, in seconds. */
+  private acc = 0;
+  /** State after the last step, scratch for replays, and the extrapolated state. */
+  private readonly pos = newState();
+  private readonly tmp = newState();
+  private readonly ext = newState();
+  /** Visual offset (drawn - predicted), decaying to zero. */
+  private offX = 0;
+  private offY = 0;
+  /** The input the extrapolation used last frame. */
+  private readonly lastInput: PredictInput = { d: 0, s: 0, j: false };
 
   reset(x: number, y: number, facing = 3): void {
     Object.assign(this.pos, newState());
@@ -203,19 +188,19 @@ export class Predictor {
    * and the jump state from `world.me`).
    */
   reconcile(sx: number, sy: number, moving: boolean, facing: number, ack: number, world: PredictWorld, input: PredictInput): void {
-    const me = world.me!;
-    if (!this.active) return;
+    const me = world.me;
+    if (!this.active || !me) return;
     // Where we'd draw now, before the correction.
     this.extrapolate(input, world);
     const bx = this.ext.x, by = this.ext.y;
     const p = this.tmp;
     p.x = sx; p.y = sy; p.moving = moving; p.slide = this.pos.slide; p.facing = facing;
-    p.jumpLeft = me.jump ?? 0;
+    p.jumpLeft = me.jump;
     p.jumpDir = p.jumpLeft > 0 ? facing : 0;
-    p.jumpCd = me.jump_cd ?? 0;
-    p.stun = me.stun ?? 0;
-    p.dashLeft = me.dash ?? 0;
-    p.dashDir = me.dash_dir ?? 0;
+    p.jumpCd = me.jump_cd;
+    p.stun = me.stun;
+    p.dashLeft = me.dash;
+    p.dashDir = me.dash_dir;
     // Replay the inputs the server hasn't applied yet, oldest first. An ack
     // ahead of our last step (an early-sent input) needs no replay.
     const behind = (this.seq - ack) & 0xffff;
@@ -246,7 +231,7 @@ export class Predictor {
   }
 
   /** `ext` = the last step's position advanced by the part of a step elapsed since. */
-  extrapolate(input: PredictInput, world: PredictWorld): void {
+  private extrapolate(input: PredictInput, world: PredictWorld): void {
     const e = copyState(this.ext, this.pos);
     const f = Math.min(1, this.acc / DT);
     if (f > 0) simulate(e, input.d, input.s, input.j, world, f);
@@ -259,19 +244,17 @@ export class Predictor {
 
   /** Drawn position: extrapolated prediction plus the decaying correction. */
   render(out: Point, input: PredictInput, world: PredictWorld, dt: number): void {
-    if (input.d !== this.lastD || input.s !== this.lastS || input.j !== this.lastJ) {
+    const last = this.lastInput;
+    if (input.d !== last.d || input.s !== last.s || input.j !== last.j) {
       // The extrapolation switches direction: glide instead of jumping.
-      this.lastInput.d = this.lastD;
-      this.lastInput.s = this.lastS;
-      this.lastInput.j = this.lastJ;
-      this.extrapolate(this.lastInput, world);
+      this.extrapolate(last, world);
       const ox = this.ext.x, oy = this.ext.y;
       this.extrapolate(input, world);
       this.offX += ox - this.ext.x;
       this.offY += oy - this.ext.y;
-      this.lastD = input.d;
-      this.lastS = input.s;
-      this.lastJ = input.j;
+      last.d = input.d;
+      last.s = input.s;
+      last.j = input.j;
     } else {
       this.extrapolate(input, world);
     }
