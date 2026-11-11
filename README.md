@@ -262,6 +262,13 @@ DOMAIN=play.example.com docker compose up -d
 - WebTransport skips Caddy: host port **443/udp** goes straight to the game's 3000/udp, so open UDP 443 in the firewall. Caddy is limited to HTTP/1.1 and HTTP/2 so it doesn't claim UDP 443 for HTTP/3. Without the UDP port, everyone plays over the WebSocket.
 - Profiles live in the `blast-data` volume.
 - Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.
+- The `Caddyfile` also:
+  - sends security headers: HSTS, a Content-Security-Policy (scripts only from the site itself), `nosniff`, a referrer policy and a permissions policy;
+  - compresses responses over 512 bytes with zstd or gzip;
+  - holds requests for up to 10 seconds while the game restarts instead of answering 502, and health-checks it through `/api/arenas`;
+  - keeps WebSockets open for 5 minutes after a Caddy config reload, so running games aren't cut off;
+  - logs requests as JSON, leaving out the lobby's frequent API polling.
+  It has commented-out lines for an ACME contact e-mail and a `www.` redirect.
 
 Tested with Docker 29 and `docker-compose` 1.29 (in WSL), running `DOMAIN=localhost docker-compose up -d --build`:
 - The image builds, and the server starts all arenas as a non-root user.

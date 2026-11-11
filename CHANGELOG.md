@@ -8,6 +8,13 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Added
 
+- Caddy sends security headers (HSTS, a Content-Security-Policy that only
+  allows the site's own scripts, `nosniff`, referrer and permissions
+  policies), holds requests for up to 10 s while the game restarts and
+  health-checks it, keeps WebSockets open for 5 minutes across a config
+  reload, compresses only responses worth it, and writes a JSON access
+  log without the lobby's API polling.
+
 - WebTransport (HTTP/3 over QUIC) with the WebSocket as the fallback.
   Snapshots go as unreliable datagrams, so a lost packet no longer holds
   back newer ones (TCP's head-of-line blocking); reliable messages share
