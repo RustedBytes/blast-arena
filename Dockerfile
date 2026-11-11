@@ -41,7 +41,11 @@ RUN touch build.rs src/main.rs src/lib.rs \
 
 # Runtime stage: Alpine and the binary (it carries the browser client).
 FROM alpine:3.24
-RUN addgroup -S blast && adduser -S -G blast -h /app blast \
+# The user keeps ID 999:999, which the earlier Debian image gave it, so
+# existing /data volumes stay writable. (Alpine's ping group has GID 999;
+# the server doesn't need it.)
+RUN delgroup ping \
+    && addgroup -S -g 999 blast && adduser -S -u 999 -G blast -h /app blast \
     && mkdir -p /data && chown blast:blast /data
 WORKDIR /app
 COPY --from=build /src/target/release/blast-arena /app/server

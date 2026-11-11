@@ -90,12 +90,21 @@ impl Db {
     /// Opens (or creates) the database and starts its worker thread.
     ///
     /// # Errors
-    /// If the file can't be opened or the schema can't be created.
+    /// If the file can't be opened, the schema can't be created, or the
+    /// file can only be read (wrong owner or permissions): saves would fail.
     ///
     /// # Panics
     /// If the operating system refuses to start the worker thread.
     pub fn open(path: &str) -> rusqlite::Result<Db> {
         let conn = Connection::open(path)?;
+        // SQLite quietly opens a file it may not write as read-only, and then
+        // every save fails. Refuse it here, with the reason.
+        if conn.is_readonly(rusqlite::MAIN_DB)? {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_READONLY),
+                Some(format!("{path} is read-only for this process (check its owner and permissions, and its directory's)")),
+            ));
+        }
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              CREATE TABLE IF NOT EXISTS profiles (
@@ -261,6 +270,19 @@ mod tests {
         assert_eq!(db.load("token-aaaa-1").await, Some(p));
         let top = db.top(10).await;
         assert_eq!(top.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Bob", "Ann"]);
+        let _ = std::fs::remove_file(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_only_files_are_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("blast-ro-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        drop(Db::open(dir.to_str().unwrap()).unwrap());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let err = Db::open(dir.to_str().unwrap()).err().expect("a read-only file is refused");
+        assert!(err.to_string().contains("read-only"), "{err}");
         let _ = std::fs::remove_file(&dir);
     }
 

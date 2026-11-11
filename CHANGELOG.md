@@ -96,6 +96,13 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Fixed
 
+- Profiles weren't saved after the switch to the Alpine image ("attempt
+  to write a readonly database"). Alpine gave the `blast` user ID 100,
+  but volumes made by the Debian image belong to 999, so SQLite could read
+  the database and not write it. The image pins the user to 999:999 again,
+  and the server refuses, with the reason, a database file it can only
+  read instead of failing on every save.
+
 - `/favicon.ico` returned 404: browsers and crawlers ask for it on their own.
   It's now a 16/32/48 px icon rendered from `favicon.svg`, linked from every
   page and covered by a server test.
