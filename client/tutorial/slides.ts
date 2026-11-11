@@ -8,7 +8,8 @@ import type { Scene } from './scene.js';
 export type Icon =
   | { sprite: SpriteName; item: number }      // a power-up, labelled with its in-game name
   | { sprite: SpriteName; label: number }     // labelled with the slide's labels[label]
-  | { emoji: string; label: number };
+  | { emoji: string; label: number }
+  | { monster: number; label: number };       // a dungeon monster by kind (1 slime, 2 skeleton, 3 bat)
 
 export type Visual = { scene: Scene } | { icons: readonly Icon[] };
 
@@ -21,7 +22,7 @@ export interface Slide {
 
 export const SLIDE_IDS = [
   'welcome', 'move', 'bomb', 'jump', 'crates', 'boosts', 'tricks', 'gadgets', 'abilities', 'secret',
-  'arena', 'dangers', 'modes', 'scoring',
+  'arena', 'dangers', 'modes', 'dungeon', 'hearts', 'scoring',
 ] as const;
 export type SlideId = (typeof SLIDE_IDS)[number];
 
@@ -117,7 +118,20 @@ export const SLIDES: readonly Slide[] = [
   {
     id: 'modes',
     visual: {
-      icons: [{ emoji: '🚩', label: 0 }, { emoji: '🌀', label: 1 }, { emoji: '🪱', label: 2 }, { emoji: '🗿', label: 3 }],
+      icons: [{ emoji: '🚩', label: 0 }, { emoji: '🌀', label: 1 }, { emoji: '🪱', label: 2 }, { emoji: '🗿', label: 3 },
+        { emoji: '🚀', label: 4 }, { emoji: '🤖', label: 5 }],
+    },
+  },
+  {
+    id: 'dungeon',
+    visual: {
+      icons: [{ monster: 1, label: 0 }, { monster: 2, label: 1 }, { monster: 3, label: 2 }, { emoji: '🗝️', label: 3 }],
+    },
+  },
+  {
+    id: 'hearts',
+    visual: {
+      icons: [{ emoji: '❤️', label: 0 }, { emoji: '💨', label: 1 }, { emoji: '🩸', label: 2 }, item('pu_heart', 27)],
     },
   },
   {

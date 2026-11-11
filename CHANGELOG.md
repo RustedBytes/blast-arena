@@ -6,6 +6,8 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-11
+
 ### Added
 
 - A Heart power-up (item 27) in the dungeon arena: picking it up brings
@@ -14,6 +16,17 @@ All notable changes to Blast Arena are documented here. The format follows
   else (never from secret boxes). A heart coming back, over time or from
   the power-up, now sparkles on your player, and healing over time shows
   a "+1 heart" notice.
+
+- A "Bomb / rocket key" setting: F drops bombs (and fires rockets) and
+  Space jumps, as before, or the two are swapped so Space drops bombs and
+  F jumps. Enter always drops a bomb. The key caps in the lobby help, the
+  controls list and the tutorial follow the setting.
+
+- Tutorial: two new slides, **The Dungeon** (slimes, skeletons and bats,
+  drawn with their in-game sprites, and the Warden's treasure room) and
+  **Hearts** (three hearts against bites, the 2 s to get away, healing
+  over time and the Heart power-up); the **Arenas** slide now also shows
+  the Rockets and Horde arenas. 16 slides in all, in every language.
 
 ### Changed
 
@@ -30,15 +43,6 @@ All notable changes to Blast Arena are documented here. The format follows
   player leaves a trail of blood drops while walking (more of them while
   blinking), which dry darker and fade after a few seconds.
 
-### Added
-
-- A "Bomb / rocket key" setting: F drops bombs (and fires rockets) and
-  Space jumps, as before, or the two are swapped so Space drops bombs and
-  F jumps. Enter always drops a bomb. The key caps in the lobby help, the
-  controls list and the tutorial follow the setting.
-
-### Changed
-
 - Less CPU for big bot crowds (back-pressure on the arena task):
   - An arena with no humans in it steps once a second instead of 20
     times: nobody sees it, and the first human to join starts the round
@@ -50,6 +54,13 @@ All notable changes to Blast Arena are documented here. The format follows
     of 4.2 ms in `simbench --bots 1000 --map-size 321 --clients 1`.
   - When an arena's ticks average over 8 ms for a second, far-away bots
     slow down a further step (up to 4×), and speed back up below 4 ms.
+
+- Crowded arenas (100 or more players online, or a map of 161×161 and
+  up, such as the Horde) only announce what's near you: the kill feed
+  lists kills you were in or that happened in view, deaths out of sight
+  aren't drawn, and other players' streaks and the Warden's news show
+  only when they're nearby. A clone appearing is only heard nearby, in
+  every arena.
 
 ### Fixed
 
@@ -602,6 +613,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.10.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.10.0
 [0.9.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.9.0
 [0.8.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.8.0
 [0.7.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.7.0

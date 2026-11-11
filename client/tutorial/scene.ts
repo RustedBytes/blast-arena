@@ -111,6 +111,16 @@ function drawArrow(g: CanvasRenderingContext2D, x0: number, y0: number, x1: numb
 }
 
 /** A single sprite as a square canvas (for icon grids). */
+/** A dungeon monster (kind 1 slime, 2 skeleton, 3 bat) as an icon. */
+export function drawMonsterIcon(canvas: HTMLCanvasElement, kind: number, assets: Assets): void {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.height = CELL * 1.2 * dpr;
+  const g = context2d(canvas);
+  g.imageSmoothingEnabled = false;
+  const img = assets.pixel.monsters[kind - 1]?.[0] as HTMLCanvasElement | undefined;
+  if (img) g.drawImage(img, 0, 0, canvas.width, canvas.height);
+}
+
 export function drawIcon(canvas: HTMLCanvasElement, name: SpriteName, assets: Assets): void {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = canvas.height = CELL * 1.2 * dpr;

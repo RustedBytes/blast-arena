@@ -134,7 +134,15 @@ export const de: Strings = {
     },
     modes: {
       title: 'Arenen', body: 'Wähl in der Lobby eine Arena. Jede hat ihren eigenen Dreh.',
-      labels: ['Teams: klau die gegnerische Flagge', 'Royale: nur einer bleibt übrig', 'Würmer: riesige Würmer jagen dich', 'Der Wächter bewacht einen Tresor voller Power-ups'],
+      labels: ['Teams: klau die gegnerische Flagge', 'Royale: nur einer bleibt übrig', 'Würmer: riesige Würmer jagen dich', 'Der Wächter bewacht einen Tresor voller Power-ups', 'Raketen: die Bombentaste feuert Raketen', 'Horde: tausend Bots'],
+    },
+    dungeon: {
+      title: 'Das Verlies', body: 'Räume und enge Gänge voller Monster, die jeden in der Nähe jagen. Sprengst du sie, gibt es Punkte und Beute.',
+      labels: ['Schleime: langsam und blind für Bomben (+1)', 'Skelette: halten zwei Explosionen aus (+2)', 'Fledermäuse: fliegen über Kisten, sprunghaft (+1)', 'Der Wächter bewacht die Schatzkammer'],
+    },
+    hearts: {
+      title: 'Herzen', body: 'Im Verlies kostet dich ein Monsterbiss ein Herz, nicht das Leben. Bomben töten weiterhin sofort.',
+      labels: ['Drei Herzen; der letzte Biss tötet', 'Gebissen: Du blinkst 2 s und Monster verlieren das Interesse. Lauf!', 'Alle 8 s kommt ein Herz zurück; bis dahin blutest du'],
     },
     scoring: {
       title: 'Punkte sammeln', body: 'Halte Tab für die Bestenliste, Esc öffnet die Einstellungen. Viel Glück!',

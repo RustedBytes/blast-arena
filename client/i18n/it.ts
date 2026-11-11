@@ -134,7 +134,15 @@ export const it: Strings = {
     },
     modes: {
       title: 'Arene', body: 'Scegli un’arena nella lobby. Ognuna ha la sua particolarità.',
-      labels: ['Squadre: ruba la bandiera nemica', 'Royale: vince l’ultimo in piedi', 'Vermi: vermi giganti ti danno la caccia', 'Il Guardiano sorveglia un caveau di potenziamenti'],
+      labels: ['Squadre: ruba la bandiera nemica', 'Royale: vince l’ultimo in piedi', 'Vermi: vermi giganti ti danno la caccia', 'Il Guardiano sorveglia un caveau di potenziamenti', 'Razzi: il tasto bomba spara razzi', 'Orda: mille bot'],
+    },
+    dungeon: {
+      title: 'Il Sotterraneo', body: 'Stanze e corridoi stretti infestati da mostri che danno la caccia a chiunque si avvicini. Falli saltare per punti e bottino.',
+      labels: ['Melme: lente e cieche alle bombe (+1)', 'Scheletri: reggono due esplosioni (+2)', 'Pipistrelli: volano sopra le casse, imprevedibili (+1)', 'Il Guardiano sorveglia la sala del tesoro'],
+    },
+    hearts: {
+      title: 'Cuori', body: 'Nel Sotterraneo il morso di un mostro ti costa un cuore, non la vita. Le bombe uccidono ancora in un colpo.',
+      labels: ['Tre cuori; l’ultimo morso uccide', 'Morso: lampeggi per 2 s e i mostri perdono interesse. Scappa!', 'Un cuore torna ogni 8 s; fino ad allora sanguini'],
     },
     scoring: {
       title: 'Fai punti', body: 'Tieni premuto Tab per la classifica, Esc per le impostazioni. Buona fortuna!',

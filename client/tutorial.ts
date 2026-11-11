@@ -7,7 +7,7 @@ import type { Assets } from './assets.js';
 import { query, setChildren } from './dom.js';
 import { t } from './i18n.js';
 import { bombLabel, jumpLabel } from './keymap.js';
-import { drawIcon, drawScene, hasFire } from './tutorial/scene.js';
+import { drawIcon, drawMonsterIcon, drawScene, hasFire } from './tutorial/scene.js';
 import { SLIDES } from './tutorial/slides.js';
 import type { Icon, Slide } from './tutorial/slides.js';
 
@@ -181,6 +181,10 @@ export class Tutorial {
       span.textContent = icon.emoji;
       span.setAttribute('aria-hidden', 'true');
       fig.append(span);
+    } else if ('monster' in icon) {
+      const canvas = document.createElement('canvas');
+      drawMonsterIcon(canvas, icon.monster, this.assets);
+      fig.append(canvas);
     } else {
       const canvas = document.createElement('canvas');
       drawIcon(canvas, icon.sprite, this.assets);

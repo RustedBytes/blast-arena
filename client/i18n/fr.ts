@@ -134,7 +134,15 @@ export const fr: Strings = {
     },
     modes: {
       title: 'Arènes', body: 'Choisis une arène dans le salon. Chacune a sa particularité.',
-      labels: ['Équipes : vole le drapeau adverse', 'Royale : le dernier debout gagne', 'Vers : des vers géants te chassent', 'Le Gardien protège un trésor de bonus'],
+      labels: ['Équipes : vole le drapeau adverse', 'Royale : le dernier debout gagne', 'Vers : des vers géants te chassent', 'Le Gardien protège un trésor de bonus', 'Roquettes : la touche bombe tire des roquettes', 'Horde : mille bots'],
+    },
+    dungeon: {
+      title: 'Le Donjon', body: 'Des salles et des couloirs étroits, hantés par des monstres qui chassent quiconque s’approche. Fais-les sauter pour des points et du butin.',
+      labels: ['Slimes : lents et aveugles aux bombes (+1)', 'Squelettes : encaissent deux explosions (+2)', 'Chauves-souris : volent au-dessus des caisses, erratiques (+1)', 'Le Gardien protège la salle au trésor'],
+    },
+    hearts: {
+      title: 'Cœurs', body: 'Dans le Donjon, une morsure de monstre te coûte un cœur, pas la vie. Les bombes tuent toujours d’un coup.',
+      labels: ['Trois cœurs ; la dernière morsure tue', 'Mordu : tu clignotes 2 s et les monstres se désintéressent de toi. Fuis !', 'Un cœur revient toutes les 8 s ; d’ici là tu saignes'],
     },
     scoring: {
       title: 'Marquer des points', body: 'Maintiens Tab pour le classement, Échap pour les réglages. Bonne chance !',

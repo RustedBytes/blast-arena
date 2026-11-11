@@ -134,7 +134,15 @@ export const pl: Strings = {
     },
     modes: {
       title: 'Areny', body: 'Wybierz arenę w lobby. Każda ma swój haczyk.',
-      labels: ['Drużyny: ukradnij flagę wroga', 'Royale: wygrywa ostatni na placu', 'Robaki: wielkie robaki na ciebie polują', 'Strażnik pilnuje skarbca pełnego bonusów'],
+      labels: ['Drużyny: ukradnij flagę wroga', 'Royale: wygrywa ostatni na placu', 'Robaki: wielkie robaki na ciebie polują', 'Strażnik pilnuje skarbca pełnego bonusów', 'Rakiety: klawisz bomby wystrzeliwuje rakiety', 'Horda: tysiąc botów'],
+    },
+    dungeon: {
+      title: 'Loch', body: 'Komnaty i wąskie korytarze pełne potworów, które polują na każdego w pobliżu. Wysadzaj je dla punktów i łupów.',
+      labels: ['Szlamy: powolne i ślepe na bomby (+1)', 'Szkielety: wytrzymują dwa wybuchy (+2)', 'Nietoperze: latają nad skrzynkami, nieobliczalne (+1)', 'Strażnik pilnuje skarbca'],
+    },
+    hearts: {
+      title: 'Serca', body: 'W Lochu ugryzienie potwora kosztuje serce, nie życie. Bomby nadal zabijają od razu.',
+      labels: ['Trzy serca; ostatnie ugryzienie zabija', 'Ugryziony: migasz przez 2 s, a potwory tracą zainteresowanie. Uciekaj!', 'Co 8 s wraca jedno serce; do tego czasu krwawisz'],
     },
     scoring: {
       title: 'Zdobywaj punkty', body: 'Przytrzymaj Tab, by zobaczyć ranking, Esc otwiera ustawienia. Powodzenia!',

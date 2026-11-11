@@ -134,7 +134,15 @@ export const es: Strings = {
     },
     modes: {
       title: 'Arenas', body: 'Elige una arena en el vestíbulo. Cada una tiene su gracia.',
-      labels: ['Equipos: roba la bandera rival', 'Royale: gana el último en pie', 'Gusanos: gusanos gigantes te cazan', 'El Guardián vigila una cámara llena de potenciadores'],
+      labels: ['Equipos: roba la bandera rival', 'Royale: gana el último en pie', 'Gusanos: gusanos gigantes te cazan', 'El Guardián vigila una cámara llena de potenciadores', 'Cohetes: la tecla de bomba dispara cohetes', 'Horda: mil bots'],
+    },
+    dungeon: {
+      title: 'La Mazmorra', body: 'Salas y pasillos estrechos llenos de monstruos que cazan a quien se acerque. Hazlos volar para ganar puntos y botín.',
+      labels: ['Limos: lentos y ciegos a las bombas (+1)', 'Esqueletos: aguantan dos explosiones (+2)', 'Murciélagos: vuelan sobre las cajas, erráticos (+1)', 'El Guardián vigila la sala del tesoro'],
+    },
+    hearts: {
+      title: 'Corazones', body: 'En la Mazmorra un mordisco de monstruo te cuesta un corazón, no la vida. Las bombas siguen matando de un golpe.',
+      labels: ['Tres corazones; el último mordisco mata', 'Mordido: parpadeas 2 s y los monstruos pierden interés. ¡Corre!', 'Recuperas un corazón cada 8 s; hasta entonces sangras'],
     },
     scoring: {
       title: 'Gana puntos', body: 'Mantén Tab para ver la clasificación y Esc para los ajustes. ¡Suerte!',

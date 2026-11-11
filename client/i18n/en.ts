@@ -133,7 +133,15 @@ export const en = {
     },
     modes: {
       title: 'Arenas', body: 'Pick an arena in the lobby. Each one has a twist.',
-      labels: ['Teams: steal the enemy flag', 'Royale: last one standing', 'Worms: giant worms hunt you', 'The Warden guards a vault of power-ups'],
+      labels: ['Teams: steal the enemy flag', 'Royale: last one standing', 'Worms: giant worms hunt you', 'The Warden guards a vault of power-ups', 'Rockets: the bomb key fires rockets', 'Horde: a thousand bots'],
+    },
+    dungeon: {
+      title: 'The Dungeon', body: 'Rooms and narrow corridors, haunted by monsters that hunt anyone near. Blow them up for points and loot.',
+      labels: ['Slimes: slow and blind to bombs (+1)', 'Skeletons: take two blasts (+2)', 'Bats: fly over crates, erratic (+1)', 'The Warden guards the treasure room'],
+    },
+    hearts: {
+      title: 'Hearts', body: 'In the Dungeon a monster\'s bite costs a heart, not your life. Bombs still kill in one hit.',
+      labels: ['Three hearts; the last bite kills', 'Bitten: you blink for 2 s and monsters lose interest. Run!', 'Hearts come back one every 8 s; you bleed until then'],
     },
     scoring: {
       title: 'Score points', body: 'Hold Tab for the leaderboard and press Esc for settings. Good luck!',
