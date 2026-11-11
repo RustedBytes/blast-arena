@@ -290,7 +290,7 @@ fn monsters_keep_away_from_fire() {
 fn bats_fly_over_crates_but_not_walls() {
     let mut w = quiet(test_world(Map::empty(15, 15)));
     w.place_monster(Kind::Bat, (3, 3));
-    w.map.set(4, 3, Tile::Crate);
+    w.set_tile(4, 3, Tile::Crate);
     assert!(w.monster_can_enter(Kind::Bat, 4, 3));
     assert!(!w.monster_can_enter(Kind::Slime, 4, 3));
     assert!(!w.monster_can_enter(Kind::Bat, 4, 4), "a pillar");

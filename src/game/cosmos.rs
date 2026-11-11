@@ -241,7 +241,7 @@ mod tests {
         let me = shooter(&mut w, 3.5, 5.5);
         let target = shooter(&mut w, 11.5, 5.5);
         for x in [6, 7, 9] {
-            w.map.set(x, 5, Tile::Crate);
+            w.set_tile(x, 5, Tile::Crate);
         }
         w.pick_up(me, Item::PhaseCore);
         assert!(w.place_bomb(me));
@@ -256,7 +256,7 @@ mod tests {
         let me = shooter(&mut w, 3.5, 5.5);
         let target = shooter(&mut w, 11.5, 5.5);
         for x in [6, 7, 9] {
-            w.map.set(x, 5, Tile::Crate);
+            w.set_tile(x, 5, Tile::Crate);
         }
         assert!(w.place_bomb(me));
         for _ in 0..15 {
