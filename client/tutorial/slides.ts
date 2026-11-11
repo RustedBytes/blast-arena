@@ -22,7 +22,7 @@ export interface Slide {
 
 export const SLIDE_IDS = [
   'welcome', 'move', 'bomb', 'jump', 'crates', 'boosts', 'tricks', 'gadgets', 'abilities', 'secret',
-  'arena', 'dangers', 'modes', 'dungeon', 'hearts', 'scoring',
+  'arena', 'dangers', 'modes', 'dungeon', 'hearts', 'cosmos', 'scoring',
 ] as const;
 export type SlideId = (typeof SLIDE_IDS)[number];
 
@@ -132,6 +132,13 @@ export const SLIDES: readonly Slide[] = [
     id: 'hearts',
     visual: {
       icons: [{ emoji: '❤️', label: 0 }, { emoji: '💨', label: 1 }, { emoji: '🩸', label: 2 }, item('pu_heart', 27)],
+    },
+  },
+  {
+    id: 'cosmos',
+    visual: {
+      icons: [{ sprite: 'pu_plasma', label: 0 }, { sprite: 'pu_cryo', label: 1 }, { sprite: 'pu_phase', label: 2 },
+        { sprite: 'pu_nova', label: 3 }, { sprite: 'pu_overdrive', label: 4 }],
     },
   },
   {

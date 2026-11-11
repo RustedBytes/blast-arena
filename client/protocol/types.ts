@@ -69,7 +69,7 @@ export type Me = Readonly<
 >;
 
 /** Arena modes; mirrors `game::Mode`. */
-export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'worms' | 'rockets' | 'dungeon';
+export type ArenaMode = 'ffa' | 'teams' | 'royale' | 'worms' | 'rockets' | 'dungeon' | 'cosmos';
 
 /** A full snapshot rebuilt from a delta. */
 export interface Snapshot {

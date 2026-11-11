@@ -9,6 +9,7 @@ pub mod ai;
 pub mod bomb;
 pub mod builder;
 pub mod clone;
+pub mod cosmos;
 pub mod dash;
 pub mod gas;
 pub mod guard;
@@ -126,6 +127,9 @@ pub enum Mode {
     /// Free-for-all in a dungeon of rooms and corridors, haunted by
     /// monsters that hunt everyone (see `monsters`).
     Dungeon,
+    /// Free-for-all in space: the bomb key fires a blaster bolt whose
+    /// colour (and effect) comes from blaster cores (see `cosmos`).
+    Cosmos,
 }
 
 impl Mode {
@@ -138,6 +142,7 @@ impl Mode {
             Mode::Worms => "worms",
             Mode::Rockets => "rockets",
             Mode::Dungeon => "dungeon",
+            Mode::Cosmos => "cosmos",
         }
     }
 
@@ -150,6 +155,7 @@ impl Mode {
             "worms" => Some(Mode::Worms),
             "rockets" => Some(Mode::Rockets),
             "dungeon" => Some(Mode::Dungeon),
+            "cosmos" => Some(Mode::Cosmos),
             _ => None,
         }
     }
@@ -367,6 +373,8 @@ impl World {
             Map::generate_open(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
         } else if cfg.mode == Mode::Dungeon {
             Map::generate_dungeon(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
+        } else if cfg.mode == Mode::Cosmos {
+            Map::generate_space(cfg.map_w, cfg.map_h, &mut Rng::new(cfg.map_seed))
         } else {
             Map::generate(cfg.map_w, cfg.map_h, CRATE_DENSITY, &mut Rng::new(cfg.map_seed))
         };

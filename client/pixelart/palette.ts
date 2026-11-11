@@ -24,6 +24,11 @@ export const LIMESTONE = ['#2a2433', '#4a4257', '#6e6577', '#968b94', '#bdb0a8',
 export const FLAGSTONE = ['#1e1a1a', '#2e2928', '#3d3734', '#4b4540', '#59524b', '#675f56', '#776d62'];
 // Dungeon brick: cold, dark and a little damp.
 export const CRYPT = ['#0c0b12', '#16141f', '#211e2c', '#2d2939', '#3a3547', '#4a4458', '#5d566c', '#7a7189'];
+// Space deck plates: deep blue-violet metal, dark enough for a starfield.
+export const DECK = ['#06070f', '#0b0d1c', '#12152a', '#1a1e38', '#232847', '#2e3458', '#3c4370'];
+// Station hull: cool gunmetal with cyan running lights.
+export const HULL = ['#0a0c14', '#151a26', '#222a3a', '#323d52', '#465570', '#61728f', '#8496b3', '#b6c6de'];
+export const NEON = ['#1a6f8a', '#3ad8ff', '#bdf6ff'];
 export const OBSIDIAN = ['#08060c', '#130e1b', '#1f1729', '#2e2240', '#45345e', '#5d4b7d', '#7a68a3'];
 export const WOOD = ['#2e1712', '#4f2a1b', '#743f23', '#98582c', '#b8733a', '#d4974f', '#ecbd72', '#f8dea0'];
 export const ICE = ['#1f4c82', '#2f6fae', '#4f98d4', '#7fc0ea', '#b2e2f8', '#e2f7ff', '#ffffff'];

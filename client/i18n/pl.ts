@@ -13,6 +13,8 @@ export const pl: Strings = {
   modeTeams: 'Czerwoni kontra Niebiescy',
   modeWorms: 'Robaki',
   modeRockets: 'Rakiety', helpRocket: 'rakieta', rocketsHint: 'Arena rakiet: przycisk bomby wystrzeliwuje rakietę w kierunku, w którym patrzysz',
+  modeCosmos: 'Kosmos', helpBlaster: 'blaster', cosmosHint: 'Arena Kosmos: przycisk bomby strzela z blastera. Zbieraj rdzenie, by zmienić jego kolor!',
+  blasters: ['', 'Zielony blaster', 'Blaster plazmowy', 'Blaster krio', 'Blaster fazowy', 'Blaster nova'], overdrive: 'Przeciążenie: szybki ogień',
   profile: 'Twój profil',
   level: 'Poziom {n}',
   xpProgress: '{xp} / {next} PD',
@@ -106,6 +108,7 @@ export const pl: Strings = {
     20: 'Rój dronów (naciśnij Q)',
     21: 'Budowniczy: tymczasowe mury (naciśnij R)', 22: 'Bomby gazowe ×2: spowalniająca chmura', 23: 'Klon: sobowtór na przynętę (naciśnij R)',
     24: 'Lepkie bomby ×2: rzucone przyklejają się do wrogów', 25: 'Para portali (naciśnij R dwa razy)', 26: 'Zryw (naciśnij R)', 27: 'Serce: całe zdrowie wraca',
+    28: 'Rdzeń plazmowy: czerwony blaster, większe wybuchy', 29: 'Rdzeń krio: błękitny blaster, wybuchy zostawiają lód', 30: 'Rdzeń fazowy: fioletowy blaster, strzela przez skrzynie', 31: 'Rdzeń nova: złoty blaster, trzy strzały naraz', 32: 'Przeciążenie: szybki ogień przez 8 s',
     100: 'Jackpot! +1 bomba, zasięg i szybkość', 110: 'Klątwa: spowolnienie', 111: 'Klątwa: brak bomb',
     112: 'Deszcz bomb!', 113: 'Klątwa: odwrócone sterowanie',
   },
@@ -143,6 +146,10 @@ export const pl: Strings = {
     hearts: {
       title: 'Serca', body: 'W Lochu ugryzienie potwora kosztuje serce, nie życie. Bomby nadal zabijają od razu.',
       labels: ['Trzy serca; ostatnie ugryzienie zabija', 'Ugryziony: migasz przez 2 s, a potwory tracą zainteresowanie. Uciekaj!', 'Co 8 s wraca jedno serce; do tego czasu krwawisz'],
+    },
+    cosmos: {
+      title: 'Kosmos', body: 'Stacja kosmiczna, na której przycisk bomby strzela z blastera. Pociski lecą szybko i wybuchają przy trafieniu. Rdzenie zmieniają kolor blastera aż do śmierci.',
+      labels: ['Plazma: większe wybuchy', 'Krio: zostawia lód', 'Faza: przez skrzynie', 'Nova: trzy strzały naraz', 'Przeciążenie: szybki ogień'],
     },
     scoring: {
       title: 'Zdobywaj punkty', body: 'Przytrzymaj Tab, by zobaczyć ranking, Esc otwiera ustawienia. Powodzenia!',

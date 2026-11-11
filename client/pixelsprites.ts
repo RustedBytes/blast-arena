@@ -33,7 +33,8 @@ export function buildPixelSprites() {
   // Sprite names of the tokens, in the same order (item kinds 1, 2, ...).
   const names = ['pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
     'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke',
-    'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm', 'pu_heart'];
+    'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm', 'pu_heart',
+    'pu_plasma', 'pu_cryo', 'pu_phase', 'pu_nova', 'pu_overdrive'];
   /** Power-up tokens by sprite name (looked up by name, see Assets.tile). */
   const tokens: Record<string, HTMLCanvasElement> = {};
   if (items.length !== names.length) throw new Error('pixelsprites: a power-up token without a name');

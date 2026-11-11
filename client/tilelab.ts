@@ -26,7 +26,7 @@ const ui = {
 
 const SIZE = 49;
 const CHUNK = 8;
-const BIOMES = ['meadow', 'snow', 'desert', 'volcano', 'crypt'];
+const BIOMES = ['meadow', 'snow', 'desert', 'volcano', 'crypt', 'space'];
 
 /** Small seeded generator for the sample map (separate from the art seed). */
 function rng(seed: number): () => number {
@@ -185,7 +185,7 @@ const sceneState: PlayerScene = {
 const sceneItems: [number, number, number][] = [[1, 3, 1], [2, 3, 2], [3, 3, 3], [4, 3, 8], [5, 3, 5], [6, 3, 7]];
 const bomb = (o: Partial<FrameBomb>): FrameBomb => ({
   x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false, sticky: false,
-  gas: false, carrier: 0, dx: 0, dy: 0, ...o,
+  gas: false, carrier: 0, dx: 0, dy: 0, bolt: 0, ...o,
 });
 const bombs: Frame = {
   nBombs: 3,

@@ -63,7 +63,7 @@ export function decodeSnapshot(r: Reader, baseFor: SnapshotBase): Snapshot | nul
     let id = 0;
     for (let n = r.uvar(); n > 0; n--) {
       id += r.uvar();
-      const x = r.uvar(), y = r.uvar(), f = r.u8();
+      const x = r.uvar(), y = r.uvar(), f = r.uvar();
       bombs.set(id, [id, x, y, hasFlag(f, BOMB_FLAG.REMOTE) ? 0 : k + r.ivar(), f]);
     }
   }
@@ -152,6 +152,6 @@ export function meObject(raw: readonly number[]): Me {
     carrying: n('carrying'), storm: n('storm'), storm_max: n('storm_max'), ability: n('ability'), ability_n: n('ability_n'),
     ability_max: n('ability_max'), ability_cd: n('ability_cd'), gas_bombs: n('gas_bombs'), sticky_bombs: n('sticky_bombs'),
     stuck: n('stuck'), detach: n('detach'), gassed: n('gassed'), dash: n('dash'), dash_dir: n('dash_dir'),
-    portal_wait: n('portal_wait'), hp: n('hp'), hp_max: n('hp_max'),
+    portal_wait: n('portal_wait'), hp: n('hp'), hp_max: n('hp_max'), blaster: n('blaster'), overdrive: n('overdrive'),
   };
 }

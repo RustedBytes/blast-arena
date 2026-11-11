@@ -26,6 +26,12 @@ impl World {
             Item::Stomp => p.stomp = true,
             // Every lost heart back.
             Item::Heart => p.wounds = 0,
+            // Cosmos: a core recolours the blaster (see `cosmos`).
+            Item::PlasmaCore => p.blaster = super::cosmos::blaster::PLASMA,
+            Item::CryoCore => p.blaster = super::cosmos::blaster::CRYO,
+            Item::PhaseCore => p.blaster = super::cosmos::blaster::PHASE,
+            Item::NovaCore => p.blaster = super::cosmos::blaster::NOVA,
+            Item::Overdrive => p.overdrive_until = p.overdrive_until.max(tick) + super::cosmos::OVERDRIVE_TICKS,
             Item::Mine | Item::Rocket | Item::Swap | Item::Drone | Item::Swarm => {
                 let charges = item.gadget_charges().unwrap_or(1);
                 // A new kind of gadget replaces the one held.
@@ -55,6 +61,7 @@ impl World {
             let outcome = match Mystery::open(&mut self.rng) {
                 // A switched-off ability from a box is an extra bomb instead.
                 Mystery::Item(i) if !self.ability_enabled(i) => Mystery::Item(Item::ExtraBomb),
+                Mystery::Item(i) if self.mode == super::Mode::Cosmos => Mystery::Item(self.cosmos_swap(i)),
                 o => o,
             };
             if let Mystery::Item(i) = outcome

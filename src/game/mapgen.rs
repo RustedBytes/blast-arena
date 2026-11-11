@@ -202,6 +202,27 @@ impl Map {
         })
     }
 
+    /// A space station for the cosmos arena: an open pillar style with
+    /// long lanes to shoot down, light crate cover, extra warp pads, all on
+    /// starfield deck plates.
+    pub fn generate_space(w: i32, h: i32, rng: &mut Rng) -> Self {
+        let mut style = MapStyle::roll(w, h, 0.3, rng);
+        style.pillars = match rng.below(4) {
+            0 => Pillars::Classic,
+            1 => Pillars::Scattered,
+            2 => Pillars::Plazas,
+            _ => Pillars::Rings,
+        };
+        style.crate_density = style.crate_density.min(0.34);
+        (style.ice, style.armored, style.conveyors) = (0.0, 0.0, 0.0);
+        style.teleport_pairs = ((w * h) / 900).clamp(2, 5) as usize;
+        Self::best_of(rng, |rng| {
+            let mut map = Self::generate_with(w, h, style, rng);
+            map.biomes = vec![BiomeSeed { x: 0.5, y: 0.5, biome: Biome::Space }];
+            map
+        })
+    }
+
     /// A dungeon for the dungeon arena: rooms of open floor joined by
     /// narrow, winding corridors, all in crypt stone. Rooms sit on the lane
     /// grid with their pillars cleared out; the rest of the map is walled

@@ -13,6 +13,8 @@ export const es: Strings = {
   modeTeams: 'Rojos contra Azules',
   modeWorms: 'Gusanos',
   modeRockets: 'Cohetes', helpRocket: 'cohete', rocketsHint: 'Arena de cohetes: el botón de bomba dispara un cohete hacia donde miras',
+  modeCosmos: 'Cosmos', helpBlaster: 'bláster', cosmosHint: 'Arena Cosmos: el botón de bomba dispara tu bláster. ¡Recoge núcleos para cambiar su color!',
+  blasters: ['', 'Bláster verde', 'Bláster de plasma', 'Bláster crio', 'Bláster de fase', 'Bláster nova'], overdrive: 'Sobrecarga: fuego rápido',
   profile: 'Tu perfil',
   level: 'Nivel {n}',
   xpProgress: '{xp} / {next} XP',
@@ -106,6 +108,7 @@ export const es: Strings = {
     20: 'Enjambre de drones (pulsa Q)',
     21: 'Constructor: muros temporales (pulsa R)', 22: 'Bombas de gas ×2: una nube que ralentiza', 23: 'Clon: un doble señuelo (pulsa R)',
     24: 'Bombas pegajosas ×2: al lanzarlas se pegan a los enemigos', 25: 'Par de portales (pulsa R dos veces)', 26: 'Embestida (pulsa R)', 27: 'Corazón: recuperas toda la salud',
+    28: 'Núcleo de plasma: bláster rojo, explosiones mayores', 29: 'Núcleo crio: bláster cian, las explosiones dejan hielo', 30: 'Núcleo de fase: bláster violeta, dispara a través de cajas', 31: 'Núcleo nova: bláster dorado, tres disparos a la vez', 32: 'Sobrecarga: fuego rápido durante 8 s',
     100: '¡Premio gordo! +1 bomba, alcance y velocidad', 110: 'Maldito: más lento', 111: 'Maldito: sin bombas',
     112: '¡Lluvia de bombas!', 113: 'Maldito: controles invertidos',
   },
@@ -143,6 +146,10 @@ export const es: Strings = {
     hearts: {
       title: 'Corazones', body: 'En la Mazmorra un mordisco de monstruo te cuesta un corazón, no la vida. Las bombas siguen matando de un golpe.',
       labels: ['Tres corazones; el último mordisco mata', 'Mordido: parpadeas 2 s y los monstruos pierden interés. ¡Corre!', 'Recuperas un corazón cada 8 s; hasta entonces sangras'],
+    },
+    cosmos: {
+      title: 'Cosmos', body: 'Una estación espacial donde el botón de bomba dispara un bláster. Los disparos vuelan rápido y estallan al impactar. Los núcleos cambian el color de tu bláster hasta que mueras.',
+      labels: ['Plasma: explosiones mayores', 'Crio: deja hielo', 'Fase: atraviesa cajas', 'Nova: tres disparos a la vez', 'Sobrecarga: fuego rápido'],
     },
     scoring: {
       title: 'Gana puntos', body: 'Mantén Tab para ver la clasificación y Esc para los ajustes. ¡Suerte!',

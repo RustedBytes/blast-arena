@@ -312,5 +312,71 @@ export function powerUps(): Pix[] {
       '    oo    ',
       '          ',
     ], { o: '#3a0610', '#': '#ff3a4a', '+': '#ff9aa2', '-': '#a8101e', w: '#ffffff' }),
+    // Cosmos blaster cores: a blaster grip and a glowing orb of the colour.
+    // Plasma (red): bigger blasts.
+    token('red', [
+      '      rr  ',
+      '     rRRr ',
+      '    rRwwRr',
+      ' ggggRwwRr',
+      ' gggg rRr ',
+      ' g  g  r  ',
+      ' gg       ',
+      '  g       ',
+      '          ',
+      '          ',
+    ], { g: '#5a6478', r: '#ff3a3a', R: '#ff8a7a', w: '#ffffff' }),
+    // Cryo (cyan): blasts leave ice.
+    token('blue', [
+      '    w     ',
+      ' w  c  w  ',
+      '  c c c   ',
+      '   ccc    ',
+      'wccCwCccw ',
+      '   ccc    ',
+      '  c c c   ',
+      ' w  c  w  ',
+      '    w     ',
+      '          ',
+    ], { c: '#3ad8ff', C: '#c8fbff', w: '#ffffff' }),
+    // Phase (violet): through crates.
+    token('purple', [
+      '   bb     ',
+      '   bb     ',
+      '   bb     ',
+      'vvVVwwVVvv',
+      '   bb     ',
+      '   bb     ',
+      '   bb     ',
+      '          ',
+      '          ',
+      '          ',
+    ], { b: '#8a5a36', v: '#a64aff', V: '#e6c8ff', w: '#ffffff' }),
+    // Nova (gold): three bolts at once.
+    token('gold', [
+      'y   y   y ',
+      ' y  y  y  ',
+      '  y y y   ',
+      '   yyy    ',
+      '    Y     ',
+      '   YwY    ',
+      '    Y     ',
+      '          ',
+      '          ',
+      '          ',
+    ], { y: '#ffb81a', Y: '#fff3a8', w: '#ffffff' }),
+    // Overdrive: rapid fire.
+    token('blue', [
+      '     gg   ',
+      '    gg    ',
+      '   gg     ',
+      '  gGGGg   ',
+      '    gg    ',
+      '   gg     ',
+      '  gg      ',
+      '  g       ',
+      '          ',
+      '          ',
+    ], { g: '#2bd94a', G: '#b6ffb0' }),
   ];
 }

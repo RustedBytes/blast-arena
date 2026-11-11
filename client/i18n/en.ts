@@ -12,6 +12,8 @@ export const en = {
   modeTeams: 'Red vs Blue',
   modeWorms: 'Worms',
   modeRockets: 'Rockets', helpRocket: 'rocket', rocketsHint: 'Rocket arena: the bomb button fires a rocket the way you face',
+  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Cosmos arena: the bomb button fires your blaster. Grab cores to change its colour!',
+  blasters: ['', 'Green blaster', 'Plasma blaster', 'Cryo blaster', 'Phase blaster', 'Nova blaster'], overdrive: 'Overdrive: rapid fire',
   profile: 'Your profile',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} XP',
@@ -105,6 +107,7 @@ export const en = {
     20: 'Drone swarm (press Q)',
     21: 'Builder: temporary walls (press R)', 22: 'Gas bombs ×2: a slowing cloud', 23: 'Clone: a decoy double (press R)',
     24: 'Sticky bombs ×2: thrown, they stick to enemies', 25: 'Portal pair (press R twice)', 26: 'Dash (press R)', 27: 'Heart: all your health back',
+    28: 'Plasma core: red blaster, bigger blasts', 29: 'Cryo core: cyan blaster, blasts leave ice', 30: 'Phase core: violet blaster, shoots through crates', 31: 'Nova core: gold blaster, three bolts at once', 32: 'Overdrive: rapid fire for 8 s',
     100: 'Jackpot! +1 bomb, range & speed', 110: 'Cursed: slowed down', 111: 'Cursed: no bombs',
     112: 'Bomb rain!', 113: 'Cursed: reversed controls',
   },
@@ -142,6 +145,10 @@ export const en = {
     hearts: {
       title: 'Hearts', body: 'In the Dungeon a monster\'s bite costs a heart, not your life. Bombs still kill in one hit.',
       labels: ['Three hearts; the last bite kills', 'Bitten: you blink for 2 s and monsters lose interest. Run!', 'Hearts come back one every 8 s; you bleed until then'],
+    },
+    cosmos: {
+      title: 'Cosmos', body: 'A space station where the bomb key fires a blaster. Bolts fly fast and blow up on whatever they hit. Cores change your blaster’s colour until you die.',
+      labels: ['Plasma: bigger blasts', 'Cryo: blasts leave ice', 'Phase: through crates', 'Nova: three bolts at once', 'Overdrive: rapid fire'],
     },
     scoring: {
       title: 'Score points', body: 'Hold Tab for the leaderboard and press Esc for settings. Good luck!',

@@ -74,6 +74,15 @@ body.in-gas #gas-tint { display: block; }
   &.curse { --ring-color: var(--curse); color: var(--curse); }
 
   // Hearts against monster bites (dungeon arena).
+  // The cosmos blaster: a glowing bolt in its colour.
+  &.blaster i {
+    display: inline-block;
+    width: 24px;
+    height: 7px;
+    border-radius: 4px;
+    background: var(--bolt-core, #7dff7a);
+    box-shadow: 0 0 6px 2px var(--bolt, #2bd94a);
+  }
   &.hearts {
     color: #ff4a5a;
     font-size: 22px;

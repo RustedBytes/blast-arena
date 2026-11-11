@@ -23,6 +23,8 @@ export interface FramePlayer {
 export interface FrameBomb {
   x: number; y: number; fuse: number; pierce: boolean; remote: boolean; nuke: boolean; freeze: boolean; rocket: boolean;
   mine: boolean; sticky: boolean; gas: boolean; carrier: number; dx: number; dy: number;
+  /** A cosmos blaster bolt's colour code (0: not a bolt). */
+  bolt: number;
   /** Last heading of a rocket, kept while it stands still. */
   rocketA?: number;
 }

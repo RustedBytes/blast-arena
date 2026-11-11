@@ -33,9 +33,13 @@
 .side-card { width: min(340px, 100%); gap: 8px; }
 .section-title { font-weight: 800; color: var(--accent); font-size: 14px; margin-top: 4px; }
 
+#join-form { width: min(460px, 100%); }
+
 .logo {
   width: 100%;
   height: auto;
+  max-height: 120px;
+  object-fit: contain;
   @include landscape { max-height: 22vh; width: auto; align-self: center; }
 }
 
@@ -62,23 +66,45 @@
   &:focus { border-color: var(--accent); }
 }
 
-#arena-list { display: flex; flex-direction: column; gap: 6px; }
+// The arena picker: a grid of compact tiles, so a dozen arenas fit
+// without scrolling (three columns, two on phones).
+#arena-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  @include narrow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @include landscape { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+}
 
 .arena {
   @include field;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 6px;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 8px;
   cursor: pointer;
   font: inherit;
   text-align: left;
+  min-width: 0;
 
+  &:hover { border-color: rgba($accent, 0.5); }
   &.selected { border-color: var(--accent); background: rgba($accent, 0.12); }
-  .a-name { font-weight: 800; }
-  .a-meta { font-size: 12px; color: var(--muted); }
-  .a-count { font-weight: 700; color: var(--good); white-space: nowrap; }
+  .a-icon { grid-row: span 2; font-size: 20px; line-height: 1; }
+  .a-name { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .a-humans.live { color: var(--good); font-weight: 700; }
+  @include landscape { padding: 4px 6px; .a-icon { font-size: 16px; } }
+}
+
+// The selected arena's mode, size and players, under the grid.
+.arena-info {
+  margin: -4px 0 0;
+  min-height: 1.3em;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .error { color: var(--danger); min-height: 1.2em; margin: 0; text-align: center; }

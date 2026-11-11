@@ -70,5 +70,5 @@ const newPlayer = (): FramePlayer => ({
 });
 const newBomb = (): FrameBomb => ({
   x: 0, y: 0, fuse: 0, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, mine: false,
-  sticky: false, gas: false, carrier: 0, dx: 0, dy: 0,
+  sticky: false, gas: false, carrier: 0, dx: 0, dy: 0, bolt: 0,
 });

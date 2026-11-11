@@ -6,7 +6,7 @@ use crate::protocol::{ME_LEN, MeState, Wire, snap};
 /// A player as a client sees it: id, x*100, y*100, facing, flags.
 pub(super) type PlayerEntry = (u32, i32, i32, u8, u16);
 /// A bomb as a client sees it: id, x, y, detonation tick (0 = remote), flags.
-pub(super) type BombEntry = (u32, i32, i32, u64, u8);
+pub(super) type BombEntry = (u32, i32, i32, u64, u16);
 pub(super) const SNAP_HISTORY: usize = 32;
 
 /// What recent snapshots told one client, so the next one can be a delta
@@ -185,7 +185,7 @@ pub(super) fn write_delta(
         w.len(nb);
         let mut prev = 0;
         for (e, _) in changed(&cur.bombs, base.bombs) {
-            w.id(e.0 - prev).coord(e.1).coord(e.2).u8(e.4);
+            w.id(e.0 - prev).coord(e.1).coord(e.2).uvar(u64::from(e.4));
             prev = e.0;
             if e.4 & 2 == 0 {
                 w.ivar(e.3 as i64 - tick as i64);

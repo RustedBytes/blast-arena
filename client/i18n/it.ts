@@ -13,6 +13,8 @@ export const it: Strings = {
   modeTeams: 'Rossi contro Blu',
   modeWorms: 'Vermi',
   modeRockets: 'Razzi', helpRocket: 'razzo', rocketsHint: 'Arena dei razzi: il tasto bomba spara un razzo dove guardi',
+  modeCosmos: 'Cosmo', helpBlaster: 'blaster', cosmosHint: 'Arena Cosmo: il tasto bomba spara col blaster. Raccogli i nuclei per cambiarne il colore!',
+  blasters: ['', 'Blaster verde', 'Blaster al plasma', 'Blaster crio', 'Blaster di fase', 'Blaster nova'], overdrive: 'Overdrive: fuoco rapido',
   profile: 'Il tuo profilo',
   level: 'Livello {n}',
   xpProgress: '{xp} / {next} XP',
@@ -106,6 +108,7 @@ export const it: Strings = {
     20: 'Sciame di droni (premi Q)',
     21: 'Costruttore: muri temporanei (premi R)', 22: 'Bombe a gas ×2: una nube che rallenta', 23: 'Clone: un sosia esca (premi R)',
     24: 'Bombe adesive ×2: lanciate, si attaccano ai nemici', 25: 'Coppia di portali (premi R due volte)', 26: 'Scatto (premi R)', 27: 'Cuore: tutta la salute torna',
+    28: 'Nucleo al plasma: blaster rosso, esplosioni più grandi', 29: 'Nucleo crio: blaster ciano, le esplosioni lasciano ghiaccio', 30: 'Nucleo di fase: blaster viola, spara attraverso le casse', 31: 'Nucleo nova: blaster dorato, tre colpi insieme', 32: 'Overdrive: fuoco rapido per 8 s',
     100: 'Jackpot! +1 bomba, portata e velocità', 110: 'Maledetto: rallentato', 111: 'Maledetto: niente bombe',
     112: 'Pioggia di bombe!', 113: 'Maledetto: comandi invertiti',
   },
@@ -143,6 +146,10 @@ export const it: Strings = {
     hearts: {
       title: 'Cuori', body: 'Nel Sotterraneo il morso di un mostro ti costa un cuore, non la vita. Le bombe uccidono ancora in un colpo.',
       labels: ['Tre cuori; l’ultimo morso uccide', 'Morso: lampeggi per 2 s e i mostri perdono interesse. Scappa!', 'Un cuore torna ogni 8 s; fino ad allora sanguini'],
+    },
+    cosmos: {
+      title: 'Cosmo', body: 'Una stazione spaziale dove il tasto bomba spara col blaster. I colpi volano veloci ed esplodono all’impatto. I nuclei cambiano il colore del blaster finché non muori.',
+      labels: ['Plasma: esplosioni più grandi', 'Crio: lascia ghiaccio', 'Fase: attraverso le casse', 'Nova: tre colpi insieme', 'Overdrive: fuoco rapido'],
     },
     scoring: {
       title: 'Fai punti', body: 'Tieni premuto Tab per la classifica, Esc per le impostazioni. Buona fortuna!',

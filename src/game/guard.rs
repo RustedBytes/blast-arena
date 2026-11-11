@@ -307,6 +307,7 @@ impl World {
         for k in 0..take {
             let (x, y) = empty[(start + k) % empty.len()];
             let item = self.random_loot();
+            let item = self.cosmos_drop(item);
             self.set_item(x, y, item as u8);
         }
     }

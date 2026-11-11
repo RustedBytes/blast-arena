@@ -11,6 +11,7 @@
     "npm:postcss@^8.5.32": "8.5.32",
     "npm:sass@^1.108.1": "1.108.1",
     "npm:typescript-eslint@^8.72.2": "8.72.2_eslint@10.14.0_typescript@6.0.3",
+    "npm:typescript@*": "6.0.3",
     "npm:typescript@~6.0.3": "6.0.3"
   },
   "npm": {

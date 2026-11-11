@@ -67,13 +67,14 @@ struct Args {
     #[arg(long, env = "BOTS", default_value_t = 10)]
     bots: usize,
     /// Arenas to run, each as NAME:MODE:SIZE:BOTS (mode is ffa, teams,
-    /// royale, worms, rockets or dungeon). Repeat the flag for several arenas.
+    /// royale, worms, rockets, dungeon or cosmos). Repeat the flag for several arenas.
     /// Default: a main free-for-all built from --map-size/--bots, plus
     /// "Teams:teams:61:8", "Mini:ffa:31:4", "Royale:royale:81:15" (battle
     /// royale), "Worms:worms:61:6" (worms hunt everyone), "Rockets:rockets:51:8"
     /// (the bomb key fires rockets), "Dungeon:dungeon:61:6" (rooms and
-    /// corridors full of monsters), "Horde:ffa:321:1000" (a thousand bots)
-    /// and "Humans:ffa:51:0" (no bots).
+    /// corridors full of monsters), "Horde:ffa:321:1000" (a thousand bots),
+    /// "Humans:ffa:51:0" (no bots) and "Cosmos:cosmos:51:8" (colored blasters
+    /// in space).
     #[arg(long = "arena", env = "ARENAS", value_delimiter = ',')]
     arenas: Vec<String>,
     /// Map seed. Each start picks a fresh one (and logs it) unless this pins
@@ -116,7 +117,7 @@ fn parse_arena(spec: &str, base: &game::Config) -> Result<game::Config, String> 
     let [name, mode, size, bots] = parts[..] else {
         return Err(format!("arena {spec:?} must look like NAME:MODE:SIZE:BOTS"));
     };
-    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa, teams, royale, worms, rockets or dungeon"))?;
+    let mode = Mode::parse(mode).ok_or_else(|| format!("arena {spec:?}: mode must be ffa, teams, royale, worms, rockets, dungeon or cosmos"))?;
     let size: i32 = size.parse().map_err(|_| format!("arena {spec:?}: bad size"))?;
     let bots: usize = bots.parse().map_err(|_| format!("arena {spec:?}: bad bot count"))?;
     let size = size.max(15) | 1; // odd, so the pillar grid lines up with the border
@@ -169,6 +170,9 @@ async fn main() {
             // A thousand bots, with about 100 cells each to play in.
             "Horde:ffa:321:1000".into(),
             "Humans:ffa:51:0".into(),
+            // Last, so the arenas before it keep their ids (saved picks, invite links).
+            // Colored blasters on a space station.
+            "Cosmos:cosmos:51:8".into(),
         ]
     } else {
         args.arenas.clone()

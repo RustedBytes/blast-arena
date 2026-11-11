@@ -1,7 +1,7 @@
 // Interpolates the latest snapshots into the pooled frame the layers draw:
 // remote players, clones, bombs, decoys and drones.
 
-import { BOMB_FLAG, hasFlag, PLAYER_FLAG } from '../protocol.js';
+import { BOMB_FLAG, bombBolt, hasFlag, PLAYER_FLAG } from '../protocol.js';
 import type { CloneEntry, DroneEntry, PlayerEntry } from '../protocol.js';
 import type { BombView, GameState } from '../state.js';
 import { POOL, REPLAY_RATE } from './constants.js';
@@ -105,6 +105,7 @@ export class Interpolator {
       o.mine = hasFlag(flags, BOMB_FLAG.MINE);
       o.sticky = hasFlag(flags, BOMB_FLAG.STICKY);
       o.gas = hasFlag(flags, BOMB_FLAG.GAS);
+      o.bolt = bombBolt(flags);
       o.carrier = this.stuckBy.get(q[0]) ?? 0;
       o.dx = q[1] - p[1];
       o.dy = q[2] - p[2];
@@ -117,6 +118,7 @@ export class Interpolator {
       o.y = d[2];
       o.fuse = Math.max(0, d[3]);
       o.pierce = o.remote = o.nuke = o.freeze = o.rocket = o.mine = o.sticky = o.gas = false;
+      o.bolt = 0;
       o.carrier = 0;
       o.dx = o.dy = 0;
     }

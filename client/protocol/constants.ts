@@ -8,6 +8,12 @@ export const PLAYER_FLAG = {
 export const BOMB_FLAG = {
   PIERCE: 1, REMOTE: 2, NUKE: 4, FREEZE: 8, ROCKET: 16, MINE: 32, STICKY: 64, GAS: 128,
 } as const;
+/** A cosmos blaster bolt's colour, in bits 8-10 of a bomb's flags (0: not a bolt). */
+export const bombBolt = (flags: number): number => (flags >> 8) & 7;
+/** Blaster colours by code (1 green, 2 plasma red, 3 cryo cyan, 4 phase violet, 5 nova gold): core and glow. */
+export const BOLT_COLORS: readonly (readonly [string, string])[] = [
+  ['#7dff7a', '#2bd94a'], ['#7dff7a', '#2bd94a'], ['#ff8a7a', '#ff3a3a'], ['#c8fbff', '#3ad8ff'], ['#e6c8ff', '#a64aff'], ['#fff3a8', '#ffb81a'],
+];
 /** True when `bit` is set in `flags`. */
 export const hasFlag = (flags: number, bit: number): boolean => (flags & bit) !== 0;
 /** Kinds of game events (`ev` messages); mirrors `protocol::ev`. */
@@ -38,4 +44,4 @@ export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
   'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying', 'storm', 'storm_max',
   'ability', 'ability_n', 'ability_max', 'ability_cd', 'gas_bombs', 'sticky_bombs', 'stuck', 'detach', 'gassed', 'dash',
-  'dash_dir', 'portal_wait', 'hp', 'hp_max'] as const;
+  'dash_dir', 'portal_wait', 'hp', 'hp_max', 'blaster', 'overdrive'] as const;

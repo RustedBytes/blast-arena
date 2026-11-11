@@ -13,6 +13,8 @@ export const fr: Strings = {
   modeTeams: 'Rouges contre Bleus',
   modeWorms: 'Vers',
   modeRockets: 'Roquettes', helpRocket: 'roquette', rocketsHint: 'Arène des roquettes : le bouton bombe tire une roquette droit devant',
+  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Arène Cosmos : le bouton bombe tire avec ton blaster. Ramasse des noyaux pour changer sa couleur !',
+  blasters: ['', 'Blaster vert', 'Blaster plasma', 'Blaster cryo', 'Blaster de phase', 'Blaster nova'], overdrive: 'Surrégime : tir rapide',
   profile: 'Ton profil',
   level: 'Niveau {n}',
   xpProgress: '{xp} / {next} XP',
@@ -106,6 +108,7 @@ export const fr: Strings = {
     20: 'Essaim de drones (appuie sur Q)',
     21: 'Bâtisseur : murs temporaires (appuie sur R)', 22: 'Bombes à gaz ×2 : un nuage ralentissant', 23: 'Clone : un double leurre (appuie sur R)',
     24: 'Bombes collantes ×2 : lancées, elles collent aux ennemis', 25: 'Paire de portails (appuie deux fois sur R)', 26: 'Ruée (appuie sur R)', 27: 'Cœur : toute ta santé revient',
+    28: 'Noyau plasma : blaster rouge, explosions plus grandes', 29: 'Noyau cryo : blaster cyan, les explosions laissent de la glace', 30: 'Noyau de phase : blaster violet, tire à travers les caisses', 31: 'Noyau nova : blaster doré, trois tirs à la fois', 32: 'Surrégime : tir rapide pendant 8 s',
     100: 'Jackpot ! +1 bombe, portée et vitesse', 110: 'Maudit : ralenti', 111: 'Maudit : pas de bombes',
     112: 'Pluie de bombes !', 113: 'Maudit : commandes inversées',
   },
@@ -143,6 +146,10 @@ export const fr: Strings = {
     hearts: {
       title: 'Cœurs', body: 'Dans le Donjon, une morsure de monstre te coûte un cœur, pas la vie. Les bombes tuent toujours d’un coup.',
       labels: ['Trois cœurs ; la dernière morsure tue', 'Mordu : tu clignotes 2 s et les monstres se désintéressent de toi. Fuis !', 'Un cœur revient toutes les 8 s ; d’ici là tu saignes'],
+    },
+    cosmos: {
+      title: 'Cosmos', body: 'Une station spatiale où le bouton bombe tire au blaster. Les tirs filent vite et explosent à l’impact. Les noyaux changent la couleur de ton blaster jusqu’à ta mort.',
+      labels: ['Plasma : explosions plus grandes', 'Cryo : laisse de la glace', 'Phase : à travers les caisses', 'Nova : trois tirs à la fois', 'Surrégime : tir rapide'],
     },
     scoring: {
       title: 'Marquer des points', body: 'Maintiens Tab pour le classement, Échap pour les réglages. Bonne chance !',

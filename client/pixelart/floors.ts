@@ -1,8 +1,8 @@
 // Seamless floors per biome: meadow grass, snow, desert sand, volcanic ash
-// and dungeon flagstones.
+// dungeon flagstones and the starfield deck plates of space.
 
 import { at, crack, field, int, LAVA, N, pick, Pix, relief, rng, wrap } from '../pixelkit.js';
-import { ASH, FLAGSTONE, FLOWERS, GRASS, SAND, SANDSTONE, SNOW, STONE } from './palette.js';
+import { ASH, DECK, FLAGSTONE, NEON, FLOWERS, GRASS, SAND, SANDSTONE, SNOW, STONE } from './palette.js';
 
 // ------------------------------------------------------------------- floors
 
@@ -193,6 +193,48 @@ export function crypt(seed: number, kind: number) {
       for (let dx = -3; dx <= 3; dx++) {
         if (dx * dx / 9 + dy * dy / 4 <= 1 && rand() < 0.7) p.wset(mx + dx, my + dy, rand() < 0.5 ? '#25402e' : '#2f5236');
       }
+    }
+  }
+  return p;
+}
+
+/**
+ * Space deck plates: dark glass panels over a starfield, in a 2x2 grid of
+ * 8-pixel plates with faint seams. Kind 1 has a glowing nebula wisp; kind 2
+ * a lit floor vent.
+ */
+export function space(seed: number, kind: number) {
+  const rand = rng(seed), f = field(rand, [[2, 0.6], [4, 0.4]]), p = new Pix();
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const seam = wrap(x) % 8 === 7 || wrap(y) % 8 === 7;
+      const lip = wrap(x) % 8 === 0 || wrap(y) % 8 === 0;
+      if (seam) p.set(x, y, DECK[0]);
+      else p.set(x, y, pick(DECK, at(f, x, y) * 0.5 + (lip ? 0.35 : 0.1), x, y, 1, 4, 0.7));
+    }
+  }
+  // Stars shine through the glass: a few dim, one or two bright.
+  for (let i = 0; i < 6; i++) {
+    const x = int(rand, N), y = int(rand, N);
+    if (wrap(x) % 8 === 7 || wrap(y) % 8 === 7) continue;
+    p.set(x, y, i < 2 ? '#e8f0ff' : i < 4 ? '#8a96c8' : '#5a6aa8');
+  }
+  if (kind === 1) {
+    // A wisp of nebula.
+    const cx = int(rand, N), cy = int(rand, N);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        if (dx * dx / 16 + dy * dy / 4 <= 1 && rand() < 0.6) p.wset(cx + dx, cy + dy + Math.round(dx / 3), rand() < 0.5 ? '#3a2466' : '#2a2a70');
+      }
+    }
+  }
+  if (kind === 2) {
+    // A small vent with a cyan glow.
+    const vx = 2 + int(rand, 2) * 8, vy = 2 + int(rand, 2) * 8;
+    for (let k = 0; k < 4; k++) {
+      p.set(vx + k, vy, DECK[0]);
+      p.set(vx + k, vy + 2, DECK[0]);
+      p.set(vx + k, vy + 1, k % 2 ? NEON[0] : NEON[1]);
     }
   }
   return p;

@@ -5,7 +5,7 @@ import { ITEM_SPRITES, playerColors } from '../assets.js';
 import { escapeHtml, query } from '../dom.js';
 import { t } from '../i18n.js';
 import { Net } from '../net.js';
-import { BOMB_FLAG, hasFlag, meObject, PLAYER_FLAG } from '../protocol.js';
+import { BOMB_FLAG, bombBolt, hasFlag, meObject, PLAYER_FLAG } from '../protocol.js';
 import { NUKE_SHOW_TICKS } from '../render.js';
 import type { BombView, GameSnapshot, GameState, RosterInfo } from '../state.js';
 import { input } from './controls.js';
@@ -32,6 +32,12 @@ const REPLAY_TICKS = 40;
 // swapped each snapshot).
 let seenExplosions = new Set();
 let nextExplosions = new Set();
+/** Blaster bolts (by bomb id) already heard, so each shot zaps once. */
+let seenBolts = new Set<number>();
+let nextBolts = new Set<number>();
+/** Where each bolt in view was last seen, and its colour: [x, y, colour]. */
+let boltsAt = new Map<number, readonly [number, number, number]>();
+let nextBoltsAt = new Map<number, readonly [number, number, number]>();
 
 export const net = new Net({
   welcome(m) {
@@ -101,6 +107,10 @@ export const net = new Net({
     for (const [x, y, k] of m.items) state.itemMap.set(y * m.w + x, k);
     rebuildItems();
     seenExplosions.clear();
+    seenBolts.clear();
+    boltsAt.clear();
+    // The cosmos arena has its own sounds and music.
+    audio.setTheme(m.mode === 'cosmos' ? 'cosmos' : 'classic');
     predictor.active = false;
     renderer.resetMap(state.map);
     applyVisualSettings();
@@ -109,12 +119,14 @@ export const net = new Net({
     ui.hud.root.classList.remove('hidden');
     ui.vignette.classList.remove('hidden');
     ui.hud.teamScores.classList.toggle('hidden', m.mode !== 'teams');
-    // Rockets arena: the bomb key fires a rocket, so the key help says so.
-    // (Swapping the i18n key keeps it right across a language change.)
-    const bombHelp = document.querySelector<HTMLElement>('[data-i18n="helpBomb"], [data-i18n="helpRocket"]');
+    // Rockets and cosmos arenas: the bomb key fires a rocket or a blaster,
+    // so the key help says so. (Swapping the i18n key keeps it right across
+    // a language change.)
+    const bombHelp = document.querySelector<HTMLElement>('[data-i18n="helpBomb"], [data-i18n="helpRocket"], [data-i18n="helpBlaster"]');
     if (bombHelp) {
-      bombHelp.dataset.i18n = m.mode === 'rockets' ? 'helpRocket' : 'helpBomb';
-      bombHelp.textContent = t(bombHelp.dataset.i18n as 'helpBomb' | 'helpRocket');
+      const key = m.mode === 'rockets' ? 'helpRocket' : m.mode === 'cosmos' ? 'helpBlaster' : 'helpBomb';
+      bombHelp.dataset.i18n = key;
+      bombHelp.textContent = t(key);
     }
     ui.join.play.disabled = false;
     connection.reconnectTry = -1;
@@ -122,6 +134,7 @@ export const net = new Net({
     resize();
     if (m.resumed) toast(t('welcomeBack'), null, 'mystery');
     else if (m.mode === 'rockets') toast(t('rocketsHint'), null, 'info');
+    else if (m.mode === 'cosmos') toast(t('cosmosHint'), null, 'info');
   },
 
   s(raw) {
@@ -179,6 +192,19 @@ export const net = new Net({
     if (prevMe?.alive && !m.me.alive) state.replay = { from: m.k - REPLAY_TICKS, t0: now };
     else if (m.me.alive) state.replay = null;
 
+    // Bolts gone since the last snapshot blew up where they were (or a cell
+    // on): their blasts burn in the bolt's colour.
+    nextBoltsAt.clear();
+    for (const b of m.b) {
+      const colour = bombBolt(b[4]);
+      if (colour) nextBoltsAt.set(b[0], [b[1], b[2], colour]);
+    }
+    const impacts: (readonly [number, number, number])[] = [];
+    for (const [id, at] of boltsAt) if (!nextBoltsAt.has(id)) impacts.push(at);
+    [boltsAt, nextBoltsAt] = [nextBoltsAt, boltsAt];
+    const boltAt = (x: number, y: number): number =>
+      impacts.find(([bx, by]) => Math.abs(bx - x) + Math.abs(by - y) <= 1)?.[2] ?? 0;
+
     // New explosions: effects, shake and positional sound.
     nextExplosions.clear();
     for (const e of m.e) {
@@ -194,14 +220,29 @@ export const net = new Net({
           renderer.effects.nuke(e[0], e[1], e[4], now, d, state.map, age);
           if (age < 0.5) audio.nuke(d, pan);
         } else {
-          renderer.effects.explosion(e[0], e[1], e[2], now, d);
+          renderer.effects.explosion(e[0], e[1], e[2], now, d, boltAt(e[0], e[1]));
           audio.explosion(d, pan);
         }
       }
     }
     [seenExplosions, nextExplosions] = [nextExplosions, seenExplosions];
 
-    if (prevMe && m.me.active > prevMe.active) {
+    // Blaster bolts: a zap for each new one in earshot, in its colour.
+    // (Elsewhere, the click of your own bomb going down.)
+    nextBolts.clear();
+    // (One zap per colour per snapshot: a nova's three bolts are one shot.)
+    let zapped = 0;
+    for (const b of m.b) {
+      const colour = bombBolt(b[4]);
+      if (!colour) continue;
+      nextBolts.add(b[0]);
+      if (seenBolts.has(b[0]) || zapped & (1 << colour)) continue;
+      zapped |= 1 << colour;
+      const dx = b[1] + 0.5 - state.focus.x, dy = b[2] + 0.5 - state.focus.y;
+      audio.laser(colour, Math.hypot(dx, dy), Math.max(-1, Math.min(1, dx / 10)));
+    }
+    [seenBolts, nextBolts] = [nextBolts, seenBolts];
+    if (prevMe && m.me.active > prevMe.active && state.mode !== 'cosmos') {
       audio.bombPlaced();
     }
     // The music intensifies while a bomb is close.

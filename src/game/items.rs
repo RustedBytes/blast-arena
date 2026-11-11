@@ -54,9 +54,20 @@ pub enum Item {
     /// Restores every heart lost to monster bites (dungeon arena only:
     /// see `World::dungeon_drop`).
     Heart = 27,
+    /// Cosmos arena only (see `World::cosmos_drop`): blaster cores that
+    /// recolour your blaster. Plasma (red): bigger blasts.
+    PlasmaCore = 28,
+    /// Cryo (cyan): blasts leave ice.
+    CryoCore = 29,
+    /// Phase (violet): bolts fly through crates, blasts pierce.
+    PhaseCore = 30,
+    /// Nova (gold): a spread of three bolts at once.
+    NovaCore = 31,
+    /// Rapid fire for a while: bolts don't count towards your limit.
+    Overdrive = 32,
 }
 
-pub const ALL_ITEMS: u8 = 27;
+pub const ALL_ITEMS: u8 = 32;
 /// Gadget charges given by one pick-up.
 pub const MINE_CHARGES: u8 = 3;
 pub const ROCKET_CHARGES: u8 = 3;
@@ -173,6 +184,11 @@ impl Item {
             25 => Item::PortalPair,
             26 => Item::Dash,
             27 => Item::Heart,
+            28 => Item::PlasmaCore,
+            29 => Item::CryoCore,
+            30 => Item::PhaseCore,
+            31 => Item::NovaCore,
+            32 => Item::Overdrive,
             _ => return None,
         })
     }
@@ -209,6 +225,19 @@ impl Item {
             216..=219 => Item::PortalPair,
             _ => Item::Dash,
         }
+    }
+
+    /// The power-ups that only turn up in one kind of arena: the dungeon's
+    /// heart and the cosmos arena's blaster cores and overdrive.
+    #[must_use]
+    pub fn arena_only(self) -> bool {
+        self == Item::Heart || self.is_cosmic()
+    }
+
+    /// The cosmos arena's own power-ups.
+    #[must_use]
+    pub fn is_cosmic(self) -> bool {
+        matches!(self, Item::PlasmaCore | Item::CryoCore | Item::PhaseCore | Item::NovaCore | Item::Overdrive)
     }
 
     /// One-shot gadgets fired with the gadget key, and how many charges a
@@ -272,7 +301,9 @@ mod tests {
             }
         }
         // Not the box itself, nor the dungeon-only heart.
-        let missing: Vec<usize> = (1..=ALL_ITEMS as usize).filter(|&i| i != 8 && i != Item::Heart as usize && !items[i]).collect();
+        let missing: Vec<u8> = (1..=ALL_ITEMS)
+            .filter(|&i| i != 8 && !Item::from_u8(i).unwrap().arena_only() && !items[i as usize])
+            .collect();
         assert!(missing.is_empty(), "missing power-ups: {missing:?}");
         assert!(other.iter().all(|&n| n > 150), "{other:?}");
     }
@@ -284,9 +315,11 @@ mod tests {
         for _ in 0..10000 {
             seen[Item::random(&mut rng) as usize] = true;
         }
-        // Everything but the dungeon-only heart.
-        assert!(seen[1..].iter().enumerate().all(|(i, &s)| s || i + 1 == Item::Heart as usize));
-        assert!(!seen[Item::Heart as usize]);
+        // Everything but the arena-only power-ups.
+        for v in 1..=ALL_ITEMS {
+            let item = Item::from_u8(v).unwrap();
+            assert_eq!(seen[v as usize], !item.arena_only(), "{item:?}");
+        }
         assert!((1..=ALL_ITEMS).all(|v| Item::from_u8(v).is_some()));
     }
 }

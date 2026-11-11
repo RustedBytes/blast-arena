@@ -6,7 +6,8 @@ import { context2d, makeCanvas } from '../dom.js';
 import { P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
 import type { Arms, FlameEntry } from '../protocol.js';
 import type { GameMap } from '../state.js';
-import { ARM_DIRS, C_BAT, C_BONE, C_SLIME, C_WORM, DECAL_LIFE, DECALS, NUKE_FLAME_S, NUKE_LIFE_S, NUKE_WAVE_CPS, T_ARMORED, T_BUILT, T_CRATE, T_WALL, WARDEN_SLAM_RADIUS } from './constants.js';
+import { BOLT_COLORS } from '../protocol.js';
+import { ARM_DIRS, C_BAT, C_BOLT, C_BONE, C_SLIME, C_WORM, DECAL_LIFE, DECALS, NUKE_FLAME_S, NUKE_LIFE_S, NUKE_WAVE_CPS, T_ARMORED, T_BUILT, T_CRATE, T_WALL, WARDEN_SLAM_RADIUS } from './constants.js';
 import type { PlayerLayer } from './players.js';
 import type { Stage } from './stage.js';
 import type { Effect, NukeShow, Puffs } from './types.js';
@@ -25,12 +26,38 @@ export class EffectsLayer {
   private flashAt = -1e9;
   /** Soft cloud sprites, built on first use. */
   private puffs: Puffs | null = null;
+  /**
+   * Blaster blasts (cosmos arena): the bolt colour of the explosion at a
+   * cell (`x + y * 4096`) and until when it lasts.
+   */
+  private readonly tints = new Map<number, readonly [colour: number, until: number]>();
+  /** Flame sprites recoloured per blaster colour, built on first use. */
+  private readonly tinted = new Map<HTMLCanvasElement, HTMLCanvasElement[]>();
 
   constructor(private readonly s: Stage, private readonly players: PlayerLayer) {}
 
   /** Forgets scorch marks (a new map). */
   reset(): void {
     this.decalT.fill(-1e9);
+    this.tints.clear();
+  }
+
+  /** `sprite` in blaster colour `colour`: its hue changed, its light kept. */
+  private tint(sprite: HTMLCanvasElement, colour: number): HTMLCanvasElement {
+    let list = this.tinted.get(sprite);
+    if (!list) this.tinted.set(sprite, list = []);
+    let c = list.at(colour);
+    if (!c) {
+      c = list[colour] = makeCanvas(sprite.width, sprite.height);
+      const g = context2d(c);
+      g.drawImage(sprite, 0, 0);
+      g.globalCompositeOperation = 'color';
+      g.fillStyle = (BOLT_COLORS[colour] ?? BOLT_COLORS[1])[1];
+      g.fillRect(0, 0, c.width, c.height);
+      g.globalCompositeOperation = 'destination-in';
+      g.drawImage(sprite, 0, 0);
+    }
+    return c;
   }
 
   /** Scorch marks, fading out over a few seconds. */
@@ -50,16 +77,19 @@ export class EffectsLayer {
   }
 
   /** A new explosion appeared in a snapshot. */
-  explosion(x: number, y: number, arms: Arms, now: number, distance: number) {
+  explosion(x: number, y: number, arms: Arms, now: number, distance: number, bolt = 0) {
     const p = this.s.particles;
-    p.burst(P_SPARK, x + 0.5, y + 0.5, 26, 7, 0.5, 0.09, 0, 3);
+    // A blaster bolt's blast burns in its colour (see drawExplosions).
+    const [spark, spread] = bolt ? [C_BOLT + bolt, 1] : [0, 3];
+    if (bolt) this.tints.set(x + y * 4096, [bolt, now + 1500]);
+    p.burst(P_SPARK, x + 0.5, y + 0.5, 26, 7, 0.5, 0.09, spark, spread);
     p.burst(P_SMOKE, x + 0.5, y + 0.5, 6, 1.2, 1.1, 0.35, 4, 2);
     this.decal(x, y, now);
     for (let d = 0; d < 4; d++) {
       for (let r = 1; r <= arms[d]; r++) {
         const cx = x + ARM_DIRS[d][0] * r, cy = y + ARM_DIRS[d][1] * r;
         this.decal(cx, cy, now);
-        if (r === arms[d]) p.burst(P_SPARK, cx + 0.5, cy + 0.5, 6, 4, 0.35, 0.07, 0, 3);
+        if (r === arms[d]) p.burst(P_SPARK, cx + 0.5, cy + 0.5, 6, 4, 0.35, 0.07, spark, spread);
       }
     }
     // Screen shake falls off with distance from the camera focus.
@@ -415,16 +445,18 @@ export class EffectsLayer {
     const pix = this.s.pixelArt();
     // Pixel flames flicker through three frames; each explosion starts on its own.
     const tick = Math.floor(performance.now() / 70);
-    let center = this.s.assets.sprite('flame_center');
-    let arm = this.s.assets.sprite('flame_arm');
-    let end = this.s.assets.sprite('flame_end');
+    const classic = [this.s.assets.sprite('flame_center'), this.s.assets.sprite('flame_arm'), this.s.assets.sprite('flame_end')];
+    const now = performance.now();
+    for (const [key, [, until]] of this.tints) if (until < now) this.tints.delete(key);
     for (const [ex, ey, arms, left, nuke] of explosions) {
       if (nuke) continue; // atomic blasts have their own effect (drawNuke*)
-      if (pix) {
-        const fr = (tick + ex * 7 + ey * 3) % 3;
-        center = pix.flames.center[fr];
-        arm = pix.flames.arm[fr];
-        end = pix.flames.end[fr];
+      const fr = (tick + ex * 7 + ey * 3) % 3;
+      let [center, arm, end] = pix ? [pix.flames.center[fr], pix.flames.arm[fr], pix.flames.end[fr]] : classic;
+      const bolt = this.tints.get(ex + ey * 4096)?.[0] ?? 0;
+      if (bolt) {
+        center = this.tint(center, bolt);
+        arm = this.tint(arm, bolt);
+        end = this.tint(end, bolt);
       }
       const life = left / 10; // 1 when fresh, 0 when gone
       ctx.globalAlpha = Math.min(1, life * 2.2);
@@ -445,9 +477,11 @@ export class EffectsLayer {
     }
     // Additive glow over all flames.
     ctx.globalCompositeOperation = 'lighter';
-    const glow = this.s.assets.glow;
+    const plainGlow = this.s.assets.glow;
     for (const [ex, ey, arms, left, nuke] of explosions) {
       if (nuke) continue;
+      const bolt = this.tints.get(ex + ey * 4096)?.[0] ?? 0;
+      const glow = bolt ? this.tint(plainGlow, bolt) : plainGlow;
       ctx.globalAlpha = Math.min(1, left / 10) * 0.8;
       const g = T * 2.2;
       ctx.drawImage(glow, (ex + 0.5) * T - camX - g / 2, (ey + 0.5) * T - camY - g / 2, g, g);

@@ -19,13 +19,14 @@ export type PixelSet = PixelTiles & PixelSprites;
 
 /** The classic SVG sprites, by file name under `assets/`. */
 const SPRITES = [
-  'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash',
+  'floor', 'floor_b', 'floor_c', 'floor_sand', 'floor_snow', 'floor_ash', 'floor_space',
   'pillar', 'crate', 'crate_armored', 'ice', 'conveyor', 'teleport',
   'bomb', 'bomb_pierce', 'scorch', 'flame_center', 'flame_arm', 'flame_end',
   'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce', 'pu_fullfire', 'pu_mystery',
   'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke', 'bomb_nuke',
   'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm',
   'pu_builder', 'pu_gas', 'pu_clone', 'pu_sticky', 'pu_portal', 'pu_dash', 'pu_heart',
+  'pu_plasma', 'pu_cryo', 'pu_phase', 'pu_nova', 'pu_overdrive',
 ] as const;
 export type SpriteName = (typeof SPRITES)[number];
 
@@ -39,7 +40,8 @@ export const SPRITE_PX = 96;
 export const ITEM_SPRITES: readonly (SpriteName | null)[] = [null, 'pu_bomb', 'pu_range', 'pu_speed', 'pu_kick', 'pu_shield', 'pu_pierce',
   'pu_fullfire', 'pu_mystery', 'pu_remote', 'pu_line', 'pu_punch', 'pu_ghost', 'pu_nuke',
   'pu_freeze', 'pu_mine', 'pu_rocket', 'pu_swap', 'pu_stomp', 'pu_drone', 'pu_swarm',
-  'pu_builder', 'pu_gas', 'pu_clone', 'pu_sticky', 'pu_portal', 'pu_dash', 'pu_heart'];
+  'pu_builder', 'pu_gas', 'pu_clone', 'pu_sticky', 'pu_portal', 'pu_dash', 'pu_heart',
+  'pu_plasma', 'pu_cryo', 'pu_phase', 'pu_nova', 'pu_overdrive'];
 
 /** The sprite of an item kind, with the secret box for unknown kinds. */
 export const itemSprite = (kind: number): SpriteName => ITEM_SPRITES[kind] ?? 'pu_mystery';

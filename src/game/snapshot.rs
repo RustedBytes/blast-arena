@@ -249,16 +249,17 @@ impl World {
     }
 }
 
-/// Flags of a bomb as sent: pierce, remote, nuke, freeze, rocket, (mine),
-/// sticky, gas.
-fn bomb_flags(b: &super::bomb::Bomb) -> u8 {
-    u8::from(b.pierce)
-        | u8::from(b.remote) << 1
-        | u8::from(b.nuke) << 2
-        | u8::from(b.freeze) << 3
-        | u8::from(b.rocket) << 4
-        | u8::from(b.sticky) << 6
-        | u8::from(b.gas) << 7
+/// Flags of a bomb as sent (a varint): pierce, remote, nuke, freeze,
+/// rocket, (mine), sticky, gas, then a blaster bolt's colour in bits 8-10.
+fn bomb_flags(b: &super::bomb::Bomb) -> u16 {
+    u16::from(b.pierce)
+        | u16::from(b.remote) << 1
+        | u16::from(b.nuke) << 2
+        | u16::from(b.freeze) << 3
+        | u16::from(b.rocket) << 4
+        | u16::from(b.sticky) << 6
+        | u16::from(b.gas) << 7
+        | u16::from(b.bolt & 7) << 8
 }
 
 impl World {
@@ -433,6 +434,9 @@ impl World {
             // Hearts against monster bites (dungeon arena); 0 elsewhere.
             if self.monsters_on() { i64::from(self.hearts(p)) } else { 0 },
             if self.monsters_on() { i64::from(self.monsters.tuning.player_hp) } else { 0 },
+            // Cosmos arena: the blaster's colour and overdrive left; 0 elsewhere.
+            if self.mode == super::Mode::Cosmos { i64::from(p.blaster.max(super::cosmos::blaster::STANDARD)) } else { 0 },
+            t(p.overdrive_until.saturating_sub(tick)),
         ]);
         me
     }

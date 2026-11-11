@@ -117,6 +117,12 @@ pub struct Player {
     pub freeze: bool,
     /// Landing a jump stuns enemies next to you (stomp power-up).
     pub stomp: bool,
+    /// Cosmos arena: the blaster's colour (a `cosmos::blaster` code), set
+    /// by the blaster core power-ups; the overdrive's end; the earliest
+    /// tick of the next overdrive shot.
+    pub blaster: u8,
+    pub overdrive_until: u64,
+    pub next_shot: u64,
     /// The gadget held (an `Item` code, 0 for none) and its charges.
     pub gadget: u8,
     pub gadget_n: u8,
@@ -236,6 +242,9 @@ impl Player {
             nukes: 0,
             freeze: false,
             stomp: false,
+            blaster: 0,
+            overdrive_until: 0,
+            next_shot: 0,
             gadget: 0,
             gadget_n: 0,
             gadget_presses: 0,
@@ -363,6 +372,7 @@ impl Player {
         self.nukes = 0;
         self.freeze = false;
         self.stomp = false;
+        (self.blaster, self.overdrive_until) = (0, 0);
         (self.gadget, self.gadget_n) = (0, 0);
         self.stunned_until = 0;
         self.ghost_until = 0;

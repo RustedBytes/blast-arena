@@ -25,6 +25,7 @@ export const COLORS: readonly string[] = [
   '#7ee05a', '#c8ff8a',                       // 20-21 slime
   '#e8e2cf', '#a8a08a',                       // 22-23 bone
   '#4a3a6a', '#8a6ab0',                       // 24-25 bat
+  '#5dff6a', '#ff4a3a', '#4ae0ff', '#b45aff', '#ffc83a', // 26-30 blaster bolts
 ];
 
 

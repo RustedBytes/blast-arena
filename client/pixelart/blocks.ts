@@ -1,7 +1,7 @@
 // Blocks in 3/4 view: biome pillars and the two kinds of crate.
 
 import { at, clamp, crack, field, int, LAVA, line, N, pick, Pix, relief, rng, STEEL } from '../pixelkit.js';
-import { CRYPT, HAZARD, ICE, LIMESTONE, MOSS, OBSIDIAN, SNOW, STONE, TOP, WOOD } from './palette.js';
+import { CRYPT, HAZARD, HULL, ICE, LIMESTONE, MOSS, NEON, OBSIDIAN, SNOW, STONE, TOP, WOOD } from './palette.js';
 import type { Shade } from './palette.js';
 
 // ------------------------------------------------------------------- blocks
@@ -182,6 +182,43 @@ export function cryptPillar(seed: number, kind: number) {
       p.set(x, y, CRYPT[0]);
       if (onTop(x + 1, y + 1)) p.set(x + 1, y + 1, CRYPT[6]);
     });
+  }
+  return p;
+}
+
+/**
+ * Station hull: a riveted gunmetal block with a panel seam across its
+ * top and a cyan running light on its front. Kind 1 has a porthole full of
+ * stars; kind 2 a hazard-lit antenna stub.
+ */
+export function hullPillar(seed: number, kind: number) {
+  const rand = rng(seed), f = field(rand, [[2, 0.5], [8, 0.5]]);
+  const top = (x: number, y: number) => {
+    if (y === 5) return HULL[3]; // panel seam
+    if (y === 6) return HULL[6];
+    if ((x === 3 || x === N - 4) && (y === 3 || y === 8)) return HULL[7]; // rivets
+    return pick(HULL, at(f, x * 2, y) * 0.5 + 0.35, x, y, 3, 5, 0.5);
+  };
+  const front = (x: number, y: number) => {
+    if (y === TOP + 2 && x > 2 && x < N - 3) return x % 3 === 0 ? NEON[2] : NEON[1]; // running light
+    return y === TOP ? HULL[5] : HULL[3];
+  };
+  const p = block(HULL, top, front);
+  if (kind === 1) {
+    // A round porthole on the top face with a star inside.
+    for (let y = 1; y <= 4; y++) {
+      for (let x = 5; x <= 10; x++) {
+        const d = (x - 7.5) ** 2 / 6 + (y - 2.5) ** 2 / 2.2;
+        if (d <= 1.25) p.set(x, y, d > 0.8 ? HULL[6] : '#070a1a');
+      }
+    }
+    p.set(6 + int(rand, 3), 2 + int(rand, 2), '#e8f0ff');
+  }
+  if (kind === 2) {
+    // An antenna stub with a blinking red light.
+    for (let y = 2; y <= 8; y++) p.set(11, y, HULL[6]);
+    p.set(11, 1, '#ff4a3a');
+    p.set(12, 1, '#ff9a8a');
   }
   return p;
 }

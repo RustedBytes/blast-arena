@@ -71,6 +71,8 @@ pub enum Biome {
     Volcano,
     /// Dungeon flagstones and brick (the dungeon arena).
     Crypt,
+    /// Starfield deck plates and hull blocks (the cosmos arena).
+    Space,
 }
 
 /// A biome region centre, as fractions of the map size; a cell belongs to

@@ -6,6 +6,40 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A **Cosmos** arena (`Cosmos:cosmos:51:8`, mode `cosmos`): a free-for-all
+  on a space station where the bomb key fires a blaster. Bolts fly like
+  rockets and glow in the blaster's colour, and so do their blasts.
+  Everyone starts green; five cosmos-only power-ups (items 28-32) change
+  that: **Plasma core** (red, blasts reach 2 further), **Cryo core** (cyan,
+  blasts leave ice), **Phase core** (violet, bolts fly through crates and
+  blasts pierce), **Nova core** (gold, three bolts at once) and
+  **Overdrive** (8 s of rapid fire past your bomb limit). About a third
+  of crate drops and vault loot there are cosmos power-ups, and power-ups
+  that only change dropped bombs never turn up. New Space region (6th
+  biome code) with starfield deck plates and hull blocks, in both art
+  styles; `mapview --space` previews its maps. The HUD shows your blaster
+  colour and the overdrive timer. It is last in the default arena list,
+  so the other arenas keep their ids.
+- A cosmos sound set, used only in the Cosmos arena: laser zaps pitched by
+  blaster colour (one per shot, positional), crackling plasma bursts
+  instead of explosions, a jetpack hop, a sci-fi pick-up chime, a
+  power-down death and its own slow synth-pad soundtrack.
+- Tutorial: a **Cosmos** slide with the five cosmos power-ups (17 slides
+  in all, in every language).
+
+### Changed
+
+- The lobby's arena picker is a compact grid (three columns, two on
+  phones, four in short landscape) with a mode icon, the name and live
+  player and bot counts on each tile, plus one line under it with the
+  selected arena's mode, size and players. Every arena now fits without
+  scrolling; the mode and size are also in each tile's tooltip.
+- Protocol: a bomb's flags are now a varint (bits 8-10 carry a blaster
+  bolt's colour), and the player's own state gains `blaster` and
+  `overdrive`.
+
 ## [0.10.0] - 2026-11-11
 
 ### Added

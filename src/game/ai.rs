@@ -644,7 +644,8 @@ impl World {
             speed_lvl: p.speed_lvl,
             kick: p.kick,
             shielded: p.invulnerable_until > self.tick + 20,
-            rockets: self.mode == super::Mode::Rockets,
+            // Cosmos blasters fire bolts, which fly like rockets.
+            rockets: matches!(self.mode, super::Mode::Rockets | super::Mode::Cosmos),
         };
         let cur = me.cur;
         while brain.path.last() == Some(&cur) {
@@ -963,6 +964,8 @@ impl World {
             // A gamble (usually good, sometimes a curse), and hearts back
             // in the dungeon.
             Item::Mystery | Item::Heart => 4.0,
+            // Cosmos: a new blaster colour, and rapid fire.
+            Item::PlasmaCore | Item::CryoCore | Item::PhaseCore | Item::NovaCore | Item::Overdrive => 4.5,
             Item::Nuke => 5.0,
             Item::Remote
             | Item::Punch

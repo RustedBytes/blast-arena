@@ -86,6 +86,8 @@
   <div id="hud" class="hidden">
     <div id="stats" class="panel">
       <div class="stat hearts hidden" id="st-hearts" data-i18n-title="hearts" title="Hearts against monster bites"></div>
+      <div class="stat blaster hidden" id="st-blaster" title="Blaster"><i></i></div>
+      <div class="stat timer hidden" id="st-overdrive" data-i18n-title="overdrive" title="Overdrive: rapid fire"><img src="assets/pu_overdrive.svg" alt=""><span></span></div>
       <div class="stat" title="Bombs"><img src="assets/pu_bomb.svg" alt=""><span id="st-bombs">1</span></div>
       <div class="stat" title="Range"><img src="assets/pu_range.svg" alt=""><span id="st-range">2</span></div>
       <div class="stat" title="Speed"><img src="assets/pu_speed.svg" alt=""><span id="st-speed">0</span></div>
@@ -244,7 +246,8 @@
           <select id="join-lang" aria-label="Language"></select>
         </div>
         <div class="section-title" data-i18n="chooseArena">Choose an arena</div>
-        <div id="arena-list"></div>
+        <div id="arena-list" role="group" aria-label="Choose an arena"></div>
+        <p id="arena-info" class="arena-info"></p>
         <button type="submit" id="play" class="primary" data-i18n="play">Play</button>
         <button type="button" id="how-to-play" class="secondary">📖 <span data-i18n="howToPlay">How to play</span></button>
         <p id="join-error" class="error"></p>

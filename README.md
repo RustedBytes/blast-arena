@@ -74,7 +74,7 @@ Open the game with `?debug` to get `window.__blast` (state, predictor stats, net
 
 The settings menu has music and sound volume, zoom, language, **art style**, mute, FPS, a colour-blind-friendly palette, high contrast, and a button to replay the tutorial. Art style is **Pixel art** by default: crisp 16×16 graphics generated in code, tiles in `client/pixelart/` and sprites in `client/pixelsprites/`, sharing `client/pixelkit.ts`. **Classic** brings back the original vector art.
 
-**How to play** is a short illustrated tutorial: 14 slides, each a picture drawn with the game's own pixel art (a blast cross, a hop over a pillar, every power-up token) and a sentence or two, covering moving, bombs, jumping, power-ups, gadgets and abilities, the arena, dangers, the modes and scoring. It opens the first time you press Play (before you join, so nothing can hit you while you read), from the lobby's **How to play** button, and from settings. Next/Back, the dots, the arrow keys or a swipe turn the pages; Esc closes it.
+**How to play** is a short illustrated tutorial: 17 slides, each a picture drawn with the game's own pixel art (a blast cross, a hop over a pillar, every power-up token) and a sentence or two, covering moving, bombs, jumping, power-ups, gadgets and abilities, the arena, dangers, the modes and scoring. It opens the first time you press Play (before you join, so nothing can hit you while you read), from the lobby's **How to play** button, and from settings. Next/Back, the dots, the arrow keys or a swipe turn the pages; Esc closes it.
 
 The pixel art follows a few rules:
 - **Lighting:** one light source from the top left, and colour ramps that shift hue (cool shadows, warm highlights).
@@ -105,7 +105,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--wt-port` | `WT_PORT` | same as `--port` | UDP port for WebTransport (see [Transports](#transports)); `0` turns it off |
 | `--wt-public-port` | `WT_PUBLIC_PORT` | `--wt-port` | The UDP port browsers connect to, when a port mapping changes it (Docker Compose maps 443 to 3000) |
 | `--wt-cert`, `--wt-key` | `WT_CERT`, `WT_KEY` | self-signed | PEM certificate chain and key for WebTransport, reloaded when the file changes. Without them the server makes a 13-day self-signed certificate, renews it every 6 days, and browsers accept it by its SHA-256 hash. |
-| `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa`, `teams`, `royale`, `worms`, `rockets` or `dungeon`. Repeat the flag, or comma-separate in the env var. |
+| `--arena` | `ARENAS` | see below | An arena as `NAME:MODE:SIZE:BOTS`, mode `ffa`, `teams`, `royale`, `worms`, `rockets`, `dungeon` or `cosmos`. Repeat the flag, or comma-separate in the env var. |
 | `--map-size` | `MAP_SIZE` | `81` | Size of the default main arena |
 | `--bots` | `BOTS` | `10` | Bots in the default main arena |
 | `--max-players` | `MAX_PLAYERS` | `256` | Player cap per arena, bots included (raised to fit an arena's bots) |
@@ -118,7 +118,7 @@ Command-line arguments; each has an environment-variable fallback. `cargo run --
 | `--log-level` | `LOG_LEVEL` | `info` | Log filter: a level plus `target=level` pairs, e.g. `debug` or `info,blast_arena::net=debug`. `RUST_LOG` overrides it. |
 | `--log-format` | `LOG_FORMAT` | `compact` | `compact`, `pretty`, or `json` (one object per line, for log collectors) |
 
-Without `--arena` the server runs nine arenas:
+Without `--arena` the server runs ten arenas:
 - `Main:ffa:<map-size>:<bots>`
 - `Teams:teams:61:8`
 - `Mini:ffa:31:4`
@@ -128,8 +128,9 @@ Without `--arena` the server runs nine arenas:
 - `Dungeon:dungeon:61:6` (rooms and corridors haunted by monsters)
 - `Horde:ffa:321:1000` (a free-for-all with a thousand bots, about 100 cells each; an arena's player limit is raised to fit its bots, and a joining human takes a bot's place)
 - `Humans:ffa:51:0` (no bots: real players only)
+- `Cosmos:cosmos:51:8` (a space station where the bomb key fires colored blasters; last in the list so the other arenas keep their ids)
 
-Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, open plazas, a winding maze with loops, or concentric rings with gates), optional mirror or rotational symmetry (walls, crates and spawn pockets alike, so no side is favoured), patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The generator builds three candidate layouts and keeps the best by a quality score: spawn points spread over the whole arena, crates balanced between the quarters, few dead ends. The log shows the seed and a summary of each map with its score (`map generated`). To preview layouts without starting a server, run `cargo run --release --bin mapview -- --size 41 --count 5` (add `--open` for battle royale maps, `--dungeon` for dungeon maps). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
+Every start generates new maps. Each arena rolls its own layout from the map seed: a pillar pattern (classic grid, checkerboard, scattered, rooms of joined walls, open plazas, a winding maze with loops, or concentric rings with gates), optional mirror or rotational symmetry (walls, crates and spawn pockets alike, so no side is favoured), patchy crate cover, region placement, and how much ice, armour, conveyor belt and teleporting there is. The generator builds three candidate layouts and keeps the best by a quality score: spawn points spread over the whole arena, crates balanced between the quarters, few dead ends. The log shows the seed and a summary of each map with its score (`map generated`). To preview layouts without starting a server, run `cargo run --release --bin mapview -- --size 41 --count 5` (add `--open` for battle royale maps, `--dungeon` for dungeon maps, `--space` for cosmos maps). Whatever the roll, the border is solid, no open cell is walled off, teleport pads come in pairs and there are plenty of safe spawn spots.
 
 ### Logging
 
@@ -218,6 +219,17 @@ RUST_LOG=info,blast_arena=debug cargo run --release -- --log-format json
 - **Battle royale** (the Royale arena): last player standing. Everyone starts spread over an open map and the whole map is safe; then the safe zone shrinks in five phases. Each phase first shows the next, smaller circle (white dashed line, also on the minimap) for a while, then the zone closes in on it. Outside the zone is the blue storm: the HUD shows how long you can stay in it (5 s early on, down to 1 s at the end), and time inside lets you recover. No respawns during a match: you watch the nearest survivor, and a new match starts 6 s after a winner is decided (+5 points), with everyone back and power-ups reset. Joining is open until the zone first moves. Royale maps are built to be run across: fewer crates, a crate-free road every 8 cells, and no pocket that can't be walked out of.
 - **Worms** (the Worms arena): a free-for-all where giant worms crawl the lanes and hunt everyone, bots included. A worm is a head and a body that follows the head's path; it smells players up to 12 steps away along the lanes and crawls after the nearest one (yellow eyes while roaming, red while hunting, slower than you on foot). Touching any part of a worm on the ground eats you, unless you are shielded or jumping over it, and makes the worm a segment longer. Fire destroys the segments it touches: the end with the head crawls on, a cut-off piece of two or more segments becomes a worm of its own, and a worm that loses its head or is left too short dies. Ending a worm scores +1 for whoever's fire did it. New worms burrow out of the ground (a trembling mound, harmless for a second) away from players, about one per 550 cells of map. The minimap shows every worm. Worms maps are open, like Royale's, so worms and players have room to move. All the numbers are in `WormTuning` in `src/game/worms.rs`.
 - **Rockets** (the Rockets arena): a free-for-all where nobody drops bombs. The bomb key fires a rocket the way you are walking, or facing when you stand still. It flies a cell every tick and blows up on whatever it hits first: a player (in their cell), a wall, a crate or a bomb, or after 3 s in the air. The blast is a cross of your bomb range (at least 2) and never hurts you; pierce and freeze power-ups carry over. Rockets in the air count towards your bomb limit, so extra bombs mean faster fire. Atomic, gas, sticky, line and remote bombs don't apply. Bots shoot down open lanes at enemies and at crates nearby, and step out of the lane of an incoming rocket.
+- **Cosmos** (the Cosmos arena): a free-for-all on a space station (starfield deck plates, hull blocks with running lights, extra warp pads, long lanes to shoot down) where the bomb key fires a **blaster**. A bolt flies like a rocket, a cell every tick, blows up on whatever it hits and never hurts its shooter; it counts towards your bomb limit. Everyone starts with a green blaster; the cosmos-only **blaster cores** recolour it until you die, and its bolts and blasts glow in that colour:
+
+  | Power-up | Effect |
+  |---|---|
+  | Plasma core (red) | Blasts reach 2 cells further |
+  | Cryo core (cyan) | Blasts leave ice |
+  | Phase core (violet) | Bolts fly through crates and their blasts pierce, so cover doesn't help |
+  | Nova core (gold) | Fires three bolts at once: ahead and to both sides (the side bolts don't count towards your limit) |
+  | Overdrive | 8 s of rapid fire: bolts stop counting towards your limit, one every 0.2 s |
+
+  About a third of crate drops (and vault loot) there are cosmos power-ups; the ones that only change dropped bombs (kick, punch, remote, line, atomic, gas and sticky bombs) never turn up. The arena has its own sound set: laser zaps pitched by blaster colour, crackling plasma bursts, a jetpack hop, sci-fi pick-up chimes and a slow synth-pad soundtrack. Bots fire their blasters like rockets. All the numbers are in `src/game/cosmos.rs`.
 - **The vault and its Warden**: every arena has a walled vault near the middle, with a gate in each side and up to 16 strong power-ups on its gilded floor (one more every 8 s). The **Warden**, a stone golem with 8 hit points, guards it and crushes whoever it touches. It never strays more than 6 cells from the vault, and every attack is telegraphed:
   - **Slam:** next to you, a red square fills in, then it crushes everyone on the ground within 2 cells. Jump to dodge it.
   - **Charge:** lined up with it in a clear lane, chevrons mark the lane, then it charges a cell a tick.
@@ -393,6 +405,7 @@ src/game/abilities.rs ability power-ups: inventory, ability key, events, cleanup
 src/game/ai.rs        server-side AI bots
 src/game/worms.rs     the worms of the Worms arena (tuning, crawling, hunting,
                       blasts, respawns); tests in worm_tests
+src/game/cosmos.rs    the Cosmos arena: blasters, blaster cores, overdrive, drops
 src/bin/bots.rs       network load tester
 src/bin/simbench.rs   tick-time and allocation benchmark
 src/bin/mapview.rs    prints generated maps as text, with their quality scores

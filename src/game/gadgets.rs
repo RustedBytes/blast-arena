@@ -128,7 +128,7 @@ impl World {
 
     /// Puts a rocket of `kind` in the player's cell, flying the way they're
     /// steering (or facing, when they stand still) from this tick on.
-    fn launch_rocket(&mut self, id: u32, kind: BombKind) -> bool {
+    pub(super) fn launch_rocket(&mut self, id: u32, kind: BombKind) -> bool {
         let p = &self.players[&id];
         let (x, y) = p.cell();
         let dir = if p.input_dir != 0 { p.input_dir } else { p.facing };

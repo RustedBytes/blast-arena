@@ -218,9 +218,9 @@ pub const ME_FIELDS: [&str; ME_LEN] = [
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
     "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying", "storm", "storm_max",
     "ability", "ability_n", "ability_max", "ability_cd", "gas_bombs", "sticky_bombs", "stuck", "detach", "gassed", "dash",
-    "dash_dir", "portal_wait", "hp", "hp_max",
+    "dash_dir", "portal_wait", "hp", "hp_max", "blaster", "overdrive",
 ];
-pub const ME_LEN: usize = 49;
+pub const ME_LEN: usize = 51;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -860,9 +860,9 @@ pub mod testing {
                 let mut prev = 0;
                 for _ in 0..r.uvar().unwrap() {
                     prev += r.uvar().unwrap() as i64;
-                    let (x, y, f) = (r.uvar().unwrap() as i64, r.uvar().unwrap() as i64, r.u8().unwrap());
+                    let (x, y, f) = (r.uvar().unwrap() as i64, r.uvar().unwrap() as i64, r.uvar().unwrap() as i64);
                     let at = if f & 2 != 0 { 0 } else { k as i64 + r.ivar().unwrap() };
-                    new_bombs.push([prev, x, y, at, i64::from(f)]);
+                    new_bombs.push([prev, x, y, at, f]);
                 }
             }
             let gone = if has(snap::BOMBS_GONE) { ids(&mut r) } else { vec![] };

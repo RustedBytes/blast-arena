@@ -54,7 +54,7 @@ function numbers<K extends string>(m: MsgValue | undefined, what: string, keys: 
   return out;
 }
 
-const ARENA_MODES: readonly ArenaMode[] = ['ffa', 'teams', 'royale', 'worms', 'rockets', 'dungeon'];
+const ARENA_MODES: readonly ArenaMode[] = ['ffa', 'teams', 'royale', 'worms', 'rockets', 'dungeon', 'cosmos'];
 const isArenaMode = (v: string): v is ArenaMode => (ARENA_MODES as readonly string[]).includes(v);
 
 export function parseWelcome(body: MsgValue): WelcomeMsg {

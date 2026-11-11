@@ -86,12 +86,38 @@ async function refreshLobby(): Promise<void> {
   } catch { /* ignore */ }
 }
 
+/** Each arena mode's icon and name in the lobby. */
+const MODES: Readonly<Record<string, readonly [string, () => string]>> = {
+  ffa: ['💣', () => t('modeFfa')],
+  teams: ['🚩', () => t('modeTeams')],
+  royale: ['🌀', () => t('modeRoyale')],
+  worms: ['🪱', () => t('modeWorms')],
+  rockets: ['🚀', () => t('modeRockets')],
+  dungeon: ['🗝️', () => t('modeDungeon')],
+  cosmos: ['🪐', () => t('modeCosmos')],
+};
+const modeOf = (mode: string): readonly [string, () => string] => MODES[mode] ?? MODES.ffa;
+
+/**
+ * The arena picker: a compact grid of tiles (icon, name, who's playing)
+ * that fits every arena without scrolling, and one line under it with the
+ * selected arena's mode and map size.
+ */
 function renderArenas() {
   if (!arenas.some((a) => a.id === selectedArena)) selectedArena = arenas[0]?.id ?? 0;
-  ui.join.arenaList.innerHTML = arenas.map((a) =>
-    `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}">` +
-    `<span><span class="a-name">${escapeHtml(a.name)}</span><br><span class="a-meta">${a.mode === 'teams' ? t('modeTeams') : a.mode === 'royale' ? t('modeRoyale') : a.mode === 'worms' ? t('modeWorms') : a.mode === 'rockets' ? t('modeRockets') : a.mode === 'dungeon' ? t('modeDungeon') : t('modeFfa')} · ${a.map}×${a.map}</span></span>` +
-    `<span class="a-count">${t('arenaPlayers', { n: a.humans })} · 🤖${a.bots}</span></button>`).join('');
+  ui.join.arenaList.innerHTML = arenas.map((a) => {
+    const [icon, name] = modeOf(a.mode);
+    const title = `${a.name} · ${name()} · ${a.map}×${a.map}`;
+    return `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}" ` +
+      `aria-pressed="${a.id === selectedArena}" title="${escapeHtml(title)}">` +
+      `<span class="a-icon" aria-hidden="true">${icon}</span>` +
+      `<span class="a-name">${escapeHtml(a.name)}</span>` +
+      `<span class="a-count"><span class="a-humans${a.humans ? ' live' : ''}">👤${a.humans}</span> 🤖${a.bots}</span></button>`;
+  }).join('');
+  const sel = arenas.find((a) => a.id === selectedArena);
+  ui.join.arenaInfo.textContent = sel
+    ? `${modeOf(sel.mode)[1]()} · ${sel.map}×${sel.map} · ${t('arenaPlayers', { n: sel.humans })}`
+    : '';
 }
 
 function renderProfile() {

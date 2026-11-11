@@ -5,7 +5,8 @@ import { ITEM_SPRITES } from '../assets.js';
 import { context2d, makeCanvas } from '../dom.js';
 import { P_SMOKE, P_SPARK } from '../particles.js';
 import type { GameState } from '../state.js';
-import { ARM_DIRS, C_GAS, FUSE_TIP, FUSE_TIP_PIXEL, HALO, inNukeDisc, NUKE_DISC, NUKE_FUSE_TICKS, NUKE_OUTLINE, PORTAL_COLORS, T_WALL } from './constants.js';
+import { BOLT_COLORS } from '../protocol.js';
+import { ARM_DIRS, C_BOLT, C_GAS, FUSE_TIP, FUSE_TIP_PIXEL, HALO, inNukeDisc, NUKE_DISC, NUKE_FUSE_TICKS, NUKE_OUTLINE, PORTAL_COLORS, T_WALL } from './constants.js';
 import { drawGoo } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { Frame, FrameBomb } from './types.js';
@@ -187,6 +188,10 @@ export class ObjectLayer {
         this.drawMine(px, py, T, sec);
         continue;
       }
+      if (b.bolt) {
+        this.drawBolt(b, px, py, T, sec);
+        continue;
+      }
       if (b.rocket) {
         this.drawRocket(b, px, py, T, sec);
         continue;
@@ -256,6 +261,49 @@ export class ObjectLayer {
     ctx.beginPath();
     ctx.arc(px, py + T * 0.02, T * 0.05, 0, 6.2832);
     ctx.fill();
+  }
+
+  /**
+   * A cosmos blaster bolt: a glowing streak of light in its blaster's
+   * colour, a white-hot core and a trail of sparks. Phase bolts flicker,
+   * plasma bolts are fat.
+   */
+  private drawBolt(b: FrameBomb, px: number, py: number, T: number, sec: number) {
+    const { ctx } = this.s;
+    let a = Math.atan2(b.dy, b.dx);
+    if (b.dx === 0 && b.dy === 0) a = (b.rocketA ?? 0);
+    b.rocketA = a;
+    const [core, glow] = BOLT_COLORS[b.bolt] ?? BOLT_COLORS[1];
+    const c = Math.cos(a), s = Math.sin(a);
+    const fat = b.bolt === 2 ? 1.5 : 1;
+    const flicker = b.bolt === 4 ? 0.55 + 0.45 * Math.abs(Math.sin(sec * 40)) : 1;
+    const L = T * 0.95, R = T * 0.11 * fat;
+    ctx.setTransform(c, s, -s, c, px, py);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.45 * flicker;
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(-L * 0.15, 0, L * 0.65, R * 3, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.globalAlpha = flicker;
+    ctx.beginPath();
+    ctx.ellipse(-L * 0.1, 0, L * 0.5, R * 1.4, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, L * 0.38, R * 0.7, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(L * 0.12, 0, L * 0.16, R * 0.45, 0, 0, 6.2832);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (Math.random() < 0.7) {
+      this.s.particles.emit(P_SPARK, b.x + 0.5 - c * 0.4, b.y + 0.5 - s * 0.4, -c * 0.8 + (Math.random() - 0.5) * 0.6,
+        -s * 0.8 + (Math.random() - 0.5) * 0.6, 0.3, 0.05 * fat, C_BOLT + b.bolt);
+    }
   }
 
   /** A rocket pointing the way it flies, with an exhaust flame. */

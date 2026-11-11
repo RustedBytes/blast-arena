@@ -13,6 +13,8 @@ export const de: Strings = {
   modeTeams: 'Rot gegen Blau',
   modeWorms: 'Würmer',
   modeRockets: 'Raketen', helpRocket: 'Rakete', rocketsHint: 'Raketen-Arena: Die Bombentaste feuert eine Rakete in Blickrichtung',
+  modeCosmos: 'Kosmos', helpBlaster: 'Blaster', cosmosHint: 'Kosmos-Arena: Die Bombentaste feuert deinen Blaster. Sammle Kerne, um seine Farbe zu ändern!',
+  blasters: ['', 'Grüner Blaster', 'Plasma-Blaster', 'Kryo-Blaster', 'Phasen-Blaster', 'Nova-Blaster'], overdrive: 'Overdrive: Schnellfeuer',
   profile: 'Dein Profil',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} EP',
@@ -106,6 +108,7 @@ export const de: Strings = {
     20: 'Drohnenschwarm (Q drücken)',
     21: 'Baumeister: temporäre Mauern (R drücken)', 22: 'Gasbomben ×2: eine bremsende Wolke', 23: 'Klon: ein Doppelgänger als Köder (R drücken)',
     24: 'Klebebomben ×2: geworfen haften sie an Gegnern', 25: 'Portalpaar (R zweimal drücken)', 26: 'Sprint (R drücken)', 27: 'Herz: volle Gesundheit zurück',
+    28: 'Plasmakern: roter Blaster, größere Explosionen', 29: 'Kryokern: cyanfarbener Blaster, Explosionen hinterlassen Eis', 30: 'Phasenkern: violetter Blaster, schießt durch Kisten', 31: 'Novakern: goldener Blaster, drei Schüsse auf einmal', 32: 'Overdrive: 8 s Schnellfeuer',
     100: 'Jackpot! +1 Bombe, Reichweite & Tempo', 110: 'Verflucht: verlangsamt', 111: 'Verflucht: keine Bomben',
     112: 'Bombenregen!', 113: 'Verflucht: vertauschte Steuerung',
   },
@@ -143,6 +146,10 @@ export const de: Strings = {
     hearts: {
       title: 'Herzen', body: 'Im Verlies kostet dich ein Monsterbiss ein Herz, nicht das Leben. Bomben töten weiterhin sofort.',
       labels: ['Drei Herzen; der letzte Biss tötet', 'Gebissen: Du blinkst 2 s und Monster verlieren das Interesse. Lauf!', 'Alle 8 s kommt ein Herz zurück; bis dahin blutest du'],
+    },
+    cosmos: {
+      title: 'Kosmos', body: 'Eine Raumstation, auf der die Bombentaste einen Blaster abfeuert. Schüsse fliegen schnell und explodieren beim Aufprall. Kerne ändern die Farbe deines Blasters, bis du stirbst.',
+      labels: ['Plasma: größere Explosionen', 'Kryo: hinterlässt Eis', 'Phase: durch Kisten', 'Nova: drei Schüsse auf einmal', 'Overdrive: Schnellfeuer'],
     },
     scoring: {
       title: 'Punkte sammeln', body: 'Halte Tab für die Bestenliste, Esc öffnet die Einstellungen. Viel Glück!',

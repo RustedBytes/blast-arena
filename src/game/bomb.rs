@@ -44,6 +44,9 @@ pub struct Bomb {
     pub freeze: bool,
     /// A rocket: slides every tick and blows up when it hits something.
     pub rocket: bool,
+    /// Cosmos arena: a blaster bolt's colour (a `cosmos::blaster` code; 0
+    /// for anything else). Bolts are rockets.
+    pub bolt: u8,
     /// Counts towards the owner's bomb limit (gadget bombs don't).
     pub counted: bool,
     /// Releases a gas cloud instead of fire (see `gas`).
@@ -71,6 +74,8 @@ pub struct BombKind {
     pub nuke: bool,
     pub freeze: bool,
     pub rocket: bool,
+    /// A blaster bolt's colour (cosmos arena), 0 otherwise.
+    pub bolt: u8,
     /// Counts towards the owner's bomb limit.
     pub counted: bool,
     pub gas: bool,
@@ -94,7 +99,7 @@ impl BombKind {
     /// A plain bomb (bomb rain, tests).
     #[must_use]
     pub fn plain(range: u8, fuse: u64) -> Self {
-        Self { range, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, counted: true, gas: false, sticky: false, fuse }
+        Self { range, pierce: false, remote: false, nuke: false, freeze: false, rocket: false, bolt: 0, counted: true, gas: false, sticky: false, fuse }
     }
 
     /// A bomb from a gadget (drone, mine, rocket): not counted towards the
@@ -158,6 +163,10 @@ impl World {
         if self.mode == super::Mode::Rockets {
             return self.fire_bomb_rocket(owner);
         }
+        // A cosmos arena: the key fires the player's blaster.
+        if self.mode == super::Mode::Cosmos {
+            return self.fire_blaster(owner);
+        }
         let Some(p) = self.players.get(&owner) else { return false };
         if !p.can_bomb(self.tick) {
             return false;
@@ -203,7 +212,7 @@ impl World {
         }
         self.next_bomb_id = self.next_bomb_id.wrapping_add(1).max(1);
         let id = self.next_bomb_id;
-        let BombKind { range, pierce, remote, nuke, freeze, rocket, counted, gas, sticky, fuse } = kind;
+        let BombKind { range, pierce, remote, nuke, freeze, rocket, bolt, counted, gas, sticky, fuse } = kind;
         let explode_at = self.tick + if remote { REMOTE_SAFETY_TICKS } else { fuse };
         let bomb = Bomb {
             id,
@@ -216,6 +225,7 @@ impl World {
             nuke,
             freeze,
             rocket,
+            bolt,
             counted,
             gas,
             sticky,
@@ -368,7 +378,7 @@ impl World {
             let dir = if kicked != 0 { kicked } else { self.map.get(x, y).conveyor_dir() };
             let (dx, dy) = DIRS[dir as usize];
             let (nx, ny) = (x + dx, y + dy);
-            if self.cell_blocks_slide(nx, ny) {
+            if self.cell_blocks_slide(nx, ny) && !self.phases_through(id, nx, ny) {
                 let tick = self.tick;
                 let rocket = self.bombs[&id].rocket;
                 if rocket {
@@ -471,6 +481,7 @@ impl World {
                         let tuning = &self.tuning;
                         if let Some(item) = Item::crate_drop(&mut self.rng, |i| tuning.item_enabled(i)) {
                             let item = self.dungeon_drop(item);
+                            let item = self.cosmos_drop(item);
                             drops.push((x, y, item));
                         }
                     }
