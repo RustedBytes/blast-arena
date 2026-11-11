@@ -254,7 +254,7 @@ How a bot plays:
 DOMAIN=play.example.com docker compose up -d
 ```
 
-- `Dockerfile` builds a small runtime image.
+- `Dockerfile` builds a small Alpine runtime image: the server compiled against musl (with mimalloc as its allocator, since musl's is slow across threads), running as an unprivileged user with its database in the `/data` volume.
 - `docker-compose.yml` puts it behind **Caddy**, which gets a TLS certificate automatically, so the game uses `wss://`.
 - Profiles live in the `blast-data` volume.
 - Caddy hides `/metrics` from the internet. Scrape `http://game:3000/metrics` from the Docker network instead.

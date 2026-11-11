@@ -8,6 +8,11 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The Docker image runs on Alpine 3.24 instead of Debian slim: every stage
+  is Alpine-based, the server is built for musl, and musl builds use
+  mimalloc as the global allocator (musl's own scales poorly across the
+  runtime's worker threads). Other builds keep the system allocator.
+
 - Build tools upgraded: ESLint 10 (with `@eslint/js` 10), TypeScript 6.0,
   esbuild 0.28, and the latest Sass, Lightning CSS, PostCSS and
   typescript-eslint. TypeScript stays on 6.0, the newest typescript-eslint
