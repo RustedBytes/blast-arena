@@ -52,6 +52,12 @@ impl Tile {
         }
     }
 
+    /// Blocks walking (see `Map::is_solid`).
+    #[must_use]
+    pub fn is_solid(self) -> bool {
+        matches!(self, Tile::Wall | Tile::Crate | Tile::Armored | Tile::Built)
+    }
+
     #[must_use]
     pub fn is_breakable(self) -> bool {
         matches!(self, Tile::Crate | Tile::Armored)
@@ -191,7 +197,13 @@ impl Map {
     /// Walls, built walls and crates of either kind block movement and blasts.
     #[must_use]
     pub fn is_solid(&self, x: i32, y: i32) -> bool {
-        matches!(self.get(x, y), Tile::Wall | Tile::Crate | Tile::Armored | Tile::Built)
+        self.get(x, y).is_solid()
+    }
+
+    /// The tile at index `i` (see `idx`), for loops that already have it.
+    #[must_use]
+    pub fn tile_at(&self, i: usize) -> Tile {
+        self.tiles[i]
     }
 
     #[must_use]

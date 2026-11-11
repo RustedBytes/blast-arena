@@ -73,7 +73,7 @@ pub use snapshot::aoi_rect;
 #[cfg(test)]
 pub use testing::test_world;
 pub use testing::{plain_join, test_link};
-pub use tick::run;
+pub use tick::{PHASES, TickProfile, run};
 
 pub const TICK_RATE: u32 = 20;
 pub const DT: f32 = 1.0 / TICK_RATE as f32;
@@ -248,6 +248,8 @@ struct Scratch {
     emotes: Vec<(u32, u8)>,
     gassed: Vec<u32>,
     sticky_ids: Vec<u32>,
+    zone_spawns: events::ZoneSpawns,
+    view: snapshot::ViewIndex,
 }
 
 pub struct World {
@@ -338,6 +340,8 @@ pub struct World {
     event_arenas: ArenaRing,
     scratch: Scratch,
     ai_scratch: ai::AiScratch,
+    /// Per-phase times of the last tick, when profiling (benchmarks).
+    pub profile: Option<Box<tick::TickProfile>>,
 }
 
 /// Running totals, handy for logs and for judging the bots in tests.
@@ -478,8 +482,15 @@ impl World {
             event_arenas: ArenaRing::new(EVENT_ARENA_CAPACITY),
             scratch: Scratch::default(),
             ai_scratch: ai::AiScratch::new(n),
+            profile: None,
             map,
         }
+    }
+
+    /// Round length from now on (benchmarks; arenas take it from `Config`).
+    pub fn set_round_secs(&mut self, secs: u32) {
+        self.round_ticks = u64::from(secs) * u64::from(TICK_RATE);
+        self.round_end = self.tick + self.round_ticks;
     }
 
     pub fn set_target_bots(&mut self, bots: usize) {

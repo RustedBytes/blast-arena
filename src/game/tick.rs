@@ -71,45 +71,105 @@ impl World {
         self.event_arenas.rotate();
         let tick = self.tick;
         self.explosions.retain(|e| e.until > tick);
+        // Times a phase into `profile` when profiling; otherwise one branch.
+        macro_rules! phase {
+            ($i:expr, $e:expr) => {{
+                let t = self.profile.is_some().then(Instant::now);
+                $e;
+                if let (Some(t), Some(p)) = (t, self.profile.as_deref_mut()) {
+                    p.last[$i] = t.elapsed();
+                }
+            }};
+        }
+        if let Some(p) = self.profile.as_deref_mut() {
+            p.last = [Duration::ZERO; PHASES.len()];
+        }
         // The order inside a tick is fixed (see `abilities` for the
         // contract): commands and abilities, movement with portal trips and
         // dashes, sticky bombs following their carriers, fuses and blasts,
         // gas (which this tick's fire may ignite), damage, worms (cut by this
         // tick's fire, then crawling and biting), monsters (likewise), then
         // timers.
-        self.read_inputs();
-        self.update_bots();
-        self.update_players();
-        self.rebuild_buckets();
-        self.update_drones();
-        self.update_mines();
-        self.update_sliding_bombs();
-        self.update_sticky();
-        self.update_fuses();
-        self.update_gas();
-        self.apply_flame_damage();
-        self.update_worms();
-        self.update_monsters();
-        self.update_guard();
-        self.update_clones();
-        self.update_walls();
-        self.update_portals();
-        self.recharge_abilities();
-        self.update_hills();
-        self.update_events();
-        self.update_royale();
-        self.melt_ice();
-        self.regrow_crates();
+        phase!(0, self.read_inputs());
+        phase!(1, self.update_bots());
+        phase!(2, self.update_players());
+        phase!(3, self.rebuild_buckets());
+        phase!(4, {
+            self.update_drones();
+            self.update_mines();
+            self.update_sliding_bombs();
+            self.update_sticky();
+        });
+        phase!(5, self.update_fuses());
+        phase!(6, {
+            self.update_gas();
+            self.apply_flame_damage();
+        });
+        phase!(7, {
+            self.update_worms();
+            self.update_monsters();
+            self.update_guard();
+            self.update_clones();
+            self.update_walls();
+            self.update_portals();
+        });
+        phase!(8, {
+            self.recharge_abilities();
+            self.update_hills();
+            self.update_events();
+            self.update_royale();
+            self.melt_ice();
+            self.regrow_crates();
+        });
         if self.tick.is_multiple_of(u64::from(TICK_RATE)) {
-            self.maintain_bots();
-            self.update_bounty();
+            phase!(9, {
+                self.maintain_bots();
+                self.update_bounty();
+            });
         }
         if self.tick >= self.round_end {
-            self.end_round();
+            phase!(10, self.end_round());
         }
         if self.tick.is_multiple_of(PROFILE_FLUSH_TICKS) {
-            self.flush_profiles();
+            phase!(11, self.flush_profiles());
         }
+    }
+
+    /// `send_updates`, timed into the profile's last slot when profiling.
+    pub fn send_updates_profiled(&mut self) {
+        let t = self.profile.is_some().then(Instant::now);
+        self.send_updates();
+        if let (Some(t), Some(p)) = (t, self.profile.as_deref_mut()) {
+            p.last[PHASES.len() - 1] = t.elapsed();
+        }
+    }
+}
+
+/// Names of the profiled phases of a tick, in order (see `World::step`).
+pub const PHASES: [&str; 13] = [
+    "inputs",
+    "bots (AI)",
+    "players (movement)",
+    "buckets",
+    "drones/mines/sliding/sticky",
+    "fuses & blasts",
+    "gas & flame damage",
+    "worms/monsters/guard/clones/walls/portals",
+    "abilities/hills/events/royale/ice/crates",
+    "per second: maintain bots, bounty",
+    "end of round",
+    "profile flush",
+    "send updates (snapshots)",
+];
+
+/// Per-phase times of the last tick (`World::profile`).
+pub struct TickProfile {
+    pub last: [Duration; PHASES.len()],
+}
+
+impl Default for TickProfile {
+    fn default() -> Self {
+        TickProfile { last: [Duration::ZERO; PHASES.len()] }
     }
 }
 

@@ -52,6 +52,51 @@ const QUAKE_PILLAR_CRUMBLE: f32 = 0.08;
 pub const CAPTURE_POINTS: i32 = 5;
 const FLAG_RETURN_TICKS: u64 = 15 * SEC;
 
+/// Marks a cell already given to a respawn this tick (`ZoneSpawns::cells`).
+const USED_CELL: (i32, i32) = (-1, -1);
+
+/// Respawns in the sudden-death zone during one tick share this: the zone's
+/// cells in shuffled order, and per pass (strict, loose) the first cell
+/// that pass hasn't rejected yet.
+#[derive(Default)]
+pub(super) struct ZoneSpawns {
+    tick: u64,
+    centre: (i32, i32),
+    radius: i32,
+    cells: Vec<(i32, i32)>,
+    /// Per pass (strict, loose, any free cell): the first cell it hasn't
+    /// rejected yet.
+    next: [usize; 3],
+    /// Over the zone's bounding square (origin `corner`, side `side`): how
+    /// many living players are within 3 cells (the strict test's reach),
+    /// so the strict pass can skip crowded cells with one read.
+    crowd: Vec<u16>,
+    corner: (i32, i32),
+    side: i32,
+}
+
+/// How far the strict spawn test keeps other players (`World::spawn_ok`).
+const SPAWN_ELBOW_ROOM: i32 = 3;
+
+impl ZoneSpawns {
+    /// Counts a living player at `(x, y)` in the crowd grid.
+    fn add_crowd(&mut self, (x, y): (i32, i32)) {
+        let r = SPAWN_ELBOW_ROOM;
+        let (cx, cy) = self.corner;
+        for gy in (y - r - cy).max(0)..=(y + r - cy).min(self.side - 1) {
+            for gx in (x - r - cx).max(0)..=(x + r - cx).min(self.side - 1) {
+                let i = (gy * self.side + gx) as usize;
+                self.crowd[i] = self.crowd[i].saturating_add(1);
+            }
+        }
+    }
+
+    fn crowded(&self, (x, y): (i32, i32)) -> bool {
+        let (gx, gy) = (x - self.corner.0, y - self.corner.1);
+        self.crowd[(gy * self.side + gx) as usize] > 0
+    }
+}
+
 /// Event kinds as announced to clients.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MapEvent {
@@ -279,34 +324,73 @@ impl World {
     /// whole map would almost never hit the small open area (and then carve
     /// a spawn inside the stone), so this scans the zone itself, relaxing
     /// its demands step by step, and as a last resort clears a cell there.
+    ///
+    /// Late in sudden death dozens of players can respawn in one tick into
+    /// a crowded zone where the strict test fails almost everywhere. So
+    /// the shuffled zone and how far each pass got are shared by every
+    /// respawn of the tick (see [`ZoneSpawns`]): a tick checks each cell at
+    /// most once per pass, instead of once per respawn.
     pub(super) fn find_spawn_in_zone(&mut self, c: (i32, i32), r: i32) -> (i32, i32) {
         let r = r.max(0);
-        let mut cells = Vec::with_capacity(((2 * r + 1) * (2 * r + 1)) as usize);
-        for y in (c.1 - r).max(1)..=(c.1 + r).min(self.map.h - 2) {
-            for x in (c.0 - r).max(1)..=(c.0 + r).min(self.map.w - 2) {
-                cells.push((x, y));
+        let mut zs = std::mem::take(&mut self.scratch.zone_spawns);
+        if (zs.tick, zs.centre, zs.radius) != (self.tick, c, r) || zs.cells.is_empty() {
+            zs.cells.clear();
+            for y in (c.1 - r).max(1)..=(c.1 + r).min(self.map.h - 2) {
+                for x in (c.0 - r).max(1)..=(c.0 + r).min(self.map.w - 2) {
+                    zs.cells.push((x, y));
+                }
+            }
+            // Shuffle so players don't all appear in the same corner.
+            for i in (1..zs.cells.len()).rev() {
+                let j = self.rng.below(i as u32 + 1) as usize;
+                zs.cells.swap(i, j);
+            }
+            (zs.tick, zs.centre, zs.radius, zs.next) = (self.tick, c, r, [0; 3]);
+            zs.corner = (c.0 - r, c.1 - r);
+            zs.side = 2 * r + 1;
+            zs.crowd.clear();
+            zs.crowd.resize((zs.side * zs.side) as usize, 0);
+            for p in self.players.values().filter(|p| p.alive) {
+                zs.add_crowd(p.cell());
             }
         }
-        // Shuffle so players don't all appear in the same corner.
-        for i in (1..cells.len()).rev() {
-            let j = self.rng.below(i as u32 + 1) as usize;
-            cells.swap(i, j);
-        }
-        for strict in [true, false] {
-            if let Some(&cell) = cells.iter().find(|&&(x, y)| self.spawn_ok(x, y, strict)) {
-                return cell;
-            }
-        }
-        // Anything walkable and free of bombs and fire.
+        // Strict (away from other players), then not, then anything
+        // walkable and free of bombs and fire. A cell a pass rejected earlier
+        // this tick isn't tried again by it, and a chosen cell is marked
+        // used, so no two players land on one cell. The strict pass skips
+        // cells the crowd grid rules out (players as of this tick's first
+        // zone spawn, plus every player spawned since).
         let free = |w: &World, (x, y): (i32, i32)| {
             let i = w.map.idx(x, y);
             !w.map.is_solid(x, y) && w.bomb_grid[i] == 0 && w.flame_until[i] <= w.tick && w.map.get(x, y) != Tile::Teleport && !w.in_nuke_zone(x, y)
         };
-        if let Some(&cell) = cells.iter().find(|&&cell| free(self, cell)) {
-            return cell;
+        for pass in 0..3 {
+            let from = zs.next[pass];
+            let hit = zs.cells[from..].iter().position(|&cell| {
+                cell != USED_CELL
+                    && match pass {
+                        0 => !zs.crowded(cell) && self.spawn_ok(cell.0, cell.1, true),
+                        1 => self.spawn_ok(cell.0, cell.1, false),
+                        _ => free(self, cell),
+                    }
+            });
+            if let Some(k) = hit.map(|k| from + k) {
+                let cell = zs.cells[k];
+                zs.cells[k] = USED_CELL;
+                zs.next[pass] = k + 1;
+                zs.add_crowd(cell);
+                self.scratch.zone_spawns = zs;
+                return cell;
+            }
+            zs.next[pass] = zs.cells.len();
         }
-        // Clear a crate (or, failing that, the centre) to make room.
-        let cell = cells.iter().copied().find(|&(x, y)| self.map.get(x, y).is_breakable()).unwrap_or(c);
+        // Nowhere free: clear a crate (or, failing that, the centre).
+        let k = zs.cells.iter().position(|&(x, y)| (x, y) != USED_CELL && self.map.get(x, y).is_breakable());
+        let cell = k.map_or(c, |k| zs.cells[k]);
+        if let Some(k) = k {
+            zs.cells[k] = USED_CELL;
+        }
+        self.scratch.zone_spawns = zs;
         self.set_tile(cell.0, cell.1, Tile::Floor);
         if let Some(b) = self.bomb_at(cell.0, cell.1) {
             self.remove_bomb(b);

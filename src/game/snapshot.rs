@@ -6,7 +6,7 @@ use crate::protocol::{self, MeState, Wire, snap};
 
 use super::bomb::NUKE_RADIUS;
 use super::clone::{F_DASHING, F_JUMPING, F_MOVING};
-use super::delta::{Base, DeltaScratch, EMPTY_ME, SnapHistory, write_delta};
+use super::delta::{Base, BombEntry, DeltaScratch, EMPTY_ME, PlayerEntry, SnapHistory, write_delta};
 use super::player::{MAX_RANGE, Player};
 use super::{BUCKET, LEADERBOARD_EVERY, World, monsters, worms};
 
@@ -45,7 +45,7 @@ impl World {
     /// flames); tiles and items arrive through the reliable `w` stream.
     /// Arrays are written with back-patched lengths, so no intermediate
     /// lists are built.
-    pub(super) fn encode_snapshot(&self, arena: &mut BytesMut, p: &Player, hist: &mut SnapHistory, cur: &mut DeltaScratch) -> Bytes {
+    pub(super) fn encode_snapshot(&self, arena: &mut BytesMut, p: &Player, view: &ViewIndex, hist: &mut SnapHistory, cur: &mut DeltaScratch) -> Bytes {
         let tick = self.tick;
         // While dead, watch whoever got you.
         let spectating = (!p.alive).then_some(p.killed_by).flatten().and_then(|k| self.players.get(&k)).filter(|k| k.alive && k.id != p.id);
@@ -66,43 +66,15 @@ impl World {
         // What the client should see now, sorted by id for diffing. A
         // client watching elsewhere still gets its own player.
         cur.players.clear();
-        let me = me_outside.then_some(p);
-        cur.players.extend(self.players_in_rect(x0, y0, x1, y1).filter(|o| o.alive).chain(me).map(|o| {
-            let flags = u16::from(o.moving)
-                | u16::from(o.invulnerable_until > tick) << 1
-                | u16::from(o.curse(tick).0 != 0) << 2
-                | u16::from(o.ghost(tick)) << 3
-                | u16::from(o.bounty) << 4
-                | u16::from(o.jump_left > 0) << 5
-                | u16::from(o.stunned_until > tick) << 6
-                | u16::from(o.carrying != 0) << 7
-                | u16::from(o.dashing()) << 8
-                | u16::from(o.gassed_until > tick) << 9
-                | u16::from(o.hurt_until > tick) << 10 | u16::from(o.wounds > 0) << 11;
-            (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
-        }));
+        view.players_in_rect(self, (x0, y0, x1, y1), &mut cur.players);
+        if me_outside {
+            cur.players.push(player_entry(p, tick));
+        }
         cur.players.sort_unstable_by_key(|e| e.0);
         cur.bombs.clear();
         // Atomic bombs a little outside the view are sent too: their danger
         // zone reaches into it.
-        let margin = i32::from(NUKE_RADIUS);
-        let (bx0, by0) = ((x0 - margin).max(0), (y0 - margin).max(0));
-        let (bx1, by1) = ((x1 + margin).min(self.map.w - 1), (y1 + margin).min(self.map.h - 1));
-        for y in by0..=by1 {
-            for x in bx0..=bx1 {
-                let id = self.bomb_grid[self.map.idx(x, y)];
-                if id != 0 {
-                    let b = &self.bombs[&id];
-                    if !b.nuke && (x < x0 || x > x1 || y < y0 || y > y1) {
-                        continue;
-                    }
-                    // The absolute detonation tick never changes, so a resting
-                    // bomb is identical from one snapshot to the next.
-                    let at = if b.remote { 0 } else { b.explode_at };
-                    cur.bombs.push((id, x, y, at, bomb_flags(b)));
-                }
-            }
-        }
+        view.bombs_in_rect(self, (x0, y0, x1, y1), &mut cur.bombs);
         // Sticky bombs riding on players in view.
         for &bid in &self.sticky {
             if let Some(b) = self.bombs.get(&bid).filter(|b| b.attached != 0 && b.x >= x0 && b.x <= x1 && b.y >= y0 && b.y <= y1) {
@@ -216,6 +188,10 @@ impl World {
         let arena = ring.rotate();
         let mut dropped = std::mem::take(&mut self.scratch.dropped);
         dropped.clear();
+        // Every client sees the same players the same way: work that out
+        // once, not once per client.
+        let mut view = std::mem::take(&mut self.scratch.view);
+        view.build(self);
         for p in self.players.values() {
             let Some(link) = &p.link else { continue };
             if !broadcasts.iter().all(|m| link.events.try_send(m.clone()).is_ok()) {
@@ -223,8 +199,9 @@ impl World {
                 continue;
             }
             let hist = histories.entry(p.id).or_default();
-            link.snapshot.publish(self.encode_snapshot(arena, p, hist, &mut delta));
+            link.snapshot.publish(self.encode_snapshot(arena, p, &view, hist, &mut delta));
         }
+        self.scratch.view = view;
         self.snapshot_arenas = ring;
         self.histories = histories;
         self.scratch.delta = delta;
@@ -246,6 +223,119 @@ impl World {
             self.leave(id);
         }
         self.scratch.dropped = dropped;
+    }
+}
+
+/// A bomb on the grid as snapshots show it: id, x, y, detonation tick
+/// (0 = remote), flags. The absolute detonation tick never changes, so a
+/// resting bomb is identical from one snapshot to the next.
+fn bomb_entry(b: &super::bomb::Bomb) -> BombEntry {
+    (b.id, b.x, b.y, if b.remote { 0 } else { b.explode_at }, bomb_flags(b))
+}
+
+/// A living player as snapshots show it: id, x*100, y*100, facing, flags.
+fn player_entry(o: &Player, tick: u64) -> PlayerEntry {
+    let flags = u16::from(o.moving)
+        | u16::from(o.invulnerable_until > tick) << 1
+        | u16::from(o.curse(tick).0 != 0) << 2
+        | u16::from(o.ghost(tick)) << 3
+        | u16::from(o.bounty) << 4
+        | u16::from(o.jump_left > 0) << 5
+        | u16::from(o.stunned_until > tick) << 6
+        | u16::from(o.carrying != 0) << 7
+        | u16::from(o.dashing()) << 8
+        | u16::from(o.gassed_until > tick) << 9
+        | u16::from(o.hurt_until > tick) << 10
+        | u16::from(o.wounds > 0) << 11;
+    (o.id, (o.x * 100.0) as i32, (o.y * 100.0) as i32, o.facing, flags)
+}
+
+/// The living players and the bombs on the grid of this tick as snapshots
+/// show them, bucketed by cell like `World::buckets`. Built once per tick
+/// in `send_updates`, so a crowded arena doesn't look every visible thing
+/// up again (and scan every cell of the view for bombs) for every client
+/// that can see it.
+#[derive(Default)]
+pub(super) struct ViewIndex {
+    /// Cell and entry of each living player.
+    players: Vec<((i32, i32), PlayerEntry)>,
+    /// Per bucket, indices into `players`.
+    buckets: Vec<Vec<u32>>,
+    /// Entry of each bomb on the grid, and whether it's atomic.
+    bombs: Vec<(BombEntry, bool)>,
+    /// Per bucket, indices into `bombs`.
+    bomb_buckets: Vec<Vec<u32>>,
+}
+
+impl ViewIndex {
+    pub(super) fn build(&mut self, world: &World) {
+        self.players.clear();
+        self.bombs.clear();
+        for buckets in [&mut self.buckets, &mut self.bomb_buckets] {
+            buckets.resize_with(world.buckets.len(), Vec::new);
+            for b in buckets.iter_mut() {
+                b.clear();
+            }
+        }
+        // Bombs riding a player (sticky) aren't on the grid; they're sent
+        // separately.
+        for b in world.bombs.values() {
+            if !world.map.in_bounds(b.x, b.y) || world.bomb_grid[world.map.idx(b.x, b.y)] != b.id {
+                continue;
+            }
+            let bi = ((b.y / BUCKET) * world.buckets_w + b.x / BUCKET) as usize;
+            if let Some(bucket) = self.bomb_buckets.get_mut(bi) {
+                bucket.push(self.bombs.len() as u32);
+                self.bombs.push((bomb_entry(b), b.nuke));
+            }
+        }
+        for p in world.players.values().filter(|p| p.alive) {
+            let (x, y) = p.cell();
+            let bi = ((y / BUCKET) * world.buckets_w + x / BUCKET) as usize;
+            if let Some(b) = self.buckets.get_mut(bi) {
+                b.push(self.players.len() as u32);
+                self.players.push(((x, y), player_entry(p, world.tick)));
+            }
+        }
+    }
+
+    /// Appends the entries of the bombs inside the inclusive tile rectangle,
+    /// and of atomic ones a little outside it: their danger zone reaches in.
+    fn bombs_in_rect(&self, world: &World, (x0, y0, x1, y1): (i32, i32, i32, i32), out: &mut Vec<BombEntry>) {
+        let margin = i32::from(NUKE_RADIUS);
+        let (mx0, my0, mx1, my1) = (x0 - margin, y0 - margin, x1 + margin, y1 + margin);
+        let (bx0, by0) = (mx0.max(0) / BUCKET, my0.max(0) / BUCKET);
+        let (bx1, by1) = (mx1.min(world.map.w - 1) / BUCKET, my1.min(world.map.h - 1) / BUCKET);
+        for by in by0..=by1 {
+            for bx in bx0..=bx1 {
+                for &k in &self.bomb_buckets[(by * world.buckets_w + bx) as usize] {
+                    let (entry, nuke) = self.bombs[k as usize];
+                    let (x, y) = (entry.1, entry.2);
+                    let inside = x >= x0 && x <= x1 && y >= y0 && y <= y1;
+                    let near = x >= mx0 && x <= mx1 && y >= my0 && y <= my1;
+                    if inside || (nuke && near) {
+                        out.push(entry);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Appends the entries of the players whose cell lies inside the
+    /// inclusive tile rectangle.
+    fn players_in_rect(&self, world: &World, (x0, y0, x1, y1): (i32, i32, i32, i32), out: &mut Vec<PlayerEntry>) {
+        let (bx0, by0) = (x0.max(0) / BUCKET, y0.max(0) / BUCKET);
+        let (bx1, by1) = (x1.min(world.map.w - 1) / BUCKET, y1.min(world.map.h - 1) / BUCKET);
+        for by in by0..=by1 {
+            for bx in bx0..=bx1 {
+                for &k in &self.buckets[(by * world.buckets_w + bx) as usize] {
+                    let ((x, y), entry) = self.players[k as usize];
+                    if x >= x0 && x <= x1 && y >= y0 && y <= y1 {
+                        out.push(entry);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -501,4 +591,69 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64,
 #[must_use]
 pub fn aoi_rect(cx: i32, cy: i32, (hw, hh): (i32, i32)) -> (i32, i32, i32, i32) {
     (cx - hw, cy - hh, cx + hw, cy + hh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::map::Map;
+    use crate::game::rng::Rng;
+
+    /// The per-tick view index finds exactly what looking at every player
+    /// and every cell of the view would.
+    #[test]
+    fn view_index_matches_a_full_scan() {
+        let mut rng = Rng::new(5);
+        let map = Map::generate(61, 61, 0.45, &mut rng);
+        let mut w = World::with_map(map, rng, 200);
+        w.set_target_bots(150);
+        let mut view = ViewIndex::default();
+        let (mut players_seen, mut bombs_seen, mut nukes) = (0, 0, 0);
+        for _ in 0..8 {
+            for _ in 0..40 {
+                w.step();
+            }
+            // Some atomic bombs, whose zone reaches into views from outside.
+            for b in w.bombs.values_mut().step_by(7) {
+                b.nuke = true;
+                nukes += 1;
+            }
+            view.build(&w);
+            for cy in (0..w.map.h).step_by(5) {
+                for cx in (0..w.map.w).step_by(7) {
+                    let (x0, y0, x1, y1) = aoi_rect(cx, cy, (9, 6));
+                    let mut fast = Vec::new();
+                    view.players_in_rect(&w, (x0, y0, x1, y1), &mut fast);
+                    fast.sort_unstable_by_key(|e| e.0);
+                    let mut full: Vec<_> = w
+                        .players
+                        .values()
+                        .filter(|p| p.alive && (x0..=x1).contains(&p.cell().0) && (y0..=y1).contains(&p.cell().1))
+                        .map(|p| player_entry(p, w.tick))
+                        .collect();
+                    full.sort_unstable_by_key(|e| e.0);
+                    assert_eq!(fast, full, "players around ({cx}, {cy})");
+                    players_seen += full.len();
+
+                    let mut fast = Vec::new();
+                    view.bombs_in_rect(&w, (x0, y0, x1, y1), &mut fast);
+                    fast.sort_unstable_by_key(|e| e.0);
+                    let m = i32::from(NUKE_RADIUS);
+                    let mut full = Vec::new();
+                    for y in (y0 - m).max(0)..=(y1 + m).min(w.map.h - 1) {
+                        for x in (x0 - m).max(0)..=(x1 + m).min(w.map.w - 1) {
+                            let id = w.bomb_grid[w.map.idx(x, y)];
+                            if id != 0 && (w.bombs[&id].nuke || (x >= x0 && x <= x1 && y >= y0 && y <= y1)) {
+                                full.push(bomb_entry(&w.bombs[&id]));
+                            }
+                        }
+                    }
+                    full.sort_unstable_by_key(|e| e.0);
+                    assert_eq!(fast, full, "bombs around ({cx}, {cy})");
+                    bombs_seen += full.len();
+                }
+            }
+        }
+        assert!(players_seen > 1000 && bombs_seen > 200 && nukes > 10, "{players_seen} {bombs_seen} {nukes}");
+    }
 }

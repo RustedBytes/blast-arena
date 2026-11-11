@@ -60,7 +60,9 @@ impl World {
     pub(super) fn full_snapshot_bytes(&self, id: u32) -> Bytes {
         let mut arena = BytesMut::new();
         let (mut hist, mut scratch) = (SnapHistory::default(), DeltaScratch::default());
-        self.encode_snapshot(&mut arena, &self.players[&id], &mut hist, &mut scratch)
+        let mut view = super::snapshot::ViewIndex::default();
+        view.build(self);
+        self.encode_snapshot(&mut arena, &self.players[&id], &view, &mut hist, &mut scratch)
     }
 
     /// A full (non-delta) snapshot for player `id`, decoded.

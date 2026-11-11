@@ -123,6 +123,20 @@ impl Search {
     /// neighbour at that distance may be entered. Results land in `nodes`
     /// in order of distance, with the root at index 0.
     fn explore(&mut self, world: &World, start: (i32, i32), passable: impl Fn((i32, i32), u16) -> bool) {
+        self.explore_until(world, start, passable, |_| false);
+    }
+
+    /// Like `explore`, but after each cell it adds (the root included) asks
+    /// `stop`, given the nodes so far (that cell last), whether it has seen
+    /// enough; then it stops there and returns true. Everything up to that
+    /// point is exactly what `explore` would have found first.
+    fn explore_until(
+        &mut self,
+        world: &World,
+        start: (i32, i32),
+        passable: impl Fn((i32, i32), u16) -> bool,
+        mut stop: impl FnMut(&[Node]) -> bool,
+    ) -> bool {
         self.generation = self.generation.wrapping_add(1);
         if self.generation == 0 {
             self.seen.fill(0);
@@ -132,35 +146,52 @@ impl Search {
         self.seen[world.map.idx(start.0, start.1)] = g;
         self.nodes.clear();
         self.nodes.push(Node { cell: start, parent: 0, dist: 0 });
+        if stop(&self.nodes) {
+            return true;
+        }
+        // The hot loop of the bots' thinking: each neighbour's index is
+        // worked out once, with one bounds check, and tiles and bombs are
+        // read straight from their arrays (`World::walkable`, inlined).
+        let (width, height) = (world.map.w, world.map.h);
+        let inside = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < width && y < height;
+        let index = |(x, y): (i32, i32)| (y * width + x) as usize;
         let mut head = 0;
         while head < self.nodes.len() && self.nodes.len() < SEARCH_LIMIT {
             let Node { cell, dist, .. } = self.nodes[head];
             for &(dx, dy) in &DIRS[1..] {
                 let c = (cell.0 + dx, cell.1 + dy);
-                if !world.map.in_bounds(c.0, c.1) {
+                if !inside(c) {
                     continue;
                 }
+                let i = index(c);
+                let tile = world.map.tile_at(i);
                 // A pillar ahead: maybe hop over it (counted as two steps).
-                if self.jumps && world.map.get(c.0, c.1) == Tile::Wall {
+                if self.jumps && tile == Tile::Wall {
                     let l = (cell.0 + 2 * dx, cell.1 + 2 * dy);
-                    if world.map.in_bounds(l.0, l.1) && !world.map.is_solid(l.0, l.1) && world.bomb_at(l.0, l.1).is_none() {
-                        let i = world.map.idx(l.0, l.1);
-                        if self.seen[i] != g && passable(l, dist + 2) {
-                            self.seen[i] = g;
+                    if inside(l) {
+                        let li = index(l);
+                        if !world.map.tile_at(li).is_solid() && world.bomb_grid[li] == 0 && self.seen[li] != g && passable(l, dist + 2) {
+                            self.seen[li] = g;
                             self.nodes.push(Node { cell: l, parent: head, dist: dist + 2 });
+                            if stop(&self.nodes) {
+                                return true;
+                            }
                         }
                     }
                     continue;
                 }
-                let i = world.map.idx(c.0, c.1);
-                if self.seen[i] == g || !world.walkable(c, start) || !passable(c, dist + 1) {
+                if self.seen[i] == g || tile.is_solid() || (c != start && world.bomb_grid[i] != 0) || !passable(c, dist + 1) {
                     continue;
                 }
                 self.seen[i] = g;
                 self.nodes.push(Node { cell: c, parent: head, dist: dist + 1 });
+                if stop(&self.nodes) {
+                    return true;
+                }
             }
             head += 1;
         }
+        false
     }
 
     /// Writes the route from the root to `nodes[k]` into `path`, next step last.
@@ -185,6 +216,50 @@ struct Prey {
     shoves: bool,
 }
 
+/// The hunted players of this tick, findable by cell: `head[cell]` is the
+/// first prey standing there (`NO_PREY` if none), `next[k]` the one after
+/// prey `k`. The trap check only looks at the few cells a blast covers,
+/// instead of every player in the arena.
+#[derive(Default)]
+struct PreyIndex {
+    list: Vec<Prey>,
+    head: Vec<u32>,
+    next: Vec<u32>,
+}
+
+const NO_PREY: u32 = u32::MAX;
+
+impl PreyIndex {
+    fn new(cells: usize) -> Self {
+        PreyIndex { list: Vec::with_capacity(64), head: vec![NO_PREY; cells], next: Vec::with_capacity(64) }
+    }
+
+    /// Empties it, resetting only the cells last tick's prey stood on.
+    fn clear(&mut self, map: &super::map::Map) {
+        for p in &self.list {
+            self.head[map.idx(p.cell.0, p.cell.1)] = NO_PREY;
+        }
+        self.list.clear();
+        self.next.clear();
+    }
+
+    fn push(&mut self, i: usize, prey: Prey) {
+        self.next.push(self.head[i]);
+        self.head[i] = self.list.len() as u32;
+        self.list.push(prey);
+    }
+
+    /// The prey standing on cell `i`.
+    fn at(&self, i: usize) -> impl Iterator<Item = &Prey> {
+        let mut k = self.head[i];
+        std::iter::from_fn(move || {
+            let p = self.list.get(k as usize)?;
+            k = self.next[k as usize];
+            Some(p)
+        })
+    }
+}
+
 /// Working memory for the trap check: the planned bomb's fire times laid
 /// over the danger map (valid where `stamp` is the current generation, so
 /// it never needs clearing), and a search of its own, since it runs while
@@ -193,6 +268,8 @@ struct Prey {
 struct TrapScratch {
     fire: Vec<u16>,
     stamp: Vec<u32>,
+    /// The cells stamped this generation (the bomb's own and its blast's).
+    cells: Vec<usize>,
     generation: u32,
     search: Search,
 }
@@ -202,6 +279,7 @@ impl TrapScratch {
         TrapScratch {
             fire: vec![SAFE; cells],
             stamp: vec![0; cells],
+            cells: Vec::with_capacity(64),
             generation: 0,
             // Assume the prey can hop pillars: better to miss a trap than
             // to count one that isn't.
@@ -250,7 +328,7 @@ pub struct AiScratch {
     bomb_index: HashMap<u32, usize>,
     search: Search,
     /// Players bots may hunt, refreshed every tick.
-    prey: Vec<Prey>,
+    prey: PreyIndex,
     trap: TrapScratch,
     /// Per player bucket (see `World::buckets`): whether a human can see
     /// into it; empty when every bot thinks at full rate.
@@ -268,7 +346,7 @@ impl AiScratch {
             bombs: Vec::with_capacity(256),
             bomb_index: HashMap::with_capacity(256),
             search: Search { seen: vec![0; cells], generation: 0, nodes: Vec::with_capacity(SEARCH_LIMIT + 4), jumps: true },
-            prey: Vec::with_capacity(64),
+            prey: PreyIndex::new(cells),
             trap: TrapScratch::new(cells),
             watched: Vec::new(),
         }
@@ -323,6 +401,7 @@ fn dir_between(a: (i32, i32), b: (i32, i32)) -> u8 {
 fn is_hop(a: (i32, i32), b: (i32, i32)) -> bool {
     (b.0 - a.0).abs() + (b.1 - a.1).abs() == 2 && (a.0 == b.0 || a.1 == b.1)
 }
+
 
 impl World {
     pub fn update_bots(&mut self) {
@@ -385,14 +464,14 @@ impl World {
             t.fill(0);
         }
         sc.occupied.fill(0);
-        sc.prey.clear();
+        sc.prey.clear(&self.map);
         let slow = self.weather_slow() * DT;
         for p in self.players.values().filter(|p| p.alive) {
             let (x, y) = p.cell();
             let i = self.map.idx(x, y);
             sc.occupied[i] = sc.occupied[i].saturating_add(1);
             if p.invulnerable_until <= self.tick {
-                sc.prey.push(Prey { id: p.id, cell: (x, y), spt: p.speed(self.tick) * slow, team: p.team, shoves: p.kick || p.punch });
+                sc.prey.push(i, Prey { id: p.id, cell: (x, y), spt: p.speed(self.tick) * slow, team: p.team, shoves: p.kick || p.punch });
                 for (team, t) in sc.targets.iter_mut().enumerate() {
                     if team == 0 || p.team != team as u8 {
                         t[i] = t[i].saturating_add(1);
@@ -870,17 +949,23 @@ impl World {
     /// Shortest route to a cell no blast will reach, only crossing cells the
     /// bot can pass before they catch fire. Returns false if there is none.
     fn escape_path(&self, search: &mut Search, start: (i32, i32), danger: &[u16], spt: f32, path: &mut Vec<(i32, i32)>) -> bool {
-        search.explore(self, start, |c, dist| {
-            let d = danger[self.map.idx(c.0, c.1)];
-            d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN
-        });
-        match search.nodes.iter().position(|n| danger[self.map.idx(n.cell.0, n.cell.1)] == SAFE && self.rest_ok(n.cell)) {
-            Some(k) => {
-                search.path_to(k, path);
-                true
-            }
-            None => false,
+        // The first such cell found is the nearest: stop there.
+        let found = search.explore_until(
+            self,
+            start,
+            |c, dist| {
+                let d = danger[self.map.idx(c.0, c.1)];
+                d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN
+            },
+            |nodes| {
+                let c = nodes[nodes.len() - 1].cell;
+                danger[self.map.idx(c.0, c.1)] == SAFE && self.rest_ok(c)
+            },
+        );
+        if found {
+            search.path_to(search.nodes.len() - 1, path);
         }
+        found
     }
 
     /// Writes an escape route into `path` if the bot could drop a bomb at its
@@ -901,32 +986,40 @@ impl World {
             hyp[i] = hyp[i].min(t.saturating_add(delay));
         });
         let (hyp, occupied, spt) = (&sc.hypothetical, &sc.occupied, me.spt);
-        sc.search.explore(self, cur, |c, dist| {
-            let i = self.map.idx(c.0, c.1);
-            let d = hyp[i];
-            occupied[i] == 0 && (d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN)
-        });
         // Insist on a robust way out: either two separate exits, or a roomy
-        // safe area, so another player can't seal the only escape cell.
-        let nodes = &sc.search.nodes;
+        // safe area, so another player can't seal the only escape cell. The
+        // search stops once that's settled; the nearest safe cell is the
+        // first one found either way.
         let mut exits = [false; 4];
         let mut safe_cells = 0;
         let mut nearest = None;
-        for (k, n) in nodes.iter().enumerate().skip(1) {
-            if hyp[self.map.idx(n.cell.0, n.cell.1)] != SAFE || !self.rest_ok(n.cell) {
-                continue;
-            }
-            safe_cells += 1;
-            nearest.get_or_insert(k);
-            let mut first = k;
-            while nodes[first].parent != 0 {
-                first = nodes[first].parent;
-            }
-            exits[dir_between(cur, nodes[first].cell) as usize - 1] = true;
-        }
-        let exits = exits.iter().filter(|&&e| e).count();
+        let robust = |exits: &[bool; 4], safe_cells: usize| exits.iter().filter(|&&e| e).count() >= 2 || safe_cells >= MIN_SAFE_POCKET;
+        sc.search.explore_until(
+            self,
+            cur,
+            |c, dist| {
+                let i = self.map.idx(c.0, c.1);
+                let d = hyp[i];
+                occupied[i] == 0 && (d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN)
+            },
+            |nodes| {
+                let k = nodes.len() - 1;
+                let n = nodes[k];
+                if k == 0 || hyp[self.map.idx(n.cell.0, n.cell.1)] != SAFE || !self.rest_ok(n.cell) {
+                    return false;
+                }
+                safe_cells += 1;
+                nearest.get_or_insert(k);
+                let mut first = k;
+                while nodes[first].parent != 0 {
+                    first = nodes[first].parent;
+                }
+                exits[dir_between(cur, nodes[first].cell) as usize - 1] = true;
+                robust(&exits, safe_cells)
+            },
+        );
         match nearest {
-            Some(k) if exits >= 2 || safe_cells >= MIN_SAFE_POCKET => {
+            Some(k) if robust(&exits, safe_cells) => {
                 sc.search.path_to(k, path);
                 true
             }
@@ -975,7 +1068,7 @@ impl World {
     /// benefit of the doubt (it runs flat out the moment it sees the bomb
     /// coming, hops pillars, and other bombs aren't set off any sooner), so
     /// a trap counted here is one that really holds.
-    fn trapped_prey(&self, spot: (i32, i32), me: &Me, head_start: f32, danger: &[u16], prey: &[Prey], trap: &mut TrapScratch) -> u32 {
+    fn trapped_prey(&self, spot: (i32, i32), me: &Me, head_start: f32, danger: &[u16], prey: &PreyIndex, trap: &mut TrapScratch) -> u32 {
         trap.generation = trap.generation.wrapping_add(1);
         if trap.generation == 0 {
             trap.stamp.fill(0);
@@ -989,17 +1082,24 @@ impl World {
         let t = ((head_start + fuse).min(f32::from(SAFE - 1)) as u16).min(danger[si]);
         trap.stamp[si] = g;
         trap.fire[si] = t;
+        trap.cells.clear();
+        trap.cells.push(si);
         self.blast_footprint(spot, me.blast(), false, |x, y, delay| {
             let i = self.map.idx(x, y);
             let at = t.saturating_add(delay);
-            if trap.stamp[i] != g || trap.fire[i] > at {
+            if trap.stamp[i] != g {
                 trap.stamp[i] = g;
+                trap.fire[i] = at;
+                trap.cells.push(i);
+            } else if trap.fire[i] > at {
                 trap.fire[i] = at;
             }
         });
 
+        // Only the prey standing in the blast can be trapped by it.
         let mut count = 0;
-        for p in prey {
+        let cells = std::mem::take(&mut trap.cells);
+        for p in cells.iter().flat_map(|&i| prey.at(i)) {
             let hostile = me.team == 0 || p.team as usize != me.team;
             // Outside the blast it's already safe; with kick or punch it
             // can knock the bomb aside.
@@ -1009,16 +1109,26 @@ impl World {
             let prey_spt = p.spt.max(0.01);
             let mut search = std::mem::take(&mut trap.search);
             // The new bomb blocks its own cell.
-            search.explore(self, p.cell, |c, dist| {
-                let d = trap.at(danger, self.map.idx(c.0, c.1));
-                c != spot && (d == SAFE || f32::from(d) > f32::from(dist) / prey_spt)
-            });
+            // It escapes as soon as it can reach a cell the fire never
+            // touches, so the search stops there.
+            let reached_safety = search.explore_until(
+                self,
+                p.cell,
+                |c, dist| {
+                    let d = trap.at(danger, self.map.idx(c.0, c.1));
+                    c != spot && (d == SAFE || f32::from(d) > f32::from(dist) / prey_spt)
+                },
+                |nodes| {
+                    let c = nodes[nodes.len() - 1].cell;
+                    trap.at(danger, self.map.idx(c.0, c.1)) == SAFE
+                },
+            );
             // A search cut short at its limit proves nothing.
-            let escapes = search.nodes.len() >= SEARCH_LIMIT
-                || search.nodes.iter().any(|n| trap.at(danger, self.map.idx(n.cell.0, n.cell.1)) == SAFE);
+            let escapes = reached_safety || search.nodes.len() >= SEARCH_LIMIT;
             trap.search = search;
             count += u32::from(!escapes);
         }
+        trap.cells = cells;
         count
     }
 
@@ -1178,6 +1288,151 @@ mod tests {
             self.bots.get_mut(&id).unwrap().mistake_chance = 0.0;
             id
         }
+    }
+
+    /// The searches that stop early (escapes, bomb escapes, traps) must
+    /// decide exactly what exploring everything would. Checked against the
+    /// exhaustive versions, for every bot of a busy arena.
+    #[test]
+    fn early_stopping_searches_match_exhaustive_ones() {
+        let mut rng = crate::game::rng::Rng::new(11);
+        let map = Map::generate(61, 61, 0.45, &mut rng);
+        let mut w = World::with_map(map, rng, 200);
+        w.set_target_bots(150);
+        let (mut escapes, mut bomb_escapes, mut traps) = (0, 0, 0);
+        for round in 0..6 {
+            for _ in 0..60 {
+                w.step();
+            }
+            let mut sc = AiScratch::new((w.map.w * w.map.h) as usize);
+            w.fill_senses(&mut sc);
+            for id in w.bot_ids.clone() {
+                let p = &w.players[&id];
+                if !p.alive {
+                    continue;
+                }
+                let me = w.bot_self(p);
+                sc.search.jumps = round % 2 == 0;
+                // Escape from danger: same verdict, same route.
+                let (mut fast, mut full) = (Vec::new(), Vec::new());
+                let a = w.escape_path(&mut sc.search, me.cur, &sc.danger, me.spt, &mut fast);
+                let b = escape_reference(&w, &mut sc.search, me.cur, &sc.danger, me.spt, &mut full);
+                assert_eq!((a, &fast), (b, &full), "escape for bot {id}");
+                escapes += 1;
+                // Bombing here and getting away.
+                let a = w.bomb_escape(&mut sc, &me, &mut fast);
+                let b = bomb_escape_reference(&w, &mut sc, &me, &mut full);
+                assert_eq!((a, &fast), (b, &full), "bomb escape for bot {id}");
+                bomb_escapes += 1;
+                // Traps from a few spots around.
+                for spot in [me.cur, (me.cur.0 + 1, me.cur.1), (me.cur.0, me.cur.1 + 2)] {
+                    if w.map.in_bounds(spot.0, spot.1) && !w.map.is_solid(spot.0, spot.1) {
+                        let a = w.trapped_prey(spot, &me, 3.0, &sc.danger, &sc.prey, &mut sc.trap);
+                        let b = trapped_reference(&w, spot, &me, 3.0, &sc.danger, &sc.prey.list, &mut sc.trap);
+                        assert_eq!(a, b, "trap from {spot:?} for bot {id}");
+                        traps += 1;
+                    }
+                }
+            }
+        }
+        assert!(escapes > 300 && bomb_escapes > 300 && traps > 300, "{escapes} {bomb_escapes} {traps}");
+    }
+
+    /// `escape_path` before it stopped early: explore all, then pick.
+    fn escape_reference(w: &World, search: &mut Search, start: (i32, i32), danger: &[u16], spt: f32, path: &mut Vec<(i32, i32)>) -> bool {
+        search.explore(w, start, |c, dist| {
+            let d = danger[w.map.idx(c.0, c.1)];
+            d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN
+        });
+        match search.nodes.iter().position(|n| danger[w.map.idx(n.cell.0, n.cell.1)] == SAFE && w.rest_ok(n.cell)) {
+            Some(k) => {
+                search.path_to(k, path);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `bomb_escape` before it stopped early.
+    fn bomb_escape_reference(w: &World, sc: &mut AiScratch, me: &Me, path: &mut Vec<(i32, i32)>) -> bool {
+        let cur = me.cur;
+        sc.hypothetical.copy_from_slice(&sc.danger);
+        let hyp = &mut sc.hypothetical;
+        let ci = w.map.idx(cur.0, cur.1);
+        let fuse = if me.nuke { NUKE_FUSE_TICKS } else { FUSE_TICKS };
+        let t = (fuse as u16).min(sc.danger[ci]);
+        hyp[ci] = hyp[ci].min(t);
+        w.blast_footprint(cur, me.blast(), false, |x, y, delay| {
+            let i = w.map.idx(x, y);
+            hyp[i] = hyp[i].min(t.saturating_add(delay));
+        });
+        let (hyp, occupied, spt) = (&sc.hypothetical, &sc.occupied, me.spt);
+        sc.search.explore(w, cur, |c, dist| {
+            let i = w.map.idx(c.0, c.1);
+            let d = hyp[i];
+            occupied[i] == 0 && (d == SAFE || f32::from(d) > (f32::from(dist) + 1.0) / spt + ESCAPE_MARGIN)
+        });
+        let nodes = &sc.search.nodes;
+        let mut exits = [false; 4];
+        let mut safe_cells = 0;
+        let mut nearest = None;
+        for (k, n) in nodes.iter().enumerate().skip(1) {
+            if hyp[w.map.idx(n.cell.0, n.cell.1)] != SAFE || !w.rest_ok(n.cell) {
+                continue;
+            }
+            safe_cells += 1;
+            nearest.get_or_insert(k);
+            let mut first = k;
+            while nodes[first].parent != 0 {
+                first = nodes[first].parent;
+            }
+            exits[dir_between(cur, nodes[first].cell) as usize - 1] = true;
+        }
+        let exits = exits.iter().filter(|&&e| e).count();
+        match nearest {
+            Some(k) if exits >= 2 || safe_cells >= MIN_SAFE_POCKET => {
+                sc.search.path_to(k, path);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// `trapped_prey` before it looked prey up by cell and stopped early:
+    /// every prey, explored in full.
+    fn trapped_reference(w: &World, spot: (i32, i32), me: &Me, head_start: f32, danger: &[u16], prey: &[Prey], trap: &mut TrapScratch) -> u32 {
+        trap.generation = trap.generation.wrapping_add(1);
+        let g = trap.generation;
+        let fuse = if me.nuke { NUKE_FUSE_TICKS } else { FUSE_TICKS } as f32;
+        let si = w.map.idx(spot.0, spot.1);
+        let t = ((head_start + fuse).min(f32::from(SAFE - 1)) as u16).min(danger[si]);
+        trap.stamp[si] = g;
+        trap.fire[si] = t;
+        w.blast_footprint(spot, me.blast(), false, |x, y, delay| {
+            let i = w.map.idx(x, y);
+            let at = t.saturating_add(delay);
+            if trap.stamp[i] != g || trap.fire[i] > at {
+                trap.stamp[i] = g;
+                trap.fire[i] = at;
+            }
+        });
+        let mut count = 0;
+        for p in prey {
+            let hostile = me.team == 0 || p.team as usize != me.team;
+            if p.id == me.id || !hostile || p.shoves || trap.stamp[w.map.idx(p.cell.0, p.cell.1)] != g {
+                continue;
+            }
+            let prey_spt = p.spt.max(0.01);
+            let mut search = std::mem::take(&mut trap.search);
+            search.explore(w, p.cell, |c, dist| {
+                let d = trap.at(danger, w.map.idx(c.0, c.1));
+                c != spot && (d == SAFE || f32::from(d) > f32::from(dist) / prey_spt)
+            });
+            let escapes = search.nodes.len() >= SEARCH_LIMIT || search.nodes.iter().any(|n| trap.at(danger, w.map.idx(n.cell.0, n.cell.1)) == SAFE);
+            trap.search = search;
+            count += u32::from(!escapes);
+        }
+        count
     }
 
     #[test]
