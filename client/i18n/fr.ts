@@ -15,6 +15,7 @@ export const fr: Strings = {
   profile: 'Ton profil',
   level: 'Niveau {n}',
   xpProgress: '{xp} / {next} XP',
+  xpPoints: '{n} XP',
   profileStats: '{k} éliminations · {w} MVP · meilleure série {s}',
   allTime: 'Meilleurs dynamiteurs de tous les temps',
   noRecords: 'Aucun record pour l’instant. Sois le premier !',

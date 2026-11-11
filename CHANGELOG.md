@@ -8,6 +8,12 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ### Changed
 
+- The lobby's all-time list shows each player's XP, the value it is ranked
+  by. With only level and kills shown, players on the same level looked
+  out of order (12 XP with no kills above 10 XP with one). Ties now go to
+  more wins, then more kills, then fewer deaths, and profiles with no XP
+  are left off.
+
 - The Docker image runs on Alpine 3.24 instead of Debian slim: every stage
   is Alpine-based, the server is built for musl, and musl builds use
   mimalloc as the global allocator (musl's own scales poorly across the

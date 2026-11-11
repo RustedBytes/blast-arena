@@ -209,7 +209,13 @@ fn run(conn: &Connection, op: Op) -> rusqlite::Result<()> {
             log::debug!("profile saved for {} (level {}, xp {})", p.name, p.level(), p.xp);
         }
         Op::Top { limit, reply } => {
-            let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM profiles ORDER BY xp DESC, kills DESC LIMIT ?1"))?;
+            // Ranked by XP (what the lobby list shows); ties go to more wins,
+            // then more kills, then fewer deaths. Profiles that never earned
+            // XP aren't records.
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {COLUMNS} FROM profiles WHERE xp > 0
+                 ORDER BY xp DESC, wins DESC, kills DESC, deaths ASC LIMIT ?1"
+            ))?;
             let rows = stmt.query_map([limit], row_to_profile)?.collect::<rusqlite::Result<Vec<_>>>()?;
             let _ = reply.send(rows);
         }
@@ -255,5 +261,24 @@ mod tests {
         assert_eq!(db.load("token-aaaa-1").await, Some(p));
         let top = db.top(10).await;
         assert_eq!(top.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Bob", "Ann"]);
+        let _ = std::fs::remove_file(&dir);
+    }
+
+    #[tokio::test]
+    async fn leaderboard_order() {
+        let dir = std::env::temp_dir().join(format!("blast-top-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        let db = Db::open(dir.to_str().unwrap()).unwrap();
+        let save = |name: &str, xp, wins, kills, deaths| {
+            db.save(Profile { token: format!("token-{name}-0000"), name: name.into(), xp, wins, kills, deaths, ..Default::default() });
+        };
+        save("idle", 0, 0, 0, 0); // never earned XP: not listed
+        save("low", 10, 0, 1, 5);
+        save("careful", 10, 0, 1, 1); // same XP and kills, fewer deaths
+        save("winner", 10, 1, 0, 9); // same XP, a win
+        save("top", 40, 0, 4, 15);
+        let top = db.top(10).await;
+        assert_eq!(top.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["top", "winner", "careful", "low"]);
+        let _ = std::fs::remove_file(&dir);
     }
 }

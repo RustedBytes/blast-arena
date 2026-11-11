@@ -15,6 +15,7 @@ export const de: Strings = {
   profile: 'Dein Profil',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} EP',
+  xpPoints: '{n} EP',
   profileStats: '{k} Abschüsse · {w} MVPs · beste Serie {s}',
   allTime: 'Beste Sprengmeister aller Zeiten',
   noRecords: 'Noch keine Rekorde. Sei der Erste!',

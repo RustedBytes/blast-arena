@@ -15,6 +15,7 @@ export const uk: Strings = {
   profile: 'Ваш профіль',
   level: 'Рівень {n}',
   xpProgress: '{xp} / {next} досвіду',
+  xpPoints: '{n} досвіду',
   profileStats: 'вбивств: {k} · MVP: {w} · найкраща серія: {s}',
   allTime: 'Найкращі за весь час',
   noRecords: 'Рекордів ще немає. Станьте першим!',

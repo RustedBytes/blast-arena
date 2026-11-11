@@ -62,7 +62,7 @@ function isProfile(v: unknown): v is Profile {
 }
 
 function isLeaderRow(v: unknown): v is LeaderRow {
-  return isObject(v) && typeof v.name === 'string' && numbersIn(v, ['level', 'kills', 'wins']);
+  return isObject(v) && typeof v.name === 'string' && numbersIn(v, ['level', 'xp', 'kills', 'wins']);
 }
 
 const listOf = <T>(item: (v: unknown) => v is T) => (v: unknown): v is T[] => Array.isArray(v) && v.every(item);
@@ -81,7 +81,7 @@ async function refreshLobby(): Promise<void> {
   try {
     const top = await fetchJson('/api/leaderboard', listOf(isLeaderRow));
     ui.join.allTime.innerHTML = top.length
-      ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${r.kills}K ${r.wins}★</span></li>`).join('')
+      ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${t('xpPoints', { n: r.xp })} · ${r.kills}K ${r.wins}★</span></li>`).join('')
       : `<li class="muted">${t('noRecords')}</li>`;
   } catch { /* ignore */ }
 }

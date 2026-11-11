@@ -15,6 +15,7 @@ export const es: Strings = {
   profile: 'Tu perfil',
   level: 'Nivel {n}',
   xpProgress: '{xp} / {next} XP',
+  xpPoints: '{n} XP',
   profileStats: '{k} bajas · {w} MVP · mejor racha {s}',
   allTime: 'Mejores dinamiteros de todos los tiempos',
   noRecords: 'Aún no hay récords. ¡Sé el primero!',

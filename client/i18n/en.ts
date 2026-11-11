@@ -14,6 +14,7 @@ export const en = {
   profile: 'Your profile',
   level: 'Level {n}',
   xpProgress: '{xp} / {next} XP',
+  xpPoints: '{n} XP',
   profileStats: '{k} kills · {w} MVPs · best streak {s}',
   allTime: 'All-time top blasters',
   noRecords: 'No records yet. Be the first!',
