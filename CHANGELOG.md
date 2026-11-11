@@ -6,8 +6,23 @@ All notable changes to Blast Arena are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-11
+
 ### Added
 
+- Bots spot bomb traps: a bomb spot scores extra for each enemy it would
+  leave with no safe cell to reach before the fire arrives (the new bomb
+  blocks its own cell, and the bot's walk there counts as a head start).
+  The check gives the enemy every benefit of the doubt, so a counted trap
+  really holds.
+- `simbench` reproduces crowded arenas and their worst ticks:
+  `--round-secs` puts round ends (and sudden death) into a run, `--churn`
+  makes players leave and join mid-game (timed inside the tick, like the
+  server), and `--seed` picks the game. It reports CPU time next to wall
+  time (OS preemption left out), percentiles up to p99.9, each phase's
+  mean and worst time, and the worst ticks broken down by phase, from a
+  per-phase tick profiler (`World::profile`, one branch per phase when
+  off).
 - Static Linux executables in releases: `x86_64-unknown-linux-musl` and
   `aarch64-unknown-linux-musl`, besides the glibc builds.
 - A **Cosmos** arena (`Cosmos:cosmos:51:8`, mode `cosmos`): a free-for-all
@@ -49,6 +64,27 @@ All notable changes to Blast Arena are documented here. The format follows
 - Protocol: a bomb's flags are now a varint (bits 8-10 carry a blaster
   bolt's colour), and the player's own state gains `blaster` and
   `overdrive`.
+- Worst ticks in crowded arenas are about half or less (CPU time, median
+  of 5 games): Horde with 50 players 15.3 to 7.6 ms (average 7.1 to
+  3.0 ms), a full Main arena (246 clients) 5.2 to 2.6 ms, 200 bots with
+  150 clients 7.3 to 2.4 ms.
+  - The bomb-trap check looks only at players standing in the blast
+    (found by cell) instead of every player in the arena, and an enemy's
+    search for a way out stops at the first safe cell.
+  - Bots' escape searches (from danger, and after dropping a bomb) stop
+    once the answer is settled instead of exploring 400 cells first; the
+    route found is the same.
+  - Respawning into the sudden-death zone: all respawns of a tick share
+    one shuffled scan of the zone and a grid of where players stand,
+    instead of each scanning the whole zone (dozens of players can
+    respawn in one tick late in a round). Within a tick, a cell rejected
+    for one player isn't retried for the next, and no two players get the
+    same cell. The spawn test checks for atomic bombs (a walk over every
+    bomb) last.
+  - Snapshots: the visible players and bombs are worked out once per tick
+    for all clients, instead of every client looking each one up and
+    scanning its whole view for bombs.
+  - A tighter inner loop for the bots' path search.
 
 ## [0.10.0] - 2026-11-11
 
@@ -657,6 +693,7 @@ Initial version.
 - Server dashboard, `/api/stats` and Prometheus `/metrics`, plus Docker,
   docker-compose and Caddy deployment files.
 
+[0.11.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.11.0
 [0.10.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.10.0
 [0.9.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.9.0
 [0.8.0]: https://github.com/RustedBytes/blast-arena/releases/tag/v0.8.0
