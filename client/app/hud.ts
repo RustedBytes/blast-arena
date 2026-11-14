@@ -78,7 +78,7 @@ export function updateHud(me: Me): void {
     me.respawn, Math.ceil(me.shield / 10), Math.ceil(me.ghost / 10), me.curse, Math.ceil(me.curse_t / 10), me.spec, me.nukes,
     me.gadget, me.gadget_n, me.freeze, me.stomp, me.stun, me.carrying, me.storm,
     me.ability, me.ability_n, me.ability_max, Math.ceil(me.ability_cd / 2), me.gas_bombs, me.sticky_bombs,
-    me.hp, me.hp_max, me.blaster, Math.ceil(me.overdrive / 10), getLanguage()].join();
+    me.hp, me.hp_max, me.blaster, Math.ceil(me.overdrive / 10), me.shield_pool, getLanguage()].join();
   if (key === hudKey) return;
   hudKey = key;
   ui.stats.bombs.textContent = `${me.bombs - me.active}/${me.bombs}`;
@@ -136,6 +136,11 @@ export function updateHud(me: Me): void {
   const tickS = state.tickMs / 1000;
   timer(ui.stats.stun, me.stun > 0, me.stun * tickS, 1);
   timer(ui.stats.shield, me.alive && me.shield > 0, me.shield * tickS, 6);
+  // Cosmos shield charge (3 s). Lit while the short shield is up.
+  const pool = ui.stats.shieldPool;
+  timer(pool, state.mode === 'cosmos' && me.alive, me.shield_pool * tickS, 3);
+  pool.classList.toggle('off', me.shield_pool === 0);
+  pool.title = t('shieldHold');
   timer(ui.stats.ghost, me.ghost > 0, me.ghost * tickS, 6);
   timer(ui.stats.overdrive, me.alive && me.overdrive > 0, me.overdrive * tickS, 8);
   timer(ui.stats.curse, me.curse !== 0, me.curse_t * tickS, me.curse === 1 ? 8 : me.curse === 2 ? 6 : 8);

@@ -13,7 +13,7 @@ export const it: Strings = {
   modeTeams: 'Rossi contro Blu',
   modeWorms: 'Vermi',
   modeRockets: 'Razzi', helpRocket: 'razzo', rocketsHint: 'Arena dei razzi: il tasto bomba spara un razzo dove guardi',
-  modeCosmos: 'Cosmo', helpBlaster: 'blaster', cosmosHint: 'Arena Cosmo: il tasto bomba spara col blaster. Raccogli i nuclei per cambiarne il colore!',
+  modeCosmos: 'Cosmo', helpBlaster: 'blaster', cosmosHint: 'Arena Cosmo: il tasto bomba spara col blaster. Raccogli i nuclei per cambiarne il colore! Tieni V per uno scudo.',
   blasters: ['', 'Blaster verde', 'Blaster al plasma', 'Blaster crio', 'Blaster di fase', 'Blaster nova'], overdrive: 'Overdrive: fuoco rapido',
   profile: 'Il tuo profilo',
   level: 'Livello {n}',
@@ -94,6 +94,8 @@ export const it: Strings = {
   ctlGadget: 'Usa il tuo gadget (mina, razzo, scambio, droni)',
   ctlAbility: 'Usa la tua abilità (muro, clone, portale, scatto)', ctlDetach: 'Tieni premuto per scrollarti una bomba adesiva',
   ctlCancel: 'Annulla un portale piazzato a metà',
+  ctlShield: 'Tieni premuto per alzare uno scudo in Cosmo. Le esplosioni non ti colpiscono finché dura la carica',
+  shieldHold: 'Scudo (tieni V)',
   abilityNames: { 21: 'Costruttore', 22: 'Bombe a gas', 23: 'Clone', 24: 'Bombe adesive', 25: 'Portali', 26: 'Scatto' },
   abilityRejected: ['', 'In ricarica…', 'Non c’è spazio lì', 'Già troppi in campo', 'Non ora', 'Troppo presto: prima muoviti', 'Disattivato'],
   stuckOn: 'Hai addosso una bomba adesiva! Tieni premuto C per scrollartela — {n} s', stuckTouch: 'Hai addosso una bomba adesiva! Tieni premuto ✋ — {n} s',
@@ -102,7 +104,7 @@ export const it: Strings = {
   items: {
     1: '+1 bomba', 2: '+1 portata', 3: 'Più veloce', 4: 'Calcia le bombe', 5: 'Scudo (6 s)', 6: 'Attraversa le casse',
     7: 'Portata massima', 8: 'Scatola segreta', 9: 'Bombe a distanza (premi E)', 10: 'Bomba in linea (bomba sulla tua bomba)',
-    11: 'Colpisci le bombe (premi E)', 12: 'Fantasma: attraversa le casse', 13: 'Bomba atomica! La prossima bomba è nucleare: scappa lontano',
+    11: 'Colpisci le bombe (premi E)', 12: 'Fantasma: attraversa le casse; i bot non ti vedono', 13: 'Bomba atomica! La prossima bomba è nucleare: scappa lontano',
     14: 'Gelo: le tue esplosioni lasciano ghiaccio', 15: 'Mine ×3 (premi Q)', 16: 'Razzi ×3 (premi Q)',
     17: 'Scambia posto con un nemico ×2 (premi Q)', 18: 'Schianto: atterra da un salto per stordire i nemici', 19: 'Drone bombardiere (premi Q)',
     20: 'Sciame di droni (premi Q)',
@@ -148,7 +150,7 @@ export const it: Strings = {
       labels: ['Tre cuori; l’ultimo morso uccide', 'Morso: lampeggi per 2 s e i mostri perdono interesse. Scappa!', 'Un cuore torna ogni 8 s; fino ad allora sanguini'],
     },
     cosmos: {
-      title: 'Cosmo', body: 'Una stazione spaziale dove il tasto bomba spara col blaster. I colpi volano veloci ed esplodono all’impatto. I nuclei cambiano il colore del blaster finché non muori.',
+      title: 'Cosmo', body: 'Una stazione spaziale dove il tasto bomba spara col blaster. I colpi volano veloci ed esplodono all’impatto. I nuclei cambiano il colore del blaster finché non muori. Tieni V per alzare uno scudo e sopravvivere a un’esplosione. Si ricarica quando lo lasci.',
       labels: ['Plasma: esplosioni più grandi', 'Crio: lascia ghiaccio', 'Fase: attraverso le casse', 'Nova: tre colpi insieme', 'Overdrive: fuoco rapido'],
     },
     scoring: {

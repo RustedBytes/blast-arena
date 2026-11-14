@@ -30,6 +30,7 @@ impl World {
                 p.want_gadget = true;
             }
             p.input_detach = link.input.detach_held();
+            p.input_shield = link.input.shield_held();
             let abilities = link.input.ability_presses();
             if abilities != p.ability_presses {
                 p.ability_presses = abilities;

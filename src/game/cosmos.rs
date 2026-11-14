@@ -19,11 +19,16 @@
 //! Power-ups that only make sense with bombs (remote, line, punch, kick,
 //! atomic, gas and sticky bombs) never turn up here: crates and the vault
 //! give cosmos power-ups instead (see [`World::cosmos_drop`]).
+//!
+//! **Shield.** Hold the shield key (V) to survive blasts. It spends a
+//! charge of [`SHIELD_POOL`] ticks (one per tick held) and refills one
+//! tick every [`SHIELD_REGEN_EVERY`] while the key is released. An empty
+//! charge blocks nothing. Other arenas ignore the key.
 
 use super::bomb::BombKind;
 use super::gadgets::{ROCKET_MAX_TICKS, ROCKET_RANGE};
 use super::items::Item;
-use super::player::{DIRS, MAX_RANGE};
+use super::player::{DIRS, MAX_RANGE, SHIELD_POOL, SHIELD_REGEN_EVERY};
 use super::{Mode, World};
 
 /// Blaster colours, as sent to the browser in a bolt's flags.
@@ -144,6 +149,28 @@ impl World {
         if no_use_in_space(item) { self.random_cosmic() } else { item }
     }
 
+    /// The shield key in a cosmos arena: while it is held and charge
+    /// remains, blasts (and everything else a shield stops) miss this
+    /// player. Charge comes back while the key is up.
+    pub(super) fn update_shield(&mut self, id: u32) {
+        if self.mode != Mode::Cosmos {
+            return;
+        }
+        let tick = self.tick;
+        let p = self.players.get_mut(&id).unwrap();
+        if !p.alive {
+            return;
+        }
+        // Holding an empty shield does not refill it: let go to recharge.
+        let raise = p.input_shield && p.stunned_until <= tick && p.jump_left == 0 && p.shield_pool > 0;
+        if raise {
+            p.shield_pool -= 1;
+            p.invulnerable_until = p.invulnerable_until.max(tick + 1);
+        } else if !p.input_shield && p.shield_pool < SHIELD_POOL && tick.is_multiple_of(SHIELD_REGEN_EVERY) {
+            p.shield_pool += 1;
+        }
+    }
+
     fn random_cosmic(&mut self) -> Item {
         match self.rng.below(100) {
             0..=21 => Item::PlasmaCore,
@@ -165,7 +192,7 @@ pub fn no_use_in_space(item: Item) -> bool {
 mod tests {
     use super::*;
     use crate::game::map::{Map, Tile};
-    use crate::game::player::BASE_RANGE;
+    use crate::game::player::{BASE_RANGE, SHIELD_POOL, SHIELD_REGEN_EVERY};
     use crate::game::rng::Rng;
     use crate::game::testing::test_world;
 
@@ -182,6 +209,59 @@ mod tests {
         p.facing = 2;
         p.invulnerable_until = 0;
         id
+    }
+
+    /// Holds the shield key for `id` (test players read input from the slot).
+    fn hold_shield(w: &World, id: u32) {
+        w.players[&id].link.as_ref().unwrap().input.set_input(0, 0, false, false, true, 1);
+    }
+
+    #[test]
+    fn holding_shield_survives_a_bolt() {
+        let mut w = cosmos_world();
+        let me = shooter(&mut w, 3.5, 5.5);
+        let target = shooter(&mut w, 8.5, 5.5);
+        hold_shield(&w, target);
+        assert!(w.place_bomb(me));
+        for _ in 0..20 {
+            w.step();
+        }
+        assert!(w.players[&target].alive, "the shield takes the blast");
+        assert!(w.players[&target].shield_pool < SHIELD_POOL, "holding spends charge");
+
+        // No charge left: the same bolt kills.
+        let mut w = cosmos_world();
+        let me = shooter(&mut w, 3.5, 5.5);
+        let target = shooter(&mut w, 8.5, 5.5);
+        w.players.get_mut(&target).unwrap().shield_pool = 0;
+        hold_shield(&w, target);
+        assert!(w.place_bomb(me));
+        for _ in 0..20 {
+            w.step();
+        }
+        assert!(!w.players[&target].alive, "an empty shield does nothing");
+    }
+
+    #[test]
+    fn shield_recharges_and_only_works_in_cosmos() {
+        let mut w = cosmos_world();
+        let me = shooter(&mut w, 3.5, 5.5);
+        w.players.get_mut(&me).unwrap().shield_pool = 0;
+        for _ in 0..SHIELD_REGEN_EVERY {
+            w.step();
+        }
+        assert!(w.players[&me].shield_pool >= 1, "charge comes back while the key is up");
+
+        let mut w = test_world(Map::empty(11, 11));
+        let id = w.spawn_test_player(3.5, 3.5);
+        w.players.get_mut(&id).unwrap().invulnerable_until = 0;
+        hold_shield(&w, id);
+        assert!(w.place_bomb(id));
+        for _ in 0..crate::game::bomb::FUSE_TICKS + 5 {
+            w.step();
+        }
+        assert!(!w.players[&id].alive, "other arenas ignore the shield key");
+        assert_eq!(w.players[&id].shield_pool, SHIELD_POOL);
     }
 
     #[test]

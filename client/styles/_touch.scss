@@ -66,6 +66,7 @@ $buttons: (
   'jump-btn': ((130px, 130px, 60px, 26px), (112px, 90px, 52px, 22px)),
   'gadget-btn': ((40px, 230px, 52px, 20px), (28px, 116px, 48px, 18px)),
   'ability-btn': ((110px, 210px, 52px, 20px), (74px, 154px, 46px, 18px)),
+  'shield-btn': ((200px, 250px, 52px, 20px), (28px, 170px, 46px, 18px)),
 );
 
 @mixin place($right, $bottom, $size, $font) {
@@ -81,6 +82,7 @@ $buttons: (
 #jump-btn,
 #gadget-btn,
 #ability-btn,
+#shield-btn,
 #detach-btn {
   position: fixed;
   border-radius: 50%;
@@ -99,6 +101,7 @@ $buttons: (
 }
 
 #jump-btn.active { background: rgba(127, 246, 255, 0.45); transform: scale(0.94); }
+#shield-btn.active { background: rgba(127, 200, 255, 0.5); transform: scale(0.94); }
 
 // Shaking off a sticky bomb: a pulsing button in the middle while one is on you.
 #detach-btn {

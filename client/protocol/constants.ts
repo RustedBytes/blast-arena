@@ -44,4 +44,4 @@ export const ME_FIELDS = ['ack', 'alive', 'active', 'shield', 'ghost', 'curse', 
   'range', 'speed', 'kick', 'pierce', 'remote', 'line', 'punch', 'killer', 'spec', 'aoi_w', 'aoi_h', 'team', 'streak',
   'nukes', 'jump', 'jump_cd', 'gadget', 'gadget_n', 'freeze', 'stomp', 'stun', 'blizzard', 'carrying', 'storm', 'storm_max',
   'ability', 'ability_n', 'ability_max', 'ability_cd', 'gas_bombs', 'sticky_bombs', 'stuck', 'detach', 'gassed', 'dash',
-  'dash_dir', 'portal_wait', 'hp', 'hp_max', 'blaster', 'overdrive'] as const;
+  'dash_dir', 'portal_wait', 'hp', 'hp_max', 'blaster', 'overdrive', 'shield_pool'] as const;

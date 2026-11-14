@@ -333,8 +333,8 @@ async fn read_loop(
             return "rate limited";
         }
         match ClientMsg::decode(&data) {
-            Some(ClientMsg::In { d, s, j, h, q, k }) => {
-                input.set_input(d, s, j, h, q);
+            Some(ClientMsg::In { d, s, j, h, g, q, k }) => {
+                input.set_input(d, s, j, h, g, q);
                 input.set_ack(k);
             }
             Some(ClientMsg::Bomb) => input.press_bomb(),

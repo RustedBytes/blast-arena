@@ -12,7 +12,7 @@ export const en = {
   modeTeams: 'Red vs Blue',
   modeWorms: 'Worms',
   modeRockets: 'Rockets', helpRocket: 'rocket', rocketsHint: 'Rocket arena: the bomb button fires a rocket the way you face',
-  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Cosmos arena: the bomb button fires your blaster. Grab cores to change its colour!',
+  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Cosmos arena: the bomb button fires your blaster. Grab cores to change its colour! Hold V for a shield.',
   blasters: ['', 'Green blaster', 'Plasma blaster', 'Cryo blaster', 'Phase blaster', 'Nova blaster'], overdrive: 'Overdrive: rapid fire',
   profile: 'Your profile',
   level: 'Level {n}',
@@ -93,6 +93,8 @@ export const en = {
   ctlGadget: 'Use your gadget (mine, rocket, swap, drones)',
   ctlAbility: 'Use your ability (wall, clone, portal, dash)', ctlDetach: 'Hold to shake off a sticky bomb',
   ctlCancel: 'Cancel a half-placed portal',
+  ctlShield: 'Hold to raise a shield in Cosmos. Blasts pass over you until the charge runs out',
+  shieldHold: 'Shield (hold V)',
   abilityNames: { 21: 'Builder', 22: 'Gas bombs', 23: 'Clone', 24: 'Sticky bombs', 25: 'Portals', 26: 'Dash' },
   abilityRejected: ['', 'Recharging…', 'No room there', 'Too many out already', 'Not now', 'Too soon: move around first', 'Switched off'],
   stuckOn: 'A sticky bomb is on you! Hold C to shake it off — {n}s', stuckTouch: 'A sticky bomb is on you! Hold ✋ — {n}s',
@@ -101,7 +103,7 @@ export const en = {
   items: {
     1: '+1 bomb', 2: '+1 range', 3: 'Speed up', 4: 'Kick bombs', 5: 'Shield (6 s)', 6: 'Pierce crates',
     7: 'Max range', 8: 'Secret box', 9: 'Remote bombs (press E)', 10: 'Line bomb (bomb on your bomb)',
-    11: 'Punch bombs (press E)', 12: 'Ghost: walk through crates', 13: 'Atomic bomb! Your next bomb is a nuke: run far',
+    11: 'Punch bombs (press E)', 12: 'Ghost: walk through crates; bots can’t see you', 13: 'Atomic bomb! Your next bomb is a nuke: run far',
     14: 'Freeze: your blasts leave ice', 15: 'Land mines ×3 (press Q)', 16: 'Rockets ×3 (press Q)',
     17: 'Swap places with an enemy ×2 (press Q)', 18: 'Stomp: land a jump to stun enemies', 19: 'Bomber drone (press Q)',
     20: 'Drone swarm (press Q)',
@@ -147,7 +149,7 @@ export const en = {
       labels: ['Three hearts; the last bite kills', 'Bitten: you blink for 2 s and monsters lose interest. Run!', 'Hearts come back one every 8 s; you bleed until then'],
     },
     cosmos: {
-      title: 'Cosmos', body: 'A space station where the bomb key fires a blaster. Bolts fly fast and blow up on whatever they hit. Cores change your blaster’s colour until you die.',
+      title: 'Cosmos', body: 'A space station where the bomb key fires a blaster. Bolts fly fast and blow up on whatever they hit. Cores change your blaster’s colour until you die. Hold V to raise a shield and live through a blast. It recharges when you let go.',
       labels: ['Plasma: bigger blasts', 'Cryo: blasts leave ice', 'Phase: through crates', 'Nova: three bolts at once', 'Overdrive: rapid fire'],
     },
     scoring: {

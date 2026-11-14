@@ -45,17 +45,18 @@ export interface TouchElements {
   gadget: HTMLElement;
   ability: HTMLElement;
   detach: HTMLElement;
+  shield: HTMLElement;
   emote: HTMLElement;
 }
 
 /** The held input, read every prediction step. */
-export interface HeldInput { d: number; s: number; j: boolean; h: boolean }
+export interface HeldInput { d: number; s: number; j: boolean; h: boolean; g: boolean }
 
 export class Input {
   /** Input is only read while a game is running. */
   enabled = false;
   /** The held input, read every prediction step. */
-  readonly current: HeldInput = { d: 0, s: 0, j: false, h: false };
+  readonly current: HeldInput = { d: 0, s: 0, j: false, h: false, g: false };
   /** Keyboard directions, most recent last. */
   private held: number[] = [];
   private padDir = 0;
@@ -63,15 +64,18 @@ export class Input {
   private padBomb = false;
   private padJump = false;
   private padDetach = false;
+  private padShield = false;
   private padAbility = false;
   private padAct = false;
   private padGadget = false;
   private keyJump = false;
   private keyDetach = false;
+  private keyShield = false;
   private joyDir = 0;
   private joyAlt = 0;
   private joyJump = false;
   private joyDetach = false;
+  private joyShield = false;
   /** The last input reported, packed (see update()). */
   private sent = -1;
 
@@ -122,6 +126,10 @@ export class Input {
       case 'KeyC':
         if (!this.keyDetach) { this.keyDetach = true; this.update(); }
         break;
+      case 'KeyV':
+        e.preventDefault();
+        if (!this.keyShield) { this.keyShield = true; this.update(); }
+        break;
       case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
       case 'Digit5': case 'Digit6': case 'Digit7': case 'Digit8':
         if (!e.repeat) this.h.onEmote(Number(e.code.slice(5)) - 1);
@@ -148,6 +156,9 @@ export class Input {
     } else if (e.code === 'KeyC') {
       this.keyDetach = false;
       this.update();
+    } else if (e.code === 'KeyV') {
+      this.keyShield = false;
+      this.update();
     } else if (e.code === 'Tab') {
       this.h.onAction('board', false);
     }
@@ -159,6 +170,7 @@ export class Input {
     this.padDir = this.padAlt = 0;
     this.keyJump = this.padJump = this.joyJump = false;
     this.keyDetach = this.padDetach = this.joyDetach = false;
+    this.keyShield = this.padShield = this.joyShield = false;
     this.update();
   }
 
@@ -174,11 +186,13 @@ export class Input {
     }
     const j = this.keyJump || this.padJump || this.joyJump;
     const h = this.keyDetach || this.padDetach || this.joyDetach;
+    const g = this.keyShield || this.padShield || this.joyShield;
     this.current.d = d;
     this.current.s = s;
     this.current.j = j;
     this.current.h = h;
-    const key = (d << 3 | s) | (j ? 64 : 0) | (h ? 128 : 0);
+    this.current.g = g;
+    const key = (d << 3 | s) | (j ? 64 : 0) | (h ? 128 : 0) | (g ? 256 : 0);
     if (key !== this.sent) {
       this.sent = key;
       this.h.onDir(d, s, j);
@@ -188,7 +202,7 @@ export class Input {
   /** Call once per frame: reads connected gamepads. */
   pollGamepad(): void {
     if (!this.enabled || !('getGamepads' in navigator)) return;
-    let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0, ability = false, detach = false;
+    let dir = 0, alt = 0, bomb = false, act = false, jump = false, gadget = false, zoom = 0, ability = false, detach = false, shield = false;
     for (const gp of navigator.getGamepads()) {
       if (!gp) continue;
       const b = (i: number): boolean => gp.buttons[i]?.pressed ?? false;
@@ -205,6 +219,7 @@ export class Input {
       jump ||= b(3);
       detach ||= b(6);
       ability ||= b(7);
+      shield ||= b(11);
       if (b(5)) zoom = 1; else if (b(4)) zoom = -1;
       break; // first connected pad only
     }
@@ -217,6 +232,7 @@ export class Input {
     if (ability && !this.padAbility) this.h.onAbility();
     this.padAbility = ability;
     if (detach !== this.padDetach) { this.padDetach = detach; this.update(); }
+    if (shield !== this.padShield) { this.padShield = shield; this.update(); }
     if (zoom) this.h.onZoom(zoom > 0 ? 1.02 : 1 / 1.02);
     if (dir !== this.padDir || alt !== this.padAlt || jump !== this.padJump) {
       this.padDir = dir;
@@ -355,6 +371,23 @@ export class Input {
     detachBtn.addEventListener('pointerup', detachUp);
     detachBtn.addEventListener('pointercancel', detachUp);
     detachBtn.addEventListener('pointerleave', detachUp);
+    // Cosmos: hold to raise the shield.
+    const shieldBtn = this.touch.shield;
+    shieldBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      vibrate(10);
+      shieldBtn.classList.add('active');
+      this.joyShield = true;
+      this.update();
+    });
+    const shieldUp = () => {
+      shieldBtn.classList.remove('active');
+      this.joyShield = false;
+      this.update();
+    };
+    shieldBtn.addEventListener('pointerup', shieldUp);
+    shieldBtn.addEventListener('pointercancel', shieldUp);
+    shieldBtn.addEventListener('pointerleave', shieldUp);
     this.touch.emote.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAction('emoteWheel', true);

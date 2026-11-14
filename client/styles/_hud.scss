@@ -101,7 +101,8 @@ body.in-gas #gas-tint { display: block; }
   }
 
   &.gadget kbd,
-  &.ability kbd { font-size: 10px; padding: 0 3px; }
+  &.ability kbd,
+  &#st-shieldpool kbd { font-size: 10px; padding: 0 3px; }
   &.gadget span,
   &.ability span,
   &.modifier span { font-weight: 700; }

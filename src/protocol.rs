@@ -218,9 +218,9 @@ pub const ME_FIELDS: [&str; ME_LEN] = [
     "kick", "pierce", "remote", "line", "punch", "killer", "spec", "aoi_w", "aoi_h", "team", "streak", "nukes",
     "jump", "jump_cd", "gadget", "gadget_n", "freeze", "stomp", "stun", "blizzard", "carrying", "storm", "storm_max",
     "ability", "ability_n", "ability_max", "ability_cd", "gas_bombs", "sticky_bombs", "stuck", "detach", "gassed", "dash",
-    "dash_dir", "portal_wait", "hp", "hp_max", "blaster", "overdrive",
+    "dash_dir", "portal_wait", "hp", "hp_max", "blaster", "overdrive", "shield_pool",
 ];
-pub const ME_LEN: usize = 51;
+pub const ME_LEN: usize = 52;
 /// The player's own state as sent: values in [`ME_FIELDS`] order.
 pub type MeState = [i64; ME_LEN];
 
@@ -349,11 +349,11 @@ pub enum ClientMsg<'a> {
     /// chosen cosmetics, and optionally a friend to spawn next to.
     Join { name: &'a str, token: &'a str, hat: u8, trail: u8, near: u32 },
     /// Held direction plus a fallback direction (0 none, 1 up, 2 right,
-    /// 3 down, 4 left), whether the jump key is held (`j`) and the detach
-    /// key (`h`, shaking off a sticky bomb), and the input's sequence number
-    /// for prediction. `k` acknowledges the newest snapshot tick decoded
-    /// (the delta baseline).
-    In { d: u8, s: u8, j: bool, h: bool, q: u16, k: u32 },
+    /// 3 down, 4 left), whether the jump key is held (`j`), the detach
+    /// key (`h`, shaking off a sticky bomb) and the shield key (`g`, cosmos
+    /// arena), and the input's sequence number for prediction. `k`
+    /// acknowledges the newest snapshot tick decoded (the delta baseline).
+    In { d: u8, s: u8, j: bool, h: bool, g: bool, q: u16, k: u32 },
     Bomb,
     /// Action key: detonate remote bombs, or punch the bomb in front.
     Act,
@@ -397,6 +397,7 @@ impl<'a> ClientMsg<'a> {
                     s: dir(b >> 3 & 7),
                     j: b & 64 != 0,
                     h: b & 128 != 0,
+                    g: r.u8()? != 0,
                     q: clamp(r.uvar()?, 0xffff) as u16,
                     k: clamp(r.uvar()?, u64::from(u32::MAX)) as u32,
                 }
@@ -426,8 +427,12 @@ impl<'a> ClientMsg<'a> {
             ClientMsg::Join { name, token, hat, trail, near } => {
                 w.u8(cop::JOIN).str(name).str(token).u8(hat).u8(trail).id(near);
             }
-            ClientMsg::In { d, s, j, h, q, k } => {
-                w.u8(cop::IN).u8(d & 7 | (s & 7) << 3 | u8::from(j) << 6 | u8::from(h) << 7).uvar(u64::from(q)).id(k);
+            ClientMsg::In { d, s, j, h, g, q, k } => {
+                w.u8(cop::IN)
+                    .u8(d & 7 | (s & 7) << 3 | u8::from(j) << 6 | u8::from(h) << 7)
+                    .u8(u8::from(g))
+                    .uvar(u64::from(q))
+                    .id(k);
             }
             ClientMsg::Bomb => {
                 w.u8(cop::BOMB);
@@ -969,11 +974,11 @@ mod tests {
         let msgs = [
             ClientMsg::Join { name: "Ann", token: "tok-123456", hat: 2, trail: 1, near: 9 },
             ClientMsg::Join { name: "Bö", token: "", hat: 0, trail: 0, near: 0 },
-            ClientMsg::In { d: 3, s: 2, j: false, h: false, q: 513, k: 70000 },
-            ClientMsg::In { d: 4, s: 0, j: true, h: false, q: 65535, k: u32::MAX },
+            ClientMsg::In { d: 3, s: 2, j: false, h: false, g: false, q: 513, k: 70000 },
+            ClientMsg::In { d: 4, s: 0, j: true, h: false, g: true, q: 65535, k: u32::MAX },
             ClientMsg::Bomb,
             ClientMsg::Act,
-            ClientMsg::In { d: 1, s: 0, j: false, h: true, q: 2, k: 3 },
+            ClientMsg::In { d: 1, s: 0, j: false, h: true, g: false, q: 2, k: 3 },
             ClientMsg::Gadget,
             ClientMsg::Ability,
             ClientMsg::Cancel,
@@ -984,15 +989,16 @@ mod tests {
         for m in msgs {
             assert_eq!(ClientMsg::decode(&m.encode()), Some(m));
         }
-        assert_eq!(ClientMsg::In { d: 3, s: 2, j: true, h: false, q: 1, k: 1 }.encode().len(), 4, "a held input is four bytes");
+        assert_eq!(ClientMsg::In { d: 3, s: 2, j: true, h: false, g: false, q: 1, k: 1 }.encode().len(), 5, "a held input is five bytes");
     }
 
     #[test]
     fn client_messages_are_validated() {
-        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, q: 1, k: 1 }), "bad dirs");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, q: 65535, k: 0 }), "seq clamped");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 64, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: true, h: false, q: 1, k: 1 }), "jump bit");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 128, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: false, h: true, q: 1, k: 1 }), "detach bit");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 7 | 6 << 3, 0, 1, 1]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, g: false, q: 1, k: 1 }), "bad dirs");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0, 0xff, 0xff, 0x7f, 0]), Some(ClientMsg::In { d: 0, s: 0, j: false, h: false, g: false, q: 65535, k: 0 }), "seq clamped");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 64, 0, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: true, h: false, g: false, q: 1, k: 1 }), "jump bit");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2 | 128, 0, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: false, h: true, g: false, q: 1, k: 1 }), "detach bit");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 2, 1, 1, 1]), Some(ClientMsg::In { d: 2, s: 0, j: false, h: false, g: true, q: 1, k: 1 }), "shield bit");
         assert_eq!(ClientMsg::decode(&[cop::EMOTE, 200]), Some(ClientMsg::Emote { e: 15 }));
         assert_eq!(ClientMsg::decode(&[cop::VIEW, 0xff, 0x7f, 5]), Some(ClientMsg::View { w: 1000, h: 5 }));
         assert_eq!(ClientMsg::decode(&[cop::LOOK, 0, 0]), Some(ClientMsg::Look { at: None }));
@@ -1002,7 +1008,7 @@ mod tests {
         assert_eq!(ClientMsg::decode(&[cop::IN, 0]), None, "truncated");
         assert_eq!(ClientMsg::decode(&[cop::JOIN, 5, b'a']), None, "string past the end");
         assert_eq!(ClientMsg::decode(&[cop::JOIN, 2, 0xff, 0xfe, 0, 0, 0, 0]), None, "invalid UTF-8");
-        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]), None, "overlong varint");
+        assert_eq!(ClientMsg::decode(&[cop::IN, 0, 0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]), None, "overlong varint");
     }
 
     #[test]

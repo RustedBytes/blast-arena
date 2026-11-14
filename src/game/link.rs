@@ -18,8 +18,8 @@ use tokio::sync::{Notify, mpsc};
 #[derive(Default)]
 pub struct InputSlot {
     /// Bits 0..3 held direction, bits 3..6 fallback direction, bit 6 jump
-    /// held, bit 7 detach held, bits 16..32 the client's input sequence
-    /// number (echoed back for prediction).
+    /// held, bit 7 detach held, bit 8 shield held, bits 16..32 the client's
+    /// input sequence number (echoed back for prediction).
     dirs: AtomicU32,
     /// The value `dirs` held before its sequence number last changed: the
     /// previous step's input, for when two steps arrive within one tick.
@@ -51,6 +51,8 @@ pub fn pack_dirs(dir: u8, alt: u8, jump: bool, seq: u16) -> u32 {
 
 /// Bit of the packed directions saying the detach key is held.
 const DETACH_BIT: u32 = 128;
+/// Bit of the packed directions saying the shield key is held (cosmos arena).
+const SHIELD_BIT: u32 = 256;
 
 /// (direction, fallback direction, jump held, sequence number).
 #[must_use]
@@ -72,9 +74,13 @@ impl InputSlot {
         unpack_dirs(self.prev_dirs.load(Relaxed))
     }
 
-    /// Like `set_dirs`, plus whether the detach key is held.
-    pub fn set_input(&self, dir: u8, alt: u8, jump: bool, detach: bool, seq: u16) {
-        self.store_dirs(pack_dirs(dir, alt, jump, seq) | if detach { DETACH_BIT } else { 0 });
+    /// Like `set_dirs`, plus whether the detach key and the shield key are held.
+    pub fn set_input(&self, dir: u8, alt: u8, jump: bool, detach: bool, shield: bool, seq: u16) {
+        self.store_dirs(
+            pack_dirs(dir, alt, jump, seq)
+                | if detach { DETACH_BIT } else { 0 }
+                | if shield { SHIELD_BIT } else { 0 },
+        );
     }
 
     /// Only the socket reader writes, so swap-then-store is race free.
@@ -88,6 +94,11 @@ impl InputSlot {
     /// The detach key (shaking off a sticky bomb) is held.
     pub fn detach_held(&self) -> bool {
         self.dirs.load(Relaxed) & DETACH_BIT != 0
+    }
+
+    /// The shield key (cosmos arena) is held.
+    pub fn shield_held(&self) -> bool {
+        self.dirs.load(Relaxed) & SHIELD_BIT != 0
     }
 
     pub fn press_ability(&self) {

@@ -319,10 +319,10 @@ pub struct DangerScratch {
 pub struct AiScratch {
     danger: Vec<u16>,
     hypothetical: Vec<u16>,
-    /// Living, unshielded players per cell that a bot of each team (index
-    /// 0 = no team) may target.
+    /// Living, unshielded, visible players per cell that a bot of each team
+    /// (index 0 = no team) may target. Ghosts are left out.
     targets: [Vec<u8>; 3],
-    /// Living players per cell.
+    /// Living, visible players per cell. Ghosts are left out.
     occupied: Vec<u8>,
     bombs: Vec<DangerBomb>,
     bomb_index: HashMap<u32, usize>,
@@ -373,6 +373,9 @@ struct Me {
     nuke: bool,
     can_bomb: bool,
     vulnerable: bool,
+    /// Walking through crates: not on the target grid, so a blast here
+    /// must not subtract a hit for standing on it.
+    ghost: bool,
     max_bombs: u8,
     speed_lvl: u8,
     kick: bool,
@@ -467,6 +470,11 @@ impl World {
         sc.prey.clear(&self.map);
         let slow = self.weather_slow() * DT;
         for p in self.players.values().filter(|p| p.alive) {
+            // A ghost walks through crates and can't be seen: no hunt, and
+            // they don't count as someone who could seal an escape.
+            if p.ghost(self.tick) {
+                continue;
+            }
             let (x, y) = p.cell();
             let i = self.map.idx(x, y);
             sc.occupied[i] = sc.occupied[i].saturating_add(1);
@@ -845,6 +853,8 @@ impl World {
         p.input_jump = hop;
         p.want_bomb |= want_bomb;
         p.want_gadget |= gadget;
+        // Cosmos: hold the shield while standing in a blast.
+        p.input_shield = self.mode == super::Mode::Cosmos && in_danger && p.shield_pool > 0;
         // Safely clear of its remote bombs: set them off.
         if me.remote_out && !in_danger && !want_bomb && !brain.escaping {
             p.want_act = true;
@@ -864,6 +874,7 @@ impl World {
             team: p.team as usize,
             remote_out: p.remote && p.active_bombs > 0,
             vulnerable: p.invulnerable_until <= self.tick,
+            ghost: p.ghost(self.tick),
             max_bombs: p.max_bombs,
             speed_lvl: p.speed_lvl,
             kick: p.kick,
@@ -898,14 +909,14 @@ impl World {
         }
         let (cx, cy) = p.cell();
         let enemy_within = |r: i32| {
-            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o))
+            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o) && !o.ghost(self.tick))
         };
         match Item::from_u8(p.gadget) {
             Some(Item::Drone | Item::Swarm) => enemy_within(9),
             Some(Item::Rocket) => {
                 let (dx, dy) = DIRS[p.facing as usize];
                 (1..=10).map(|k| (cx + dx * k, cy + dy * k)).take_while(|&(x, y)| !self.map.is_solid(x, y)).any(|(x, y)| {
-                    self.players_in_rect(x, y, x, y).any(|o| o.alive && o.id != p.id && p.can_hurt(o) && o.cell() == (x, y))
+                    self.players_in_rect(x, y, x, y).any(|o| o.alive && o.id != p.id && p.can_hurt(o) && !o.ghost(self.tick) && o.cell() == (x, y))
                 })
             }
             Some(Item::Swap) => trapped,
@@ -924,7 +935,7 @@ impl World {
         }
         let (cx, cy) = p.cell();
         let enemy_within = |r: i32| {
-            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o))
+            self.players_in_rect(cx - r, cy - r, cx + r, cy + r).any(|o| o.alive && o.id != p.id && p.can_hurt(o) && !o.ghost(self.tick))
         };
         match Item::from_u8(p.ability) {
             Some(Item::Dash) => in_danger && p.input_dir != 0,
@@ -1056,7 +1067,7 @@ impl World {
             hit += u32::from(targets[self.map.idx(x, y)]);
             hits_self |= (x, y) == me.cur;
         });
-        if hits_self && me.vulnerable {
+        if hits_self && me.vulnerable && !me.ghost {
             hit = hit.saturating_sub(1);
         }
         (crates, hit)
@@ -1572,6 +1583,31 @@ mod tests {
         p.invulnerable_until = 0;
         p.kick = true;
         assert_eq!(traps(&w, bot, (3, 1), 0.0), 0, "can kick the bomb away");
+    }
+
+    #[test]
+    fn a_ghost_is_invisible_to_bots() {
+        let mut w = dead_end_world();
+        let bot = w.spawn_test_bot(9.5, 9.5);
+        let enemy = w.spawn_test_player(1.5, 1.5);
+        let p = w.players.get_mut(&enemy).unwrap();
+        p.invulnerable_until = 0;
+        p.ghost_until = u64::MAX;
+        assert_eq!(traps(&w, bot, (3, 1), 0.0), 0, "a ghost is not prey");
+
+        // Standing in the open in front of a bot, still never shot.
+        let mut w = test_world(Map::empty(15, 15));
+        w.mode = crate::game::Mode::Cosmos;
+        let _bot = w.spawn_test_bot(1.5, 1.5);
+        let enemy = w.spawn_test_player(4.5, 1.5);
+        let p = w.players.get_mut(&enemy).unwrap();
+        p.invulnerable_until = 0;
+        p.ghost_until = u64::MAX;
+        for _ in 0..80 {
+            w.step();
+        }
+        assert!(w.players[&enemy].alive, "the bot never killed the ghost");
+        assert!(w.bombs.is_empty(), "the bot never fired at the ghost");
     }
 
     #[test]

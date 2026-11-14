@@ -13,7 +13,7 @@ export const pl: Strings = {
   modeTeams: 'Czerwoni kontra Niebiescy',
   modeWorms: 'Robaki',
   modeRockets: 'Rakiety', helpRocket: 'rakieta', rocketsHint: 'Arena rakiet: przycisk bomby wystrzeliwuje rakietę w kierunku, w którym patrzysz',
-  modeCosmos: 'Kosmos', helpBlaster: 'blaster', cosmosHint: 'Arena Kosmos: przycisk bomby strzela z blastera. Zbieraj rdzenie, by zmienić jego kolor!',
+  modeCosmos: 'Kosmos', helpBlaster: 'blaster', cosmosHint: 'Arena Kosmos: przycisk bomby strzela z blastera. Zbieraj rdzenie, by zmienić jego kolor! Przytrzymaj V, by unieść tarczę.',
   blasters: ['', 'Zielony blaster', 'Blaster plazmowy', 'Blaster krio', 'Blaster fazowy', 'Blaster nova'], overdrive: 'Przeciążenie: szybki ogień',
   profile: 'Twój profil',
   level: 'Poziom {n}',
@@ -94,6 +94,8 @@ export const pl: Strings = {
   ctlGadget: 'Użyj gadżetu (mina, rakieta, zamiana, drony)',
   ctlAbility: 'Użyj umiejętności (mur, klon, portal, zryw)', ctlDetach: 'Przytrzymaj, aby strząsnąć lepką bombę',
   ctlCancel: 'Anuluj częściowo postawiony portal',
+  ctlShield: 'Przytrzymaj, by unieść tarczę w Kosmosie. Wybuchy cię nie ruszają, póki starcza ładunku',
+  shieldHold: 'Tarcza (przytrzymaj V)',
   abilityNames: { 21: 'Budowniczy', 22: 'Bomby gazowe', 23: 'Klon', 24: 'Lepkie bomby', 25: 'Portale', 26: 'Zryw' },
   abilityRejected: ['', 'Ładowanie…', 'Brak tam miejsca', 'Już za dużo', 'Nie teraz', 'Za wcześnie: najpierw się rusz', 'Wyłączone'],
   stuckOn: 'Masz na sobie lepką bombę! Przytrzymaj C, aby ją strząsnąć — {n} s', stuckTouch: 'Masz na sobie lepką bombę! Przytrzymaj ✋ — {n} s',
@@ -102,7 +104,7 @@ export const pl: Strings = {
   items: {
     1: '+1 bomba', 2: '+1 zasięg', 3: 'Szybkość', 4: 'Kopanie bomb', 5: 'Tarcza (6 s)', 6: 'Przebija skrzynie',
     7: 'Maksymalny zasięg', 8: 'Tajemnicza skrzynka', 9: 'Bomby zdalne (naciśnij E)', 10: 'Bomba liniowa (bomba na twojej bombie)',
-    11: 'Uderzanie bomb (naciśnij E)', 12: 'Duch: przechodzisz przez skrzynie', 13: 'Bomba atomowa! Twoja następna bomba jest jądrowa: uciekaj daleko',
+    11: 'Uderzanie bomb (naciśnij E)', 12: 'Duch: przechodzisz przez skrzynie; boty cię nie widzą', 13: 'Bomba atomowa! Twoja następna bomba jest jądrowa: uciekaj daleko',
     14: 'Mróz: twoje wybuchy zostawiają lód', 15: 'Miny ×3 (naciśnij Q)', 16: 'Rakiety ×3 (naciśnij Q)',
     17: 'Zamiana miejscami z wrogiem ×2 (naciśnij Q)', 18: 'Tąpnięcie: lądowanie po skoku ogłusza wrogów', 19: 'Dron bombowy (naciśnij Q)',
     20: 'Rój dronów (naciśnij Q)',
@@ -148,7 +150,7 @@ export const pl: Strings = {
       labels: ['Trzy serca; ostatnie ugryzienie zabija', 'Ugryziony: migasz przez 2 s, a potwory tracą zainteresowanie. Uciekaj!', 'Co 8 s wraca jedno serce; do tego czasu krwawisz'],
     },
     cosmos: {
-      title: 'Kosmos', body: 'Stacja kosmiczna, na której przycisk bomby strzela z blastera. Pociski lecą szybko i wybuchają przy trafieniu. Rdzenie zmieniają kolor blastera aż do śmierci.',
+      title: 'Kosmos', body: 'Stacja kosmiczna, na której przycisk bomby strzela z blastera. Pociski lecą szybko i wybuchają przy trafieniu. Rdzenie zmieniają kolor blastera aż do śmierci. Przytrzymaj V, by unieść tarczę i przeżyć wybuch. Ładuje się, gdy puścisz.',
       labels: ['Plazma: większe wybuchy', 'Krio: zostawia lód', 'Faza: przez skrzynie', 'Nova: trzy strzały naraz', 'Przeciążenie: szybki ogień'],
     },
     scoring: {

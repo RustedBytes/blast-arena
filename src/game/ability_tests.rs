@@ -515,7 +515,7 @@ fn s05_holding_the_detach_key_shakes_it_off() {
     w.players.get_mut(&id).unwrap().y = 9.5;
     let b = stuck(&w, e).unwrap();
     let at = w.bombs[&b].explode_at;
-    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, 0);
+    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, false, 0);
     { let n = w.tuning.detach_ticks - 1; steps(&mut w, n); }
     assert_eq!(w.bombs[&b].attached, e, "not yet");
     w.step();
@@ -530,7 +530,7 @@ fn s06_blast_during_the_detach() {
     let (e, _) = spawn(&mut w, 2.5, 1.5);
     w.place_bomb(id);
     w.players.get_mut(&id).unwrap().y = 9.5;
-    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, 0);
+    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, false, 0);
     { let n = w.tuning.sticky_fuse; steps(&mut w, n); }
     assert!(w.bombs.is_empty(), "the fuse ran out first ({} < {})", w.tuning.sticky_fuse, w.tuning.detach_ticks * 4);
     assert!(!w.players[&e].alive);
@@ -544,7 +544,7 @@ fn s06b_the_fuse_wins_a_late_detach() {
     w.place_bomb(id);
     w.players.get_mut(&id).unwrap().y = 9.5;
     { let n = w.tuning.sticky_fuse - 5; steps(&mut w, n); }
-    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, 0);
+    w.players[&e].link.as_ref().unwrap().input.set_input(0, 0, false, true, false, 0);
     steps(&mut w, 5);
     assert!(w.bombs.is_empty() && !w.players[&e].alive, "exploded mid-detach");
 }

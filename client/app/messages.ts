@@ -135,6 +135,7 @@ export const net = new Net({
     if (m.resumed) toast(t('welcomeBack'), null, 'mystery');
     else if (m.mode === 'rockets') toast(t('rocketsHint'), null, 'info');
     else if (m.mode === 'cosmos') toast(t('cosmosHint'), null, 'info');
+    ui.touch.shield.classList.toggle('hidden', m.mode !== 'cosmos');
   },
 
   s(raw) {

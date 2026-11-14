@@ -527,6 +527,8 @@ impl World {
             // Cosmos arena: the blaster's colour and overdrive left; 0 elsewhere.
             if self.mode == super::Mode::Cosmos { i64::from(p.blaster.max(super::cosmos::blaster::STANDARD)) } else { 0 },
             t(p.overdrive_until.saturating_sub(tick)),
+            // Cosmos arena: shield charge left; 0 elsewhere.
+            if self.mode == super::Mode::Cosmos { i64::from(p.shield_pool) } else { 0 },
         ]);
         me
     }

@@ -68,6 +68,7 @@ export const ui = {
     ability: byId('st-ability'),
     modifier: byId('st-modifier'),
     shield: byId('st-shield'),
+    shieldPool: byId('st-shieldpool'),
     ghost: byId('st-ghost'),
     stun: byId('st-stun'),
     curse: byId('st-curse'),
@@ -129,6 +130,7 @@ export const ui = {
     gadget: byId('gadget-btn'),
     ability: byId('ability-btn'),
     detach: byId('detach-btn'),
+    shield: byId('shield-btn'),
     emote: byId('emote-btn'),
   },
 } as const;

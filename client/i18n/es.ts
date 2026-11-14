@@ -13,7 +13,7 @@ export const es: Strings = {
   modeTeams: 'Rojos contra Azules',
   modeWorms: 'Gusanos',
   modeRockets: 'Cohetes', helpRocket: 'cohete', rocketsHint: 'Arena de cohetes: el botón de bomba dispara un cohete hacia donde miras',
-  modeCosmos: 'Cosmos', helpBlaster: 'bláster', cosmosHint: 'Arena Cosmos: el botón de bomba dispara tu bláster. ¡Recoge núcleos para cambiar su color!',
+  modeCosmos: 'Cosmos', helpBlaster: 'bláster', cosmosHint: 'Arena Cosmos: el botón de bomba dispara tu bláster. ¡Recoge núcleos para cambiar su color! Mantén V para un escudo.',
   blasters: ['', 'Bláster verde', 'Bláster de plasma', 'Bláster crio', 'Bláster de fase', 'Bláster nova'], overdrive: 'Sobrecarga: fuego rápido',
   profile: 'Tu perfil',
   level: 'Nivel {n}',
@@ -94,6 +94,8 @@ export const es: Strings = {
   ctlGadget: 'Usar tu artilugio (mina, cohete, intercambio, drones)',
   ctlAbility: 'Usar tu habilidad (muro, clon, portal, embestida)', ctlDetach: 'Mantén para quitarte una bomba pegajosa',
   ctlCancel: 'Cancelar un portal a medio poner',
+  ctlShield: 'Mantén para levantar un escudo en Cosmos. Las explosiones no te alcanzan hasta que se agote la carga',
+  shieldHold: 'Escudo (mantén V)',
   abilityNames: { 21: 'Constructor', 22: 'Bombas de gas', 23: 'Clon', 24: 'Bombas pegajosas', 25: 'Portales', 26: 'Embestida' },
   abilityRejected: ['', 'Recargando…', 'No hay sitio ahí', 'Ya hay demasiados', 'Ahora no', 'Demasiado pronto: muévete primero', 'Desactivado'],
   stuckOn: '¡Tienes una bomba pegajosa! Mantén C para quitártela — {n} s', stuckTouch: '¡Tienes una bomba pegajosa! Mantén ✋ — {n} s',
@@ -102,7 +104,7 @@ export const es: Strings = {
   items: {
     1: '+1 bomba', 2: '+1 alcance', 3: 'Más velocidad', 4: 'Patear bombas', 5: 'Escudo (6 s)', 6: 'Atraviesa cajas',
     7: 'Alcance máximo', 8: 'Caja secreta', 9: 'Bombas remotas (pulsa E)', 10: 'Bomba en línea (bomba sobre tu bomba)',
-    11: 'Golpear bombas (pulsa E)', 12: 'Fantasma: atraviesa cajas', 13: '¡Bomba atómica! Tu próxima bomba es nuclear: huye lejos',
+    11: 'Golpear bombas (pulsa E)', 12: 'Fantasma: atraviesa cajas; los bots no te ven', 13: '¡Bomba atómica! Tu próxima bomba es nuclear: huye lejos',
     14: 'Hielo: tus explosiones dejan hielo', 15: 'Minas ×3 (pulsa Q)', 16: 'Cohetes ×3 (pulsa Q)',
     17: 'Intercambia el sitio con un enemigo ×2 (pulsa Q)', 18: 'Pisotón: aterriza de un salto para aturdir', 19: 'Dron bombardero (pulsa Q)',
     20: 'Enjambre de drones (pulsa Q)',
@@ -148,7 +150,7 @@ export const es: Strings = {
       labels: ['Tres corazones; el último mordisco mata', 'Mordido: parpadeas 2 s y los monstruos pierden interés. ¡Corre!', 'Recuperas un corazón cada 8 s; hasta entonces sangras'],
     },
     cosmos: {
-      title: 'Cosmos', body: 'Una estación espacial donde el botón de bomba dispara un bláster. Los disparos vuelan rápido y estallan al impactar. Los núcleos cambian el color de tu bláster hasta que mueras.',
+      title: 'Cosmos', body: 'Una estación espacial donde el botón de bomba dispara un bláster. Los disparos vuelan rápido y estallan al impactar. Los núcleos cambian el color de tu bláster hasta que mueras. Mantén V para levantar un escudo y sobrevivir a una explosión. Se recarga al soltarlo.',
       labels: ['Plasma: explosiones mayores', 'Crio: deja hielo', 'Fase: atraviesa cajas', 'Nova: tres disparos a la vez', 'Sobrecarga: fuego rápido'],
     },
     scoring: {

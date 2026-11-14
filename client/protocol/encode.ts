@@ -53,7 +53,9 @@ export function encodeClient(m: ClientMsg): Uint8Array<ArrayBuffer> {
   const w = new Writer().u8(CLIENT_OP[m.t]);
   switch (m.t) {
     case 'join': w.str(m.name).str(m.token ?? '').u8(m.hat ?? 0).u8(m.trail ?? 0).uvar(m.near ?? 0); break;
-    case 'in': w.u8((m.d & 7) | ((m.s & 7) << 3) | (m.j ? 64 : 0) | (m.h ? 128 : 0)).uvar(m.q ?? 0).uvar(m.k ?? 0); break;
+    case 'in':
+      w.u8((m.d & 7) | ((m.s & 7) << 3) | (m.j ? 64 : 0) | (m.h ? 128 : 0)).u8(m.g ? 1 : 0).uvar(m.q ?? 0).uvar(m.k ?? 0);
+      break;
     case 'emote': w.u8(m.e); break;
     case 'ping': w.f64(m.c); break;
     case 'view': w.uvar(m.w).uvar(m.h); break;

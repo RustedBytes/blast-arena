@@ -13,7 +13,7 @@ export const de: Strings = {
   modeTeams: 'Rot gegen Blau',
   modeWorms: 'Würmer',
   modeRockets: 'Raketen', helpRocket: 'Rakete', rocketsHint: 'Raketen-Arena: Die Bombentaste feuert eine Rakete in Blickrichtung',
-  modeCosmos: 'Kosmos', helpBlaster: 'Blaster', cosmosHint: 'Kosmos-Arena: Die Bombentaste feuert deinen Blaster. Sammle Kerne, um seine Farbe zu ändern!',
+  modeCosmos: 'Kosmos', helpBlaster: 'Blaster', cosmosHint: 'Kosmos-Arena: Die Bombentaste feuert deinen Blaster. Sammle Kerne, um seine Farbe zu ändern! Halte V für einen Schild.',
   blasters: ['', 'Grüner Blaster', 'Plasma-Blaster', 'Kryo-Blaster', 'Phasen-Blaster', 'Nova-Blaster'], overdrive: 'Overdrive: Schnellfeuer',
   profile: 'Dein Profil',
   level: 'Level {n}',
@@ -94,6 +94,8 @@ export const de: Strings = {
   ctlGadget: 'Gadget benutzen (Mine, Rakete, Tausch, Drohnen)',
   ctlAbility: 'Fähigkeit benutzen (Mauer, Klon, Portal, Sprint)', ctlDetach: 'Halten, um eine Klebebombe abzuschütteln',
   ctlCancel: 'Halb gesetztes Portal abbrechen',
+  ctlShield: 'Halten, um im Kosmos einen Schild zu heben. Explosionen treffen dich nicht, bis die Ladung leer ist',
+  shieldHold: 'Schild (V halten)',
   abilityNames: { 21: 'Baumeister', 22: 'Gasbomben', 23: 'Klon', 24: 'Klebebomben', 25: 'Portale', 26: 'Sprint' },
   abilityRejected: ['', 'Lädt auf…', 'Dort ist kein Platz', 'Schon zu viele draußen', 'Nicht jetzt', 'Zu früh: Beweg dich erst', 'Abgeschaltet'],
   stuckOn: 'Eine Klebebombe hängt an dir! Halte C zum Abschütteln — {n} s', stuckTouch: 'Eine Klebebombe hängt an dir! Halte ✋ — {n} s',
@@ -102,7 +104,7 @@ export const de: Strings = {
   items: {
     1: '+1 Bombe', 2: '+1 Reichweite', 3: 'Schneller', 4: 'Bomben kicken', 5: 'Schild (6 s)', 6: 'Durch Kisten sprengen',
     7: 'Maximale Reichweite', 8: 'Geheimbox', 9: 'Fernzünder (E drücken)', 10: 'Linienbombe (Bombe auf deine Bombe)',
-    11: 'Bomben schlagen (E drücken)', 12: 'Geist: durch Kisten gehen', 13: 'Atombombe! Deine nächste Bombe ist nuklear: lauf weit weg',
+    11: 'Bomben schlagen (E drücken)', 12: 'Geist: durch Kisten gehen; Bots sehen dich nicht', 13: 'Atombombe! Deine nächste Bombe ist nuklear: lauf weit weg',
     14: 'Frost: Deine Explosionen hinterlassen Eis', 15: 'Landminen ×3 (Q drücken)', 16: 'Raketen ×3 (Q drücken)',
     17: 'Platz mit einem Gegner tauschen ×2 (Q drücken)', 18: 'Stampfer: Landung nach Sprung betäubt Gegner', 19: 'Bomberdrohne (Q drücken)',
     20: 'Drohnenschwarm (Q drücken)',
@@ -148,7 +150,7 @@ export const de: Strings = {
       labels: ['Drei Herzen; der letzte Biss tötet', 'Gebissen: Du blinkst 2 s und Monster verlieren das Interesse. Lauf!', 'Alle 8 s kommt ein Herz zurück; bis dahin blutest du'],
     },
     cosmos: {
-      title: 'Kosmos', body: 'Eine Raumstation, auf der die Bombentaste einen Blaster abfeuert. Schüsse fliegen schnell und explodieren beim Aufprall. Kerne ändern die Farbe deines Blasters, bis du stirbst.',
+      title: 'Kosmos', body: 'Eine Raumstation, auf der die Bombentaste einen Blaster abfeuert. Schüsse fliegen schnell und explodieren beim Aufprall. Kerne ändern die Farbe deines Blasters, bis du stirbst. Halte V, um einen Schild zu heben und eine Explosion zu überstehen. Er lädt auf, wenn du loslässt.',
       labels: ['Plasma: größere Explosionen', 'Kryo: hinterlässt Eis', 'Phase: durch Kisten', 'Nova: drei Schüsse auf einmal', 'Overdrive: Schnellfeuer'],
     },
     scoring: {

@@ -152,7 +152,7 @@ export interface JoinFields { name: string; token?: string; hat?: number; trail?
 export type ClientMsg =
   | ({ t: 'join' } & JoinFields)
   /** Input: direction, sequence, jump, hold, ack q and tick k. */
-  | { t: 'in'; d: number; s: number; j?: boolean; h?: boolean; q?: number; k?: number }
+  | { t: 'in'; d: number; s: number; j?: boolean; h?: boolean; g?: boolean; q?: number; k?: number }
   | { t: 'emote'; e: number }
   | { t: 'ping'; c: number }
   | { t: 'view'; w: number; h: number }

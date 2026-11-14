@@ -13,7 +13,7 @@ export const fr: Strings = {
   modeTeams: 'Rouges contre Bleus',
   modeWorms: 'Vers',
   modeRockets: 'Roquettes', helpRocket: 'roquette', rocketsHint: 'Arène des roquettes : le bouton bombe tire une roquette droit devant',
-  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Arène Cosmos : le bouton bombe tire avec ton blaster. Ramasse des noyaux pour changer sa couleur !',
+  modeCosmos: 'Cosmos', helpBlaster: 'blaster', cosmosHint: 'Arène Cosmos : le bouton bombe tire avec ton blaster. Ramasse des noyaux pour changer sa couleur ! Maintiens V pour un bouclier.',
   blasters: ['', 'Blaster vert', 'Blaster plasma', 'Blaster cryo', 'Blaster de phase', 'Blaster nova'], overdrive: 'Surrégime : tir rapide',
   profile: 'Ton profil',
   level: 'Niveau {n}',
@@ -94,6 +94,8 @@ export const fr: Strings = {
   ctlGadget: 'Utiliser ton gadget (mine, roquette, échange, drones)',
   ctlAbility: 'Utiliser ta capacité (mur, clone, portail, ruée)', ctlDetach: 'Maintiens pour te débarrasser d’une bombe collante',
   ctlCancel: 'Annuler un portail à moitié posé',
+  ctlShield: 'Maintiens pour lever un bouclier dans Cosmos. Les explosions te ratent tant que la charge dure',
+  shieldHold: 'Bouclier (maintenir V)',
   abilityNames: { 21: 'Bâtisseur', 22: 'Bombes à gaz', 23: 'Clone', 24: 'Bombes collantes', 25: 'Portails', 26: 'Ruée' },
   abilityRejected: ['', 'Recharge…', 'Pas de place ici', 'Déjà trop en jeu', 'Pas maintenant', 'Trop tôt : bouge d’abord', 'Désactivé'],
   stuckOn: 'Une bombe collante est sur toi ! Maintiens C pour t’en débarrasser — {n} s', stuckTouch: 'Une bombe collante est sur toi ! Maintiens ✋ — {n} s',
@@ -102,7 +104,7 @@ export const fr: Strings = {
   items: {
     1: '+1 bombe', 2: '+1 portée', 3: 'Plus rapide', 4: 'Pousser les bombes', 5: 'Bouclier (6 s)', 6: 'Traverse les caisses',
     7: 'Portée maximale', 8: 'Boîte secrète', 9: 'Bombes télécommandées (appuie sur E)', 10: 'Bombe en ligne (bombe sur ta bombe)',
-    11: 'Frapper les bombes (appuie sur E)', 12: 'Fantôme : traverse les caisses', 13: 'Bombe atomique ! Ta prochaine bombe est nucléaire : fuis loin',
+    11: 'Frapper les bombes (appuie sur E)', 12: 'Fantôme : traverse les caisses ; les bots ne te voient pas', 13: 'Bombe atomique ! Ta prochaine bombe est nucléaire : fuis loin',
     14: 'Gel : tes explosions laissent de la glace', 15: 'Mines ×3 (appuie sur Q)', 16: 'Roquettes ×3 (appuie sur Q)',
     17: 'Échange ta place avec un ennemi ×2 (appuie sur Q)', 18: 'Écrasement : retombe d’un saut pour étourdir', 19: 'Drone bombardier (appuie sur Q)',
     20: 'Essaim de drones (appuie sur Q)',
@@ -148,7 +150,7 @@ export const fr: Strings = {
       labels: ['Trois cœurs ; la dernière morsure tue', 'Mordu : tu clignotes 2 s et les monstres se désintéressent de toi. Fuis !', 'Un cœur revient toutes les 8 s ; d’ici là tu saignes'],
     },
     cosmos: {
-      title: 'Cosmos', body: 'Une station spatiale où le bouton bombe tire au blaster. Les tirs filent vite et explosent à l’impact. Les noyaux changent la couleur de ton blaster jusqu’à ta mort.',
+      title: 'Cosmos', body: 'Une station spatiale où le bouton bombe tire au blaster. Les tirs filent vite et explosent à l’impact. Les noyaux changent la couleur de ton blaster jusqu’à ta mort. Maintiens V pour lever un bouclier et survivre à une explosion. Il se recharge quand tu le lâches.',
       labels: ['Plasma : explosions plus grandes', 'Cryo : laisse de la glace', 'Phase : à travers les caisses', 'Nova : trois tirs à la fois', 'Surrégime : tir rapide'],
     },
     scoring: {

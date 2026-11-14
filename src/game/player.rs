@@ -18,6 +18,10 @@ pub const MAX_NUKES: u8 = 2;
 /// Gadget charges a player can hold.
 pub const MAX_GADGET_CHARGES: u8 = 9;
 pub const BASE_SPEED: f32 = 3.5; // tiles per second
+/// Cosmos arena: how long the shield key can stay up (3 s at 20 Hz).
+pub const SHIELD_POOL: u16 = 60;
+/// Cosmos arena: while the shield key is released, one tick of charge returns this often.
+pub const SHIELD_REGEN_EVERY: u64 = 3;
 pub const SPEED_STEP: f32 = 0.6;
 /// Speed while under the slow curse.
 pub const CURSED_SPEED: f32 = 2.2;
@@ -148,6 +152,10 @@ pub struct Player {
     pub bounty: bool,
     /// Ticks spent standing on a hill towards the next point.
     pub hill_ticks: u32,
+    /// Cosmos arena: the shield key is held, and ticks of shield charge left
+    /// (see [`SHIELD_POOL`]).
+    pub input_shield: bool,
+    pub shield_pool: u16,
     /// Active ability held (`Item::Builder`, `Clone`, `PortalPair` or
     /// `Dash` as a code; 0 for none), charges ready, the most it holds, and
     /// the tick the next spent charge comes back (0: nothing recharging).
@@ -263,6 +271,8 @@ impl Player {
             streak: 0,
             bounty: false,
             hill_ticks: 0,
+            input_shield: false,
+            shield_pool: SHIELD_POOL,
             ability: 0,
             ability_n: 0,
             ability_max: 0,
@@ -376,6 +386,7 @@ impl Player {
         (self.gadget, self.gadget_n) = (0, 0);
         self.stunned_until = 0;
         self.ghost_until = 0;
+        self.shield_pool = SHIELD_POOL;
         self.slow_until = 0;
         self.nobomb_until = 0;
         self.reversed_until = 0;

@@ -36,7 +36,7 @@ export const input = new Input({
 
 // Every input message also acknowledges the newest decoded snapshot (`k`),
 // which the server uses as the base for delta snapshots.
-export const sendInput = (d: number, s: number, j: boolean, q: number): void => net.send({ t: 'in', d, s, j, h: input.current.h, q, k: state?.lastK ?? 0 });
+export const sendInput = (d: number, s: number, j: boolean, q: number): void => net.send({ t: 'in', d, s, j, h: input.current.h, g: input.current.g, q, k: state?.lastK ?? 0 });
 
 export function sendEmote(e: number): void {
   net.send({ t: 'emote', e });

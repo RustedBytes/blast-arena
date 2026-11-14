@@ -24,6 +24,9 @@ impl World {
                 continue;
             }
 
+            // Cosmos: a held shield key spends charge and shrugs off this tick's blasts.
+            self.update_shield(id);
+
             // A hop over a pillar takes the whole tick: no walking, and while
             // airborne nothing else happens (a bomb pressed mid-air drops on
             // landing).
