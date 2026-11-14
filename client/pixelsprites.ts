@@ -15,6 +15,7 @@ import type { PixelHat, PlayerView } from './pixelsprites/players.js';
 import { powerUps } from './pixelsprites/powerups.js';
 import { monsterSprites } from './pixelsprites/monsters.js';
 import { warden } from './pixelsprites/warden.js';
+import { bloodSplat, crownMark, dizzyStar, drone, flagCloth, flagPole, frostPuff, gasPuff, goo, halo, nukePuffs, portal, PORTAL_ART } from './pixelsprites/marks.js';
 import { wormHead, wormMound, wormSegment, wormTail } from './pixelsprites/worms.js';
 
 export type { PixelHat, PlayerView };
@@ -72,7 +73,24 @@ export function buildPixelSprites() {
     worm_tail: big(wormTail()),
     worm_mound: big(wormMound()),
     warden: big(warden(false)),
+    warden_step: big(warden(false, true)),
     warden_rage: big(warden(true)),
+    warden_rage_step: big(warden(true, true)),
+    goo: [big(goo(0)), big(goo(1))],
+    gas: [big(gasPuff(0)), big(gasPuff(1))],
+    frost: big(frostPuff()),
+    portals: PORTAL_ART.map((c) => {
+      const a = portal(c);
+      return { ring: big(a.ring), spiral: big(a.spiral) };
+    }),
+    halo: big(halo()),
+    drones: [0, 1, 2].map((team) => [0, 1].map((frame) => big(drone(frame, ['#ffd34a', '#ff5a4a', '#5aa0ff'][team])))),
+    flagPole: big(flagPole()),
+    flag: [big(flagCloth(0)), big(flagCloth(1))],
+    star: big(dizzyStar()),
+    crown: big(crownMark()),
+    blood: big(bloodSplat()),
+    nukePuffs: nukePuffs(),
     /** Dungeon monsters as [kind - 1][frame]: slime, skeleton, bat. */
     monsters: monsterSprites().map((frames) => frames.map(big)),
   };

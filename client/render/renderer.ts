@@ -153,7 +153,7 @@ export class Renderer {
     this.events.drawHills(state.hills, camX, camY, T, sec);
     this.warden.drawVault(state, camX, camY, T, sec);
     this.effects.drawDecals(map, now, camX, camY, T);
-    s.blood.draw(ctx, now, camX, camY, T, W, H);
+    s.blood.draw(ctx, now, camX, camY, T, W, H, s.pixelArt()?.blood ?? null);
     this.events.drawGroundEvents(state, now, camX, camY, T, sec, W, H);
 
     // Objects on the ground.

@@ -249,6 +249,15 @@ export function hullPillar(seed: number, kind: number) {
   return p;
 }
 
+const BRICK = ['#3a1808', '#6a3014', '#a85a28', '#d9824a', '#f0b070', '#ffd8b0'];
+
+/** A builder's wall: the same 3/4 block as the pillars, in orange brick. */
+export function builtWall(): Pix {
+  const flat = new Float32Array(N * N);
+  flat.fill(0.5);
+  return block(BRICK, () => BRICK[4], masonry(BRICK, flat, TOP, 3, 8, 5, 3));
+}
+
 /** The breakable wooden crate: a braced lid over a planked, iron-cornered front. */
 export function crate(seed: number) {
   const rand = rng(seed), f = field(rand, [[2, 0.25], [8, 0.35], [16, 0.4]]);

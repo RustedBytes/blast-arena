@@ -20,7 +20,8 @@ const BAT = ['#120c1c', '#241a36', '#3a2a55', '#56407a', '#7a5ea3', '#a68bd0', '
  */
 export function slime(frame: number): Pix {
   const p = new Pix();
-  const [rx, ry] = frame ? [14, 9] : [12, 11.5];
+  const blink = frame === 2;
+  const [rx, ry] = frame === 1 ? [14, 9] : [12, 11.5];
   const base = 28.5;
   groundShadow(p, 16, base, rx + 1, 2.4);
   const dome: Sdf = (x, y) => Math.max(sdEllipse(16, base, rx, ry)(x, y), y - base);
@@ -38,9 +39,13 @@ export function slime(frame: number): Pix {
     // Eyes with a glint and a little mouth.
     const ey = top + ry * 0.48;
     for (const ex of [12.5, 19.5]) {
-      fill(q, sdEllipse(ex, ey, 2.2, 2.8), '#f4fff0');
-      fill(q, sdEllipse(ex + 0.6, ey + 0.6, 1.3, 1.9), '#0a140e');
-      q.set(Math.floor(ex), Math.floor(ey - 1.2), '#ffffff');
+      if (blink) {
+        line(Math.floor(ex - 2), Math.round(ey), Math.floor(ex + 2), Math.round(ey), (x, y) => q.set(x, y, '#0a140e'));
+      } else {
+        fill(q, sdEllipse(ex, ey, 2.2, 2.8), '#f4fff0');
+        fill(q, sdEllipse(ex + 0.6, ey + 0.6, 1.3, 1.9), '#0a140e');
+        q.set(Math.floor(ex), Math.floor(ey - 1.2), '#ffffff');
+      }
     }
     line(14, Math.round(ey + 4), 17, Math.round(ey + 4), (x, y) => q.set(x, y, SLIME[0]));
   }, 0.62, 0.5);
@@ -135,5 +140,5 @@ export function bat(frame: number): Pix {
 
 /** Every monster sprite as [kind - 1][frame]. */
 export function monsterSprites(): Pix[][] {
-  return [[slime(0), slime(1)], [skeleton(0), skeleton(1)], [bat(0), bat(1)]];
+  return [[slime(0), slime(1), slime(2)], [skeleton(0), skeleton(1)], [bat(0), bat(1)]];
 }

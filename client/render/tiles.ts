@@ -6,6 +6,7 @@ import { context2d, makeCanvas } from '../dom.js';
 import { FRINGE_RANK } from '../pixelart.js';
 import type { GameMap } from '../state.js';
 import { ARM_ANGLES, ARM_DIRS, biome, CHUNK, CHUNK_PX, CONVEYOR_DIR, MAX_CHUNKS, REPAINTS_PER_FRAME, T_ARMORED, T_BUILT, T_CRATE, T_ICE, T_TELEPORT, T_WALL, variant } from './constants.js';
+import { artPx } from './pixeldraw.js';
 import { paintBuiltWall } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { Chunk } from './types.js';
@@ -149,7 +150,10 @@ export class TileLayer {
         else if (t === T_ICE) s = sprite('ice');
         else if (t === T_TELEPORT) s = sprite('teleport');
         if (s) g.drawImage(s, px, py, P, P);
-        if (t === T_BUILT) paintBuiltWall(g, px, py, P, pix !== null);
+        if (t === T_BUILT) {
+          if (pix) g.drawImage(pix.built, px, py, P, P);
+          else paintBuiltWall(g, px, py, P, false);
+        }
         const belt = CONVEYOR_DIR[t];
         if (belt) {
           g.save();
@@ -183,6 +187,7 @@ export class TileLayer {
   /** Moving chevrons on conveyors and spinning teleporter pads. */
   drawSpecials(camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const { ctx } = this.s;
+    const pix = this.s.pixelArt();
     const spin = sec * 2.5, sc = Math.cos(spin), ss = Math.sin(spin);
     const phase = (sec * 1.6) % 1;
     let style = -1; // which stroke style is set: 0 teleporter, 1 conveyor
@@ -192,6 +197,21 @@ export class TileLayer {
       if (px < -T || py < -T || px > W || py > H) continue;
       const cx = px + T / 2, cy = py + T / 2;
       if (t === T_TELEPORT) {
+        if (pix) {
+          const u = artPx(T);
+          ctx.fillStyle = 'rgba(200,160,255,0.85)';
+          ctx.beginPath();
+          for (let k = 0; k < 3; k++) {
+            const rad = T * (0.16 + k * 0.1);
+            const n = 6;
+            for (let i = 0; i < n; i++) {
+              const a = spin + k * 2 + (i / n) * 2.2;
+              ctx.rect(Math.round((cx + Math.cos(a) * rad) / u) * u, Math.round((cy + Math.sin(a) * rad) / u) * u, u, u);
+            }
+          }
+          ctx.fill();
+          continue;
+        }
         if (style !== 0) {
           style = 0;
           ctx.strokeStyle = 'rgba(200,160,255,0.75)';
@@ -212,6 +232,22 @@ export class TileLayer {
           ctx.lineWidth = T * 0.07;
         }
         const d = CONVEYOR_DIR[t] - 1;
+        if (pix) {
+          const u = artPx(T);
+          const c = ARM_DIRS[d][0], s = ARM_DIRS[d][1];
+          ctx.fillStyle = 'rgba(255,211,74,0.9)';
+          ctx.beginPath();
+          for (let k = 0; k < 2; k++) {
+            const along = ((phase + k * 0.5) % 1 - 0.5) * T * 0.7;
+            for (const [fx, fy] of [[-0.12, -0.16], [0.02, 0], [-0.12, 0.16]] as const) {
+              const ox = along + fx * T, oy = fy * T;
+              const rx = c * ox - s * oy, ry = s * ox + c * oy;
+              ctx.rect(Math.round((cx + rx) / u) * u, Math.round((cy + ry) / u) * u, u * 2, u * 2);
+            }
+          }
+          ctx.fill();
+          continue;
+        }
         const c = ARM_DIRS[d][0], s = ARM_DIRS[d][1]; // cos/sin of ARM_ANGLES[d]
         ctx.setTransform(c, s, -s, c, cx, cy);
         ctx.beginPath();

@@ -3,6 +3,7 @@
 
 import { t } from '../i18n.js';
 import { P_SMOKE } from '../particles.js';
+import { pixelOval, pixelRing } from './pixeldraw.js';
 import { GUARD_FLAG } from '../protocol.js';
 import type { GuardInfo } from '../protocol.js';
 import type { GameState } from '../state.js';
@@ -117,31 +118,49 @@ export class WardenLayer {
         ctx.fillStyle = `rgba(255,60,30,${(0.15 + 0.3 * k) * (1 - i / (WARDEN_CHARGE_CELLS + 2))})`;
         ctx.fillRect(lx * T - camX + T * 0.08, ly * T - camY + T * 0.08, T * 0.84, T * 0.84);
         // A chevron pointing the way it will come.
-        ctx.strokeStyle = `rgba(255,120,80,${0.5 + 0.4 * k})`;
-        ctx.lineWidth = Math.max(2, T * 0.07);
         const mx = (lx + 0.5) * T - camX, my = (ly + 0.5) * T - camY;
-        ctx.beginPath();
-        ctx.moveTo(mx - dx * T * 0.15 - dy * T * 0.22, my - dy * T * 0.15 - dx * T * 0.22);
-        ctx.lineTo(mx + dx * T * 0.15, my + dy * T * 0.15);
-        ctx.lineTo(mx - dx * T * 0.15 + dy * T * 0.22, my - dy * T * 0.15 + dx * T * 0.22);
-        ctx.stroke();
+        const pix = this.s.pixelArt();
+        if (pix) {
+          const u = Math.max(2, Math.round(T * 0.08));
+          ctx.fillStyle = `rgba(255,120,80,${0.5 + 0.4 * k})`;
+          const tipx = mx + dx * T * 0.15, tipy = my + dy * T * 0.15;
+          ctx.fillRect(tipx - u, tipy - u, u * 2, u * 2);
+          ctx.fillRect(mx - dx * T * 0.12 - dy * T * 0.18 - u / 2, my - dy * T * 0.12 - dx * T * 0.18 - u / 2, u, u);
+          ctx.fillRect(mx - dx * T * 0.12 + dy * T * 0.18 - u / 2, my - dy * T * 0.12 + dx * T * 0.18 - u / 2, u, u);
+        } else {
+          ctx.strokeStyle = `rgba(255,120,80,${0.5 + 0.4 * k})`;
+          ctx.lineWidth = Math.max(2, T * 0.07);
+          ctx.beginPath();
+          ctx.moveTo(mx - dx * T * 0.15 - dy * T * 0.22, my - dy * T * 0.15 - dx * T * 0.22);
+          ctx.lineTo(mx + dx * T * 0.15, my + dy * T * 0.15);
+          ctx.lineTo(mx - dx * T * 0.15 + dy * T * 0.22, my - dy * T * 0.15 + dx * T * 0.22);
+          ctx.stroke();
+        }
       }
     }
     const enraged = (flags & GUARD_FLAG.ENRAGED) !== 0;
+    const pix = this.s.pixelArt();
     if (enraged || flags & GUARD_FLAG.HUNTING) {
-      ctx.fillStyle = enraged ? `rgba(255,50,20,${0.25 + 0.12 * Math.sin(sec * 12)})` : 'rgba(255,200,80,0.14)';
-      ctx.beginPath();
-      ctx.arc(px, py, T * (enraged ? 1.05 : 0.9), 0, 6.2832);
-      ctx.fill();
+      const glow = enraged ? `rgba(255,50,20,${0.25 + 0.12 * Math.sin(sec * 12)})` : 'rgba(255,200,80,0.14)';
+      if (pix) pixelOval(ctx, px, py, T * (enraged ? 1.05 : 0.9), T * (enraged ? 1.05 : 0.9), glow, T);
+      else {
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(px, py, T * (enraged ? 1.05 : 0.9), 0, 6.2832);
+        ctx.fill();
+      }
       if (enraged && Math.random() < 0.3) {
         this.s.particles.emit(P_SMOKE, x + (Math.random() - 0.5) * 0.8, y - 0.4, 0, -0.8, 0.7, 0.12, 3);
       }
     }
     // Shadow, then the body; a slam wind-up rears up, a charge leans in.
-    ctx.fillStyle = 'rgba(10,6,20,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(px, py + T * 0.38, T * 0.62, T * 0.2, 0, 0, 6.2832);
-    ctx.fill();
+    if (pix) pixelOval(ctx, px, py + T * 0.38, T * 0.62, T * 0.2, 'rgba(10,6,20,0.35)', T);
+    else {
+      ctx.fillStyle = 'rgba(10,6,20,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(px, py + T * 0.38, T * 0.62, T * 0.2, 0, 0, 6.2832);
+      ctx.fill();
+    }
     const rear = flags & GUARD_FLAG.SLAM ? (1 - Math.min(1, left / WARDEN_SLAM_WINDUP)) * T * 0.3 : 0;
     const walking = prog < 1 && (cx !== fx || cy !== fy);
     const bob = walking ? Math.abs(Math.sin(prog * Math.PI)) * T * 0.06 : 0;
@@ -152,10 +171,11 @@ export class WardenLayer {
     ctx.translate(px, py + T * 0.45 - rear - bob);
     ctx.rotate(lean);
     ctx.scale(flip, 1);
-    const pix = this.s.pixelArt();
     if (pix) {
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(enraged ? pix.warden_rage : pix.warden, -size / 2, -size, size, size);
+      const step = walking && Math.floor(prog * 2) % 2 === 1;
+      const body = enraged ? (step ? pix.warden_rage_step : pix.warden_rage) : (step ? pix.warden_step : pix.warden);
+      ctx.drawImage(body, -size / 2, -size, size, size);
     } else {
       this.drawWardenBody(size, enraged, sec);
     }
@@ -163,7 +183,11 @@ export class WardenLayer {
       // A white flash when hit.
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.55;
-      if (pix) ctx.drawImage(enraged ? pix.warden_rage : pix.warden, -size / 2, -size, size, size);
+      if (pix) {
+        const step = walking && Math.floor(prog * 2) % 2 === 1;
+        const body = enraged ? (step ? pix.warden_rage_step : pix.warden_rage) : (step ? pix.warden_step : pix.warden);
+        ctx.drawImage(body, -size / 2, -size, size, size);
+      }
       else this.drawWardenBody(size, enraged, sec);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
@@ -171,7 +195,11 @@ export class WardenLayer {
     ctx.restore();
     if (flags & GUARD_FLAG.SKIN) {
       // Stone skin: a grey shell with runes turning round it.
-      ctx.strokeStyle = `rgba(200,206,220,${0.7 + 0.2 * Math.sin(sec * 8)})`;
+      const shell = `rgba(200,206,220,${0.7 + 0.2 * Math.sin(sec * 8)})`;
+      if (pix) {
+        pixelRing(ctx, px, py - T * 0.25, T * 0.95, shell, T, 1);
+      } else {
+      ctx.strokeStyle = shell;
       ctx.lineWidth = Math.max(2, T * 0.08);
       ctx.setLineDash([T * 0.18, T * 0.1]);
       ctx.lineDashOffset = sec * T;
@@ -181,6 +209,7 @@ export class WardenLayer {
       ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(170,178,195,0.18)';
       ctx.fill();
+      }
     }
     // Health: a segment per hit point, with its name over it.
     const bw = T * 1.5, bh = Math.max(4, T * 0.12), bx = px - bw / 2, by = py - T * 1.35 - rear;

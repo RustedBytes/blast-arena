@@ -4,6 +4,7 @@
 import type { PlayerColors } from '../assets.js';
 import { context2d, makeCanvas } from '../dom.js';
 import { P_DEBRIS, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
+import { nukePuffs } from '../pixelsprites/marks.js';
 import type { Arms, FlameEntry } from '../protocol.js';
 import type { GameMap } from '../state.js';
 import { BOLT_COLORS } from '../protocol.js';
@@ -24,8 +25,9 @@ export class EffectsLayer {
   /** Strength of the current atomic flash (0..1). */
   private flash = 0;
   private flashAt = -1e9;
-  /** Soft cloud sprites, built on first use. */
+  /** Soft cloud sprites, built on first use. Pixel mode uses chunky ones. */
   private puffs: Puffs | null = null;
+  private pixelPuffs: Puffs | null = null;
   /**
    * Blaster blasts (cosmos arena): the bolt colour of the explosion at a
    * cell (`x + y * 4096`) and until when it lasts.
@@ -234,7 +236,7 @@ export class EffectsLayer {
   drawNukeCloud(now: number, camX: number, camY: number, T: number) {
     if (this.nukes.length === 0) return;
     const { ctx } = this.s;
-    const P = (this.puffs ??= this.buildPuffs());
+    const P = this.s.pixelArt() ? (this.pixelPuffs ??= nukePuffs()) : (this.puffs ??= this.buildPuffs());
     const puff = (img: HTMLCanvasElement, x: number, y: number, size: number, alpha: number): void => {
       if (alpha <= 0.01) return;
       ctx.globalAlpha = Math.min(1, alpha);

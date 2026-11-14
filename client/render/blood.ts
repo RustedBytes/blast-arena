@@ -28,7 +28,7 @@ export class BloodTrail {
     this.t.fill(-1e9);
   }
 
-  draw(ctx: CanvasRenderingContext2D, now: number, camX: number, camY: number, T: number, W: number, H: number): void {
+  draw(ctx: CanvasRenderingContext2D, now: number, camX: number, camY: number, T: number, W: number, H: number, splat: HTMLCanvasElement | null = null): void {
     for (let i = 0; i < DROPS; i++) {
       const age = now - this.t[i];
       if (age >= LIFE || age < 0) continue;
@@ -36,12 +36,18 @@ export class BloodTrail {
       if (px < -T || py < -T || px > W + T || py > H + T) continue;
       const k = age / LIFE;
       // Fresh blood is bright; it dries darker, then fades.
-      ctx.fillStyle = k < 0.25 ? '#b3121e' : '#6e0b12';
       ctx.globalAlpha = 0.85 * (1 - k * k);
-      const r = this.r[i] * T;
-      ctx.beginPath();
-      ctx.ellipse(px, py, r * 1.3, r, 0, 0, 6.2832);
-      ctx.fill();
+      if (splat) {
+        const s = T * (0.22 + this.r[i]);
+        ctx.globalAlpha *= k < 0.25 ? 1 : 0.7;
+        ctx.drawImage(splat, px - s / 2, py - s / 2, s, s);
+      } else {
+        ctx.fillStyle = k < 0.25 ? '#b3121e' : '#6e0b12';
+        const r = this.r[i] * T;
+        ctx.beginPath();
+        ctx.ellipse(px, py, r * 1.3, r, 0, 0, 6.2832);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }

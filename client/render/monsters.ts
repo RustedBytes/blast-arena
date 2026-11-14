@@ -5,6 +5,7 @@
 import { P_DEBRIS } from '../particles.js';
 import { MONSTER_FLAG, MONSTER_KIND } from '../protocol.js';
 import { C_DUST } from './constants.js';
+import { pixelOval } from './pixeldraw.js';
 import type { Stage } from './stage.js';
 
 export class MonsterLayer {
@@ -29,7 +30,7 @@ export class MonsterLayer {
       const bat = kind === MONSTER_KIND.BAT;
       const moving = !rising && prog < 1 && (cx !== fx || cy !== fy);
       // Animation: slimes squash as they hop, skeletons stride, bats flap.
-      const frame = bat ? Math.floor(sec * 9 + id) % 2 : moving ? (prog < 0.5 ? 1 : 0) : Math.floor(sec * 1.5 + id * 0.37) % 2 === 0 && kind === MONSTER_KIND.SLIME ? 1 : 0;
+      const frame = bat ? Math.floor(sec * 9 + id) % 2 : moving ? (prog < 0.5 ? 1 : 0) : kind === MONSTER_KIND.SLIME && Math.floor(sec * 1.2 + id) % 7 === 0 ? 2 : 0;
       const hop = kind === MONSTER_KIND.SLIME && moving ? Math.sin(prog * Math.PI) * T * 0.22 : 0;
       const hover = bat ? T * (0.28 + 0.06 * Math.sin(sec * 5 + id)) : 0;
       const size = T * (kind === MONSTER_KIND.SKELETON ? 1.12 : 1.0);
@@ -37,10 +38,14 @@ export class MonsterLayer {
 
       if (flags & MONSTER_FLAG.CHASING) {
         // A faint red glow under a hunting monster.
-        ctx.fillStyle = `rgba(255,40,40,${0.12 + 0.06 * Math.sin(sec * 8 + id)})`;
-        ctx.beginPath();
-        ctx.ellipse(px, py + T * 0.32, T * 0.48, T * 0.17, 0, 0, 6.2832);
-        ctx.fill();
+        const glow = `rgba(255,40,40,${0.12 + 0.06 * Math.sin(sec * 8 + id)})`;
+        if (pix) pixelOval(ctx, px, py + T * 0.32, T * 0.48, T * 0.17, glow, T);
+        else {
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.ellipse(px, py + T * 0.32, T * 0.48, T * 0.17, 0, 0, 6.2832);
+          ctx.fill();
+        }
       }
 
       ctx.save();

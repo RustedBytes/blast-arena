@@ -7,6 +7,7 @@ import { P_SMOKE, P_SPARK } from '../particles.js';
 import type { GameState } from '../state.js';
 import { BOLT_COLORS } from '../protocol.js';
 import { ARM_DIRS, C_BOLT, C_GAS, FUSE_TIP, FUSE_TIP_PIXEL, HALO, inNukeDisc, NUKE_DISC, NUKE_FUSE_TICKS, NUKE_OUTLINE, PORTAL_COLORS, T_WALL } from './constants.js';
+import { artPx, pixelRing, tintOf } from './pixeldraw.js';
 import { drawGoo } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { Frame, FrameBomb } from './types.js';
@@ -35,6 +36,7 @@ export class ObjectLayer {
 
   drawItems(items: readonly (readonly [number, number, number])[], camX: number, camY: number, T: number, sec: number, W: number, H: number) {
     const { ctx } = this.s;
+    const pix = this.s.pixelArt();
     // Halos first, all in one additive pass (one composite switch per frame).
     ctx.globalCompositeOperation = 'lighter';
     for (const it of items) {
@@ -43,7 +45,8 @@ export class ObjectLayer {
       if (cx < -T || cy < -T || cx > W + T || cy > H + T) continue;
       const bob = Math.sin(sec * 4 + x + y) * T * 0.04;
       const hs = T * 1.25 * (1 + 0.08 * Math.sin(sec * 3 + x * 2));
-      ctx.drawImage(this.halo(HALO[kind] ?? '#ffffff'), cx - hs / 2, cy - hs / 2 + bob, hs, hs);
+      const halo = pix ? tintOf(pix.halo, HALO[kind] ?? '#ffffff') : this.halo(HALO[kind] ?? '#ffffff');
+      ctx.drawImage(halo, cx - hs / 2, cy - hs / 2 + bob, hs, hs);
     }
     ctx.globalCompositeOperation = 'source-over';
     const size = T * 0.82;
@@ -64,9 +67,15 @@ export class ObjectLayer {
         for (let k = 0; k < 3; k++) {
           const a = sec * 2.5 + k * 2.094;
           ctx.fillStyle = k === 0 ? '#ff7af0' : k === 1 ? '#7ff6ff' : '#ffd34a';
-          ctx.beginPath();
-          ctx.arc(cx + Math.cos(a) * T * 0.45, cy + bob + Math.sin(a) * T * 0.45, T * 0.05, 0, 6.2832);
-          ctx.fill();
+          const sx = cx + Math.cos(a) * T * 0.45, sy = cy + bob + Math.sin(a) * T * 0.45;
+          if (pix) {
+            const u = artPx(T);
+            ctx.fillRect(Math.round(sx / u) * u, Math.round(sy / u) * u, u * 2, u * 2);
+          } else {
+            ctx.beginPath();
+            ctx.arc(sx, sy, T * 0.05, 0, 6.2832);
+            ctx.fill();
+          }
         }
       } else {
         ctx.drawImage(s, cx - size / 2, cy - size / 2 + bob, size, size);
@@ -83,11 +92,25 @@ export class ObjectLayer {
     const portals = state.snaps.latest().x.portals;
     if (portals.length === 0) return;
     const { ctx } = this.s;
+    const pix = this.s.pixelArt();
     for (const [, x, y, owner, partner, left] of portals) {
       const cx = (x + 0.5) * T - camX, cy = (y + 0.5) * T - camY;
       const color = PORTAL_COLORS[owner % PORTAL_COLORS.length];
       const active = partner !== 0;
       const fading = left < 60 && Math.floor(sec * 8) % 2 === 0;
+      if (pix) {
+        const art = pix.portals[owner % pix.portals.length];
+        ctx.save();
+        ctx.globalAlpha = active ? (fading ? 0.55 : 1) : 0.55;
+        ctx.drawImage(art.ring, cx - T * 0.55, cy - T * 0.55, T * 1.1, T * 1.1);
+        if (active) {
+          ctx.translate(cx, cy);
+          ctx.rotate(sec * 3);
+          ctx.drawImage(art.spiral, -T * 0.55, -T * 0.55, T * 1.1, T * 1.1);
+        }
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       ctx.translate(cx, cy);
       ctx.globalAlpha = active ? (fading ? 0.55 : 1) : 0.55;
@@ -121,11 +144,19 @@ export class ObjectLayer {
     const clouds = state.snaps.latest().x.gas;
     if (clouds.length === 0) return;
     const { ctx } = this.s;
+    const pix = this.s.pixelArt();
     for (const [id, x, y, arms, left] of clouds) {
       const fade = Math.min(1, left / 15);
       const cell = (cx: number, cy: number, k: number): void => {
         const px = (cx + 0.5) * T - camX, py = (cy + 0.5) * T - camY;
         const wob = Math.sin(sec * 1.7 + k * 1.3 + id) * T * 0.06;
+        if (pix) {
+          ctx.globalAlpha = fade;
+          const img = pix.gas[(Math.floor(sec * 2) + k) % 2];
+          ctx.drawImage(img, px - T * 0.7 + wob, py - T * 0.7 - wob, T * 1.4, T * 1.4);
+          if (Math.random() < dt * 1.5) this.s.particles.emit(P_SMOKE, cx + Math.random(), cy + Math.random(), 0, -0.2, 1.2, 0.18, C_GAS);
+          return;
+        }
         ctx.globalAlpha = 0.5 * fade;
         ctx.fillStyle = '#6fb02f';
         ctx.beginPath();
@@ -158,14 +189,21 @@ export class ObjectLayer {
       const size = T * 0.6;
       const px = (who.x + 0.28) * T - camX, py = (who.y - 0.2) * T - camY - who.lift;
       ctx.drawImage(this.s.art('bomb'), px - size / 2, py - size / 2, size, size);
-      drawGoo(ctx, px, py, size, sec);
+      const pix = this.s.pixelArt();
+      if (pix) ctx.drawImage(pix.goo[Math.floor(sec * 3) % 2], px - size / 2, py - size / 2, size, size);
+      else drawGoo(ctx, px, py, size, sec);
       // How much fuse is left, as a shrinking ring.
       const left = Math.min(1, b.fuse / 60);
-      ctx.strokeStyle = left < 0.3 ? `rgba(255,60,30,${0.6 + 0.4 * Math.sin(sec * 30)})` : '#ff7ad9';
-      ctx.lineWidth = T * 0.06;
-      ctx.beginPath();
-      ctx.arc(px, py, size * 0.62, -Math.PI / 2, -Math.PI / 2 + left * 6.2832);
-      ctx.stroke();
+      const hot = left < 0.3;
+      const ring = hot ? `rgba(255,60,30,${0.6 + 0.4 * Math.sin(sec * 30)})` : '#ff7ad9';
+      if (pix) pixelRing(ctx, px, py, size * 0.62 * Math.max(0.15, left), ring, T);
+      else {
+        ctx.strokeStyle = ring;
+        ctx.lineWidth = T * 0.06;
+        ctx.beginPath();
+        ctx.arc(px, py, size * 0.62, -Math.PI / 2, -Math.PI / 2 + left * 6.2832);
+        ctx.stroke();
+      }
     }
   }
 
@@ -198,18 +236,30 @@ export class ObjectLayer {
       }
       if (b.gas) {
         // Gas bombs leak green wisps.
-        ctx.fillStyle = 'rgba(140,210,80,0.35)';
-        ctx.beginPath();
-        ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
-        ctx.fill();
+        if (pix) {
+          ctx.globalAlpha = 0.85;
+          ctx.drawImage(pix.gas[Math.floor(sec * 3) % 2], px - size * 0.7, py - size * 0.6, size * 1.4, size * 1.4);
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.fillStyle = 'rgba(140,210,80,0.35)';
+          ctx.beginPath();
+          ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
+          ctx.fill();
+        }
         if (Math.random() < dt * 8) this.s.particles.emit(P_SMOKE, b.x + 0.5, b.y + 0.4, (Math.random() - 0.5) * 0.4, -0.5, 0.9, 0.12, C_GAS);
       }
       if (b.freeze) {
         // Frosty halo around freeze bombs.
-        ctx.fillStyle = 'rgba(160,230,255,0.35)';
-        ctx.beginPath();
-        ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
-        ctx.fill();
+        if (pix) {
+          ctx.globalAlpha = 0.9;
+          ctx.drawImage(pix.frost, px - size * 0.7, py - size * 0.6, size * 1.4, size * 1.4);
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.fillStyle = 'rgba(160,230,255,0.35)';
+          ctx.beginPath();
+          ctx.arc(px, py + size * 0.08, size * 0.55, 0, 6.2832);
+          ctx.fill();
+        }
       }
       ctx.drawImage(this.s.art(b.nuke ? 'bomb_nuke' : b.pierce ? 'bomb_pierce' : 'bomb'), px - size / 2, py - size / 2, size, size);
       if (b.remote && pix) {
@@ -227,13 +277,27 @@ export class ObjectLayer {
         ctx.arc(px - size * 0.22, py - size * 0.52, T * 0.05, 0, 6.2832);
         ctx.fill();
       }
-      if (b.sticky) drawGoo(ctx, px, py, size, sec);
+      if (b.sticky) {
+        if (pix) ctx.drawImage(pix.goo[Math.floor(sec * 3) % 2], px - size / 2, py - size / 2, size, size);
+        else drawGoo(ctx, px, py, size, sec);
+      }
       if (late || this.s.highContrast) {
-        ctx.strokeStyle = late ? `rgba(255,60,30,${0.5 + 0.5 * Math.sin(sec * 30)})` : '#fff';
-        ctx.lineWidth = T * 0.05;
-        ctx.beginPath();
-        ctx.arc(px - size * 0.03, py + size * 0.09, size * 0.33, 0, 6.2832);
-        ctx.stroke();
+        const ring = late ? `rgba(255,60,30,${0.5 + 0.5 * Math.sin(sec * 30)})` : '#fff';
+        if (pix) pixelRing(ctx, px - size * 0.03, py + size * 0.09, size * 0.33, ring, T);
+        else {
+          ctx.strokeStyle = ring;
+          ctx.lineWidth = T * 0.05;
+          ctx.beginPath();
+          ctx.arc(px - size * 0.03, py + size * 0.09, size * 0.33, 0, 6.2832);
+          ctx.stroke();
+        }
+      }
+      // The fuse tip blinks between white-hot and orange.
+      if (pix && !b.remote) {
+        const u = artPx(T);
+        const fx = px + FUSE_TIP_PIXEL[0] * size, fy = py + FUSE_TIP_PIXEL[1] * size;
+        ctx.fillStyle = Math.floor(sec * 12) % 2 ? '#fff6c0' : '#ff7a1a';
+        ctx.fillRect(Math.round(fx / u) * u, Math.round(fy / u) * u, u * 2, u * 2);
       }
       // Fuse sparks fly off the tip.
       if (!b.remote && Math.random() < dt * 30) {

@@ -19,7 +19,7 @@
 //
 // The parts live in client/pixelart/.
 
-import { armoredCrate, crate, cryptPillar, hullPillar, obsidianPillar, sandPillar, snowPillar, stonePillar } from './pixelart/blocks.js';
+import { armoredCrate, builtWall, crate, cryptPillar, hullPillar, obsidianPillar, sandPillar, snowPillar, stonePillar } from './pixelart/blocks.js';
 import { ash, crypt, grass, sand, snow, space } from './pixelart/floors.js';
 import { fringe, shadow } from './pixelart/overlays.js';
 import { ASH, CRYPT, DECK, GRASS, SAND, SNOW } from './pixelart/palette.js';
@@ -76,6 +76,7 @@ export function buildPixelTiles(seed = 1) {
     ice: cv(ice(s(21))),
     conveyor: cv(conveyor()),
     teleport: cv(teleport(s(22))),
+    built: cv(builtWall()),
     floors: floors.map((vs) => vs.map(cv)),
     pillars: pillars.map((vs) => vs.map(cv)),
     shadows: Array.from({ length: 8 }, (_, mask) => (mask ? cv(shadow(mask)) : null)),

@@ -6,6 +6,7 @@ import { P_DEBRIS } from '../particles.js';
 import type { ArenaMode } from '../protocol.js';
 import type { Circle, GameMap, GameState, Vec, Zone } from '../state.js';
 import { biome, BIOME_VOLCANO, EVENT_BLIZZARD, EVENT_EARTHQUAKE, METEOR_WARN_MS, TEAM_COLORS } from './constants.js';
+import { drawPixelFlag, pixelDashRect, pixelOval, pixelRing } from './pixeldraw.js';
 import { drawFlag } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { LavaSurge, Meteor, Weather } from './types.js';
@@ -122,11 +123,15 @@ export class EventLayer {
       }
       const k = Math.max(0, Math.min(1, 1 - (m.at - now) / METEOR_WARN_MS));
       const cx = (m.x + 0.5) * T - camX, cy = (m.y + 0.5) * T - camY;
-      ctx.strokeStyle = `rgba(255,90,40,${0.4 + 0.5 * k})`;
-      ctx.lineWidth = Math.max(2, T * 0.06);
-      ctx.beginPath();
-      ctx.arc(cx, cy, T * (1.6 - 1.1 * k), 0, 6.2832);
-      ctx.stroke();
+      const pix = this.s.pixelArt();
+      if (pix) pixelRing(ctx, cx, cy, T * (1.6 - 1.1 * k), `rgba(255,90,40,${0.4 + 0.5 * k})`, T);
+      else {
+        ctx.strokeStyle = `rgba(255,90,40,${0.4 + 0.5 * k})`;
+        ctx.lineWidth = Math.max(2, T * 0.06);
+        ctx.beginPath();
+        ctx.arc(cx, cy, T * (1.6 - 1.1 * k), 0, 6.2832);
+        ctx.stroke();
+      }
       ctx.fillStyle = `rgba(255,60,20,${0.15 + 0.3 * k})`;
       ctx.fillRect(cx - T * 1.5, cy - T * 0.5, T * 3, T);
       ctx.fillRect(cx - T * 0.5, cy - T * 1.5, T, T * 3);
@@ -140,20 +145,29 @@ export class EventLayer {
         const bx = (f.base[0] + 0.5) * T - camX, by = (f.base[1] + 0.5) * T - camY;
         ctx.fillStyle = k === 0 ? 'rgba(255,90,74,0.25)' : 'rgba(90,160,255,0.25)';
         ctx.fillRect(bx - T * 1.5, by - T * 1.5, T * 3, T * 3);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(2, T * 0.06);
-        ctx.setLineDash([T * 0.25, T * 0.15]);
-        ctx.strokeRect(bx - T * 1.5 + 2, by - T * 1.5 + 2, T * 3 - 4, T * 3 - 4);
-        ctx.setLineDash([]);
+        const pix = this.s.pixelArt();
+        if (pix) pixelDashRect(ctx, bx - T * 1.5, by - T * 1.5, T * 3, T * 3, color, T, Math.floor(sec * 8));
+        else {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(2, T * 0.06);
+          ctx.setLineDash([T * 0.25, T * 0.15]);
+          ctx.strokeRect(bx - T * 1.5 + 2, by - T * 1.5 + 2, T * 3 - 4, T * 3 - 4);
+          ctx.setLineDash([]);
+        }
         if (f.state !== 1) {
           const fx = (f.pos[0] + 0.5) * T - camX, fy = (f.pos[1] + 0.5) * T - camY;
-          drawFlag(ctx, fx - T * 0.1, fy + T * 0.35, T * 0.95, color, sec);
+          if (pix) drawPixelFlag(ctx, pix.flagPole, pix.flag, fx - T * 0.15, fy + T * 0.4, T * 0.95, color, sec);
+          else drawFlag(ctx, fx - T * 0.1, fy + T * 0.35, T * 0.95, color, sec);
           if (f.state === 2) {
             // Dropped: blinking so both teams notice it.
-            ctx.strokeStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(sec * 8)})`;
-            ctx.beginPath();
-            ctx.arc(fx, fy, T * 0.55, 0, 6.2832);
-            ctx.stroke();
+            const blink = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(sec * 8)})`;
+            if (pix) pixelRing(ctx, fx, fy, T * 0.55, blink, T, 1);
+            else {
+              ctx.strokeStyle = blink;
+              ctx.beginPath();
+              ctx.arc(fx, fy, T * 0.55, 0, 6.2832);
+              ctx.stroke();
+            }
           }
         }
       }
@@ -180,20 +194,29 @@ export class EventLayer {
     ctx.moveTo(cx + r, cy);
     ctx.arc(cx, cy, r, 0, 6.2832, true);
     ctx.fill('evenodd');
-    ctx.strokeStyle = `rgba(120,170,255,${0.75 + 0.25 * Math.sin(sec * 4)})`;
-    ctx.lineWidth = Math.max(3, T * 0.12);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, 6.2832);
-    ctx.stroke();
+    const edge = `rgba(120,170,255,${0.75 + 0.25 * Math.sin(sec * 4)})`;
+    const pix = this.s.pixelArt();
+    if (pix) pixelRing(ctx, cx, cy, r, edge, T);
+    else {
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = Math.max(3, T * 0.12);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 6.2832);
+      ctx.stroke();
+    }
     if (z.state === 0 || z.state === 1) {
       // Where the zone is heading.
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = Math.max(2, T * 0.06);
-      ctx.setLineDash([T * 0.4, T * 0.25]);
-      ctx.beginPath();
-      ctx.arc(z.to.x * T - camX, z.to.y * T - camY, Math.max(1, z.to.r * T), 0, 6.2832);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const nx = z.to.x * T - camX, ny = z.to.y * T - camY, nr = Math.max(1, z.to.r * T);
+      if (pix) pixelRing(ctx, nx, ny, nr, 'rgba(255,255,255,0.85)', T, 1);
+      else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = Math.max(2, T * 0.06);
+        ctx.setLineDash([T * 0.4, T * 0.25]);
+        ctx.beginPath();
+        ctx.arc(nx, ny, nr, 0, 6.2832);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
   }
 
@@ -230,6 +253,14 @@ export class EventLayer {
       const d = f.drones[i];
       const px = d.x * T - camX, py = d.y * T - camY;
       const hover = Math.sin(sec * 5 + d.id) * T * 0.05;
+      const pix = this.s.pixelArt();
+      if (pix) {
+        pixelOval(ctx, px, py + T * 0.3, T * 0.32, T * 0.1, 'rgba(0,0,0,0.25)', T);
+        const img = pix.drones[d.team] ?? pix.drones[0];
+        const y = py - T * 0.7 + hover;
+        ctx.drawImage(img[Math.floor(sec * 16 + d.id) % 2], px - T * 0.55, y, T * 1.1, T * 1.1);
+        continue;
+      }
       // Shadow on the ground.
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath();
@@ -367,18 +398,26 @@ export class EventLayer {
       const px = (hx - 1) * T - camX, py = (hy - 1) * T - camY;
       ctx.fillStyle = `rgba(255,211,74,${0.12 + 0.1 * pulse})`;
       ctx.fillRect(px, py, T * 3, T * 3);
-      ctx.strokeStyle = `rgba(255,211,74,${0.6 + 0.4 * pulse})`;
-      ctx.lineWidth = Math.max(2, T * 0.06);
-      ctx.setLineDash([T * 0.3, T * 0.2]);
-      ctx.lineDashOffset = -sec * T;
-      ctx.strokeRect(px + 2, py + 2, T * 3 - 4, T * 3 - 4);
-      ctx.setLineDash([]);
-      ctx.font = this.s.font(Math.round(T * 0.5), '');
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.globalAlpha = 0.55;
-      ctx.fillText('👑', px + T * 1.5, py + T * 1.5);
-      ctx.globalAlpha = 1;
+      const pix = this.s.pixelArt();
+      if (pix) {
+        pixelDashRect(ctx, px, py, T * 3, T * 3, `rgba(255,211,74,${0.6 + 0.4 * pulse})`, T, Math.floor(sec * 6));
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(pix.crown, px + T, py + T, T, T);
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = `rgba(255,211,74,${0.6 + 0.4 * pulse})`;
+        ctx.lineWidth = Math.max(2, T * 0.06);
+        ctx.setLineDash([T * 0.3, T * 0.2]);
+        ctx.lineDashOffset = -sec * T;
+        ctx.strokeRect(px + 2, py + 2, T * 3 - 4, T * 3 - 4);
+        ctx.setLineDash([]);
+        ctx.font = this.s.font(Math.round(T * 0.5), '');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.globalAlpha = 0.55;
+        ctx.fillText('👑', px + T * 1.5, py + T * 1.5);
+        ctx.globalAlpha = 1;
+      }
     }
   }
 }

@@ -13,13 +13,15 @@ const MOSS = ['#203a26', '#2f5530', '#46753a', '#679a45'];
  * crown, a glowing rune on its chest and huge fists. Enraged, the rune and
  * eyes burn red and cracks glow through the stone.
  */
-export function warden(rage: boolean): Pix {
+export function warden(rage: boolean, step = false): Pix {
   const p = new Pix();
   groundShadow(p, 16, 29.5, 15, 2.4);
   const glow = rage ? ['#7a1206', '#ff3a1a', '#ffb08a', '#fff0e0'] : ['#6a4a06', '#ffd25a', '#fff6c8', '#ffffff'];
-  // Legs.
+  const shift = step ? 1.8 : 0;
+  // Legs. A stride swaps which foot is forward.
   layer(p, (q) => {
-    for (const x of [10.5, 21.5]) shape(q, sdBox(x, 26, 3.6, 3.4, 1.4), darker(STONE), { depth: 2 });
+    shape(q, sdBox(10.5 - shift, 26, 3.6, 3.4, 1.4), darker(STONE), { depth: 2 });
+    shape(q, sdBox(21.5 + shift, 26, 3.6, 3.4, 1.4), darker(STONE), { depth: 2 });
   });
   // The body: a great rounded block of stone with moss on its shoulders.
   const body = sdBox(16, 16, 10.5, 9.5, 4);

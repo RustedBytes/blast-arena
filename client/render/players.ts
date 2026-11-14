@@ -8,6 +8,7 @@ import { N as ART_PX } from '../pixelkit.js';
 import { P_CURSE, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
 import { hopHeight } from '../prediction.js';
 import { C_DASH, C_DUST, C_GAS_DARK, EMOTES, PIXEL_VIEWS, PLAYER_VIEWS, STRIDE, TEAM_COLORS, TRAIL_COLORS } from './constants.js';
+import { artPx, drawPixelFlag, pixelOval, pixelRing } from './pixeldraw.js';
 import { drawFlag, roundRect, star } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { Frame, FramePlayer, Gait, Label, Look, PlayerScene } from './types.js';
@@ -168,22 +169,32 @@ export class PlayerLayer {
     const hop = p.jumpDir ? hopHeight(state.map, p.x, p.y, p.jumpDir) : 0;
     p.lift = hop * T * 0.9;
     if (hop > 0) {
-      ctx.fillStyle = `rgba(0,0,0,${0.35 - 0.15 * hop})`;
-      ctx.beginPath();
-      ctx.ellipse(px, py + T * 0.38, T * (0.36 - 0.12 * hop), T * (0.12 - 0.04 * hop), 0, 0, 6.2832);
-      ctx.fill();
+      const shade = `rgba(0,0,0,${0.35 - 0.15 * hop})`;
+      if (pixel) pixelOval(ctx, px, py + T * 0.38, T * (0.36 - 0.12 * hop), T * (0.12 - 0.04 * hop), shade, T);
+      else {
+        ctx.fillStyle = shade;
+        ctx.beginPath();
+        ctx.ellipse(px, py + T * 0.38, T * (0.36 - 0.12 * hop), T * (0.12 - 0.04 * hop), 0, 0, 6.2832);
+        ctx.fill();
+      }
     }
     if (p.id === state.myId) {
-      ctx.fillStyle = 'rgba(255,211,74,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(px, py + T * 0.42, T * 0.42, T * 0.13, 0, 0, 6.2832);
-      ctx.fill();
+      if (pixel) pixelOval(ctx, px, py + T * 0.42, T * 0.42, T * 0.13, 'rgba(255,211,74,0.3)', T);
+      else {
+        ctx.fillStyle = 'rgba(255,211,74,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(px, py + T * 0.42, T * 0.42, T * 0.13, 0, 0, 6.2832);
+        ctx.fill();
+      }
     }
     if (p.cursed) {
-      ctx.fillStyle = 'rgba(176,107,255,0.28)';
-      ctx.beginPath();
-      ctx.ellipse(px, py + T * 0.4, T * 0.48, T * 0.16, 0, 0, 6.2832);
-      ctx.fill();
+      if (pixel) pixelOval(ctx, px, py + T * 0.4, T * 0.48, T * 0.16, 'rgba(176,107,255,0.28)', T);
+      else {
+        ctx.fillStyle = 'rgba(176,107,255,0.28)';
+        ctx.beginPath();
+        ctx.ellipse(px, py + T * 0.4, T * 0.48, T * 0.16, 0, 0, 6.2832);
+        ctx.fill();
+      }
       if (Math.random() < dt * 12) {
         this.s.particles.emit(P_CURSE, p.x + (Math.random() - 0.5) * 0.6, p.y + 0.2, 0, -0.8, 0.9, 0.06, 12 + (Math.random() < 0.5 ? 1 : 0));
       }
@@ -199,11 +210,14 @@ export class PlayerLayer {
       this.s.particles.emit(P_STAR, p.x + (Math.random() - 0.5) * 0.3, p.y + 0.35, 0, -0.3, 0.6, 0.12, color);
     }
     if (this.s.highContrast) {
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = T * 0.08;
-      ctx.beginPath();
-      ctx.arc(px, py - T * 0.05, T * 0.47, 0, 6.2832);
-      ctx.stroke();
+      if (pixel) pixelRing(ctx, px, py - T * 0.05, T * 0.47, '#000', T);
+      else {
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = T * 0.08;
+        ctx.beginPath();
+        ctx.arc(px, py - T * 0.05, T * 0.47, 0, 6.2832);
+        ctx.stroke();
+      }
     }
     if (p.dashing && Math.random() < dt * 60) {
       // A dash leaves a streak of light.
@@ -214,14 +228,17 @@ export class PlayerLayer {
     }
     if (p.clone && p.clone === state.myId) {
       // Only the owner sees which one is the clone: a dashed ring.
-      ctx.save();
-      ctx.setLineDash([T * 0.08, T * 0.06]);
-      ctx.strokeStyle = 'rgba(127,208,255,0.85)';
-      ctx.lineWidth = Math.max(1.5, T * 0.035);
-      ctx.beginPath();
-      ctx.ellipse(px, py + T * 0.42, T * 0.44, T * 0.15, 0, 0, 6.2832);
-      ctx.stroke();
-      ctx.restore();
+      if (pixel) pixelOval(ctx, px, py + T * 0.42, T * 0.44, T * 0.15, 'rgba(127,208,255,0.85)', T, true);
+      else {
+        ctx.save();
+        ctx.setLineDash([T * 0.08, T * 0.06]);
+        ctx.strokeStyle = 'rgba(127,208,255,0.85)';
+        ctx.lineWidth = Math.max(1.5, T * 0.035);
+        ctx.beginPath();
+        ctx.ellipse(px, py + T * 0.42, T * 0.44, T * 0.15, 0, 0, 6.2832);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
     py -= p.lift;
     if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
@@ -262,27 +279,40 @@ export class PlayerLayer {
     }
     if (p.stunned) {
       // Dizzy stars circling the head.
-      ctx.fillStyle = '#ffe680';
+      const art = pixel ? this.s.pixelArt() : null;
       for (let k = 0; k < 3; k++) {
         const a = sec * 6 + k * 2.094;
-        star(ctx, px + Math.cos(a) * T * 0.32, py - T * 0.78 + Math.sin(a) * T * 0.1, T * 0.09);
+        const sx = px + Math.cos(a) * T * 0.32, sy = py - T * 0.78 + Math.sin(a) * T * 0.1;
+        if (art) ctx.drawImage(art.star, sx - T * 0.16, sy - T * 0.16, T * 0.32, T * 0.32);
+        else { ctx.fillStyle = '#ffe680'; star(ctx, sx, sy, T * 0.09); }
       }
     }
     if (p.carrying) {
       // The flag being carried: the other team's colour.
       const team = state.rosterInfo.get(p.id)?.team ?? 0;
-      drawFlag(ctx, px + T * 0.18, py - T * 0.35, T * 0.8, TEAM_COLORS[team === 1 ? 2 : 1], sec);
+      const color = TEAM_COLORS[team === 1 ? 2 : 1];
+      const art = pixel ? this.s.pixelArt() : null;
+      if (art) drawPixelFlag(ctx, art.flagPole, art.flag, px + T * 0.05, py + T * 0.15, T * 0.85, color, sec);
+      else drawFlag(ctx, px + T * 0.18, py - T * 0.35, T * 0.8, color, sec);
     }
     if (p.bounty) {
       // Crosshair over the bounty holder.
       const r = T * 0.22, cy = py - T * 0.95;
-      ctx.strokeStyle = '#ff4a4a';
-      ctx.lineWidth = Math.max(2, T * 0.05);
-      ctx.beginPath();
-      ctx.arc(px, cy, r, 0, 6.2832);
-      ctx.moveTo(px - r * 1.5, cy); ctx.lineTo(px + r * 1.5, cy);
-      ctx.moveTo(px, cy - r * 1.5); ctx.lineTo(px, cy + r * 1.5);
-      ctx.stroke();
+      if (pixel) {
+        pixelRing(ctx, px, cy, r, '#ff4a4a', T);
+        const u = artPx(T);
+        ctx.fillStyle = '#ff4a4a';
+        ctx.fillRect(Math.round((px - r * 1.5) / u) * u, Math.round(cy / u) * u, Math.round(r * 3 / u) * u, u);
+        ctx.fillRect(Math.round(px / u) * u, Math.round((cy - r * 1.5) / u) * u, u, Math.round(r * 3 / u) * u);
+      } else {
+        ctx.strokeStyle = '#ff4a4a';
+        ctx.lineWidth = Math.max(2, T * 0.05);
+        ctx.beginPath();
+        ctx.arc(px, cy, r, 0, 6.2832);
+        ctx.moveTo(px - r * 1.5, cy); ctx.lineTo(px + r * 1.5, cy);
+        ctx.moveTo(px, cy - r * 1.5); ctx.lineTo(px, cy + r * 1.5);
+        ctx.stroke();
+      }
     }
   }
 

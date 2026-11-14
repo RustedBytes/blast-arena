@@ -121,6 +121,7 @@ function drawSheet(px: PixelSet): void {
   section('Pillars', px.pillars.flatMap((vs, b) => vs.map((c, i) => figure(c, `${BIOMES[b]} ${i + 1}`))));
   section('Crates and special tiles', [
     figure(px.crate, 'crate', grass),
+    figure(px.built, 'built wall', grass),
     figure(px.crate_armored, 'armored', grass),
     figure(px.ice, 'ice'),
     figure(px.conveyor, 'conveyor'),
@@ -143,6 +144,10 @@ function drawSprites(px: PixelSet): void {
     figure(px.bolts[1], 'bolt', grass),
     figure(px.mine[1], 'mine', grass),
     figure(px.shield[1], 'shield', grass),
+    figure(px.goo[1], 'goo', grass),
+    figure(px.gas[0], 'gas', grass),
+    figure(px.drones[1][0], 'drone', grass),
+    figure(px.crown, 'crown', grass),
     ...(['center', 'arm', 'end'] as const).flatMap((part) => px.flames[part].map((c, i) => figure(c, `${part} ${i + 1}`, grass))),
   ]);
   const names = ['bomb', 'range', 'speed', 'kick', 'shield', 'pierce', 'full fire', 'secret box', 'remote', 'line', 'punch', 'ghost'];
