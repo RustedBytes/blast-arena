@@ -9,8 +9,8 @@
 // The parts live in client/pixelsprites/.
 
 import { Pix, UP } from './pixelkit.js';
-import { antenna, bomb, flames, IRON, nukeBomb, RED_IRON, scorch } from './pixelsprites/bombs.js';
-import { hat, HATS, player } from './pixelsprites/players.js';
+import { antenna, boltSprite, bomb, flames, IRON, mine, nukeBomb, RED_IRON, rocket, scorch } from './pixelsprites/bombs.js';
+import { hat, HATS, player, shieldBubble } from './pixelsprites/players.js';
 import type { PixelHat, PlayerView } from './pixelsprites/players.js';
 import { powerUps } from './pixelsprites/powerups.js';
 import { monsterSprites } from './pixelsprites/monsters.js';
@@ -50,6 +50,18 @@ export function buildPixelSprites() {
     flame_arm: big(f.arm[0]),
     flame_end: big(f.end[0]),
     scorch: big(scorch()),
+    rocket: [big(rocket(0)), big(rocket(1))],
+    // Bolt colours match protocol BOLT_COLORS (0 and 1 are the green blaster).
+    bolts: [
+      ['#7dff7a', '#2bd94a', '#146828'],
+      ['#7dff7a', '#2bd94a', '#146828'],
+      ['#ffb0a0', '#ff3a3a', '#8c1f1a'],
+      ['#e8fbff', '#3ad8ff', '#146888'],
+      ['#f0e0ff', '#a64aff', '#3d2280'],
+      ['#fff6c8', '#ffb81a', '#8a5a00'],
+    ].map(([core, mid, tail]) => big(boltSprite(core, mid, tail))),
+    mine: [big(mine(false)), big(mine(true))],
+    shield: [big(shieldBubble(false)), big(shieldBubble(true))],
     /** By cosmetic hat id; 0 (none) is null. */
     hats: HATS.map((h): PixelHat | null => (h ? hat(h) : null)),
     worm_segment: big(wormSegment()),

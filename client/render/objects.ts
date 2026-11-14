@@ -247,6 +247,14 @@ export class ObjectLayer {
   /** Your own hidden land mine: a dim disc with a blinking light. */
   private drawMine(px: number, py: number, T: number, sec: number) {
     const { ctx } = this.s;
+    const pix = this.s.pixelArt();
+    if (pix) {
+      ctx.globalAlpha = 0.72;
+      const img = pix.mine[Math.floor(sec * 2) % 2];
+      ctx.drawImage(img, px - T * 0.48, py - T * 0.42, T * 0.96, T * 0.96);
+      ctx.globalAlpha = 1;
+      return;
+    }
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = '#3a3f4f';
     ctx.beginPath();
@@ -275,6 +283,23 @@ export class ObjectLayer {
     b.rocketA = a;
     const [core, glow] = BOLT_COLORS[b.bolt] ?? BOLT_COLORS[1];
     const c = Math.cos(a), s = Math.sin(a);
+    const pix = this.s.pixelArt();
+    if (pix) {
+      const fat = b.bolt === 2 ? 1.28 : 1;
+      const flicker = b.bolt === 4 ? 0.55 + 0.45 * Math.abs(Math.sin(sec * 40)) : 1;
+      ctx.setTransform(c, s, -s, c, px, py);
+      ctx.globalAlpha = flicker;
+      const img = pix.bolts[b.bolt] ?? pix.bolts[1];
+      const w = T * 1.15 * fat;
+      ctx.drawImage(img, -w / 2, -w / 2, w, w);
+      ctx.globalAlpha = 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (Math.random() < 0.7) {
+        this.s.particles.emit(P_SPARK, b.x + 0.5 - c * 0.4, b.y + 0.5 - s * 0.4, -c * 0.8 + (Math.random() - 0.5) * 0.6,
+          -s * 0.8 + (Math.random() - 0.5) * 0.6, 0.3, 0.05 * fat, C_BOLT + b.bolt);
+      }
+      return;
+    }
     const fat = b.bolt === 2 ? 1.5 : 1;
     const flicker = b.bolt === 4 ? 0.55 + 0.45 * Math.abs(Math.sin(sec * 40)) : 1;
     const L = T * 0.95, R = T * 0.11 * fat;
@@ -313,6 +338,14 @@ export class ObjectLayer {
     if (b.dx === 0 && b.dy === 0) a = (b.rocketA ?? 0);
     b.rocketA = a;
     const c = Math.cos(a), s = Math.sin(a);
+    const pix = this.s.pixelArt();
+    if (pix) {
+      ctx.setTransform(c, s, -s, c, px, py);
+      ctx.drawImage(pix.rocket[Math.floor(sec * 16) % 2], -T * 0.62, -T * 0.62, T * 1.24, T * 1.24);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (Math.random() < 0.6) this.s.particles.emit(P_SMOKE, b.x + 0.5 - c * 0.45, b.y + 0.5 - s * 0.45, -c * 0.5, -s * 0.5, 0.5, 0.12, 4);
+      return;
+    }
     ctx.setTransform(c, s, -s, c, px, py);
     const L = T * 0.8, R = T * 0.17;
     // Exhaust.

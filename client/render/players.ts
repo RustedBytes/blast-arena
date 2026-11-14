@@ -232,23 +232,33 @@ export class PlayerLayer {
     if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);
     else this.drawHat(info?.hat ?? 0, px + Math.sin(lean) * T * 0.58, py + T * (0.42 - 0.58 * sys) + bob, T, p.facing);
     if (p.shield) {
-      // Rotating hexagonal shield bubble.
-      const r = T * (0.56 + 0.03 * Math.sin(sec * 6));
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(sec * 0.8);
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = i * Math.PI / 3;
-        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      if (pixel) {
+        const img = this.s.assets.pixel.shield[Math.floor(sec * 8) % 2];
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(sec * 0.8);
+        ctx.drawImage(img, -T * 0.68, -T * 0.68, T * 1.36, T * 1.36);
+        ctx.restore();
       }
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(127,246,255,0.12)';
-      ctx.fill();
-      ctx.strokeStyle = `rgba(127,246,255,${0.55 + 0.3 * Math.sin(sec * 8)})`;
-      ctx.lineWidth = Math.max(1.5, T * 0.04);
-      ctx.stroke();
-      ctx.restore();
+      if (!pixel) {
+        // Rotating hexagonal shield bubble (classic art).
+        const r = T * (0.56 + 0.03 * Math.sin(sec * 6));
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(sec * 0.8);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = i * Math.PI / 3;
+          if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(127,246,255,0.12)';
+        ctx.fill();
+        ctx.strokeStyle = `rgba(127,246,255,${0.55 + 0.3 * Math.sin(sec * 8)})`;
+        ctx.lineWidth = Math.max(1.5, T * 0.04);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
     if (p.stunned) {
       // Dizzy stars circling the head.

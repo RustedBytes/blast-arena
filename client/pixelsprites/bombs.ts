@@ -87,17 +87,44 @@ export function antenna(on: boolean): Pix {
  * core, through yellow and orange, to a dark red rim. Noise per frame
  * makes it flicker.
  */
-function fire(q: (x: number, y: number) => number): Pix {
+function fire(q: (x: number, y: number) => number, open: 'border' | 'x' | 'left'): Pix {
   const p = new Pix();
   const bands = [3, 5.6, 8, 10, 11.8, 13.2];
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const v = q(x + 0.5, y + 0.5);
       const i = bands.findIndex((b) => v < b);
-      if (i >= 0) p.set(x, y, FIRE[6 - i]);
+      if (i < 0) continue;
+      // A few char flecks so the bands are not a flat gradient.
+      const fleck = (x * 13 + y * 7) % 17 === 0 && (i === 2 || i === 3);
+      p.set(x, y, fleck ? FIRE[i === 2 ? 1 : 4] : FIRE[6 - i]);
     }
   }
+  // A one-pixel dark rim. Arms stay open on the left and right so tiled
+  // segments do not grow a seam; an end stays open where it meets the arm.
+  rim(p, open);
   return p;
+}
+
+/** Darkens opaque pixels that touch transparency. `open` pretends a side connects to the next tile. */
+function rim(p: Pix, open: 'border' | 'x' | 'left'): void {
+  const linked = (x: number, y: number): boolean => {
+    if (x < 0 || x >= N || y < 0 || y >= N) {
+      // The centre opens into every arm, so its tile border is not an edge.
+      if (open === 'border') return true;
+      if (y < 0 || y >= N) return false;
+      return open === 'x' || (open === 'left' && x < 0);
+    }
+    return p.solid(x, y);
+  };
+  const edge: number[] = [];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      if (!p.solid(x, y)) continue;
+      if (!linked(x - 1, y) || !linked(x + 1, y) || !linked(x, y - 1) || !linked(x, y + 1)) edge.push(x, y);
+    }
+  }
+  for (let i = 0; i < edge.length; i += 2) p.set(edge[i], edge[i + 1], FIRE[0]);
 }
 
 /** Three flicker frames each of the flame centre, arm and end. */
@@ -111,14 +138,14 @@ export function flames() {
     // Seamless along the arm: whole sine waves per tile.
     const tongue = (x: number): number => Math.sin((2 * Math.PI * 2 * x) / N + f * 2.1) * 1.6 + Math.sin((2 * Math.PI * 5 * x) / N + f) * 0.6;
     const across = (y: number): number => Math.abs(y - c) * 1.75;
-    frames.arm.push(fire((x, y) => across(y) + tongue(x) + wob(x, y)));
+    frames.arm.push(fire((x, y) => across(y) + tongue(x) + wob(x, y), 'x'));
     // A round fireball that also opens into the four arms.
     frames.center.push(fire((x, y) => {
       const d = Math.hypot(x - c, y - c);
       return Math.min(d, 1.75 * Math.min(Math.abs(x - c), Math.abs(y - c)) + 1.2) + wob(x, y);
-    }));
+    }, 'border'));
     // The end tapers to a rounded tip on the right (the renderer rotates it).
-    frames.end.push(fire((x, y) => Math.hypot(Math.max(0, x - 12) * 1.4, across(y)) + tongue(x) * 0.6 + wob(x, y)));
+    frames.end.push(fire((x, y) => Math.hypot(Math.max(0, x - 12) * 1.4, across(y)) + tongue(x) * 0.6 + wob(x, y), 'left'));
   }
   // Embers flicking off the fire.
   frames.center.forEach((p, f) => {
@@ -152,5 +179,61 @@ export function scorch() {
   // Embers still glowing in the soot.
   for (const [x, y, k] of [[14, 14, 3], [15, 14, 4], [18, 17, 3], [13, 18, 2], [19, 13, 2]] as const) p.set(x, y, FIRE[k] + 'b0');
   p.set(15, 15, '#ff7a1a90');
+  return p;
+}
+
+// ------------------------------------------------------- rockets, bolts, mines
+
+const NOSE = ['#3a0a0a', '#8c1f1a', '#d23a2f', '#ff6a55', '#ffb0a0'];
+
+/** A rocket facing right. `flick` 0 or 1 lengthens the exhaust. */
+export function rocket(flick: number): Pix {
+  const p = new Pix();
+  const len = 5 + flick * 3;
+  layer(p, (q) => {
+    shape(q, sdPoly([[10, 13.2], [10, 18.8], [10 - len, 16]]), FIRE, { lo: 2, hi: 5, depth: 1.2 });
+    q.set(Math.round(9 - len), 15, FIRE[6]);
+    q.set(Math.round(9 - len), 16, '#ffffff');
+  });
+  layer(p, (q) => {
+    shape(q, sdBox(16.5, 16, 5.6, 3.1, 1.1), STEEL, { lo: 2, hi: 6, depth: 2.4 });
+    q.set(19, 15, '#7fd4ff');
+    q.set(20, 15, '#e8fbff');
+    shape(q, sdPoly([[12, 13], [8.5, 9], [15, 13]]), STEEL, { lo: 2, hi: 6, depth: 1.4 });
+    shape(q, sdPoly([[12, 19], [8.5, 23], [15, 19]]), STEEL, { lo: 1, hi: 4, depth: 1.4 });
+    shape(q, sdPoly([[21, 12.6], [28, 16], [21, 19.4]]), NOSE, { lo: 1, hi: 4, depth: 2, spec: NOSE[4] });
+  });
+  return p;
+}
+
+/**
+ * A blaster bolt facing right. Colours match `BOLT_COLORS`: core, mid, tail.
+ * No dark outline — the bolt is light.
+ */
+export function boltSprite(core: string, mid: string, tail: string): Pix {
+  const p = new Pix();
+  for (let x = 4; x <= 28; x++) {
+    const t = (x - 4) / 24;
+    const h = t < 0.12 ? 0 : t < 0.5 ? 1 : t < 0.78 ? 2 : 1;
+    const c = t > 0.84 ? '#ffffff' : t > 0.64 ? core : t > 0.28 ? mid : tail;
+    for (let dy = -h; dy <= h; dy++) p.set(x, 16 + dy, Math.abs(dy) === h && h > 0 ? (t > 0.84 ? core : tail) : c);
+  }
+  p.set(3, 16, tail + 'aa');
+  p.set(2, 15, tail + '66');
+  p.set(2, 16, tail + '88');
+  return p;
+}
+
+/** A buried mine, seen only by its owner. `on` is the blinking lamp. */
+export function mine(on: boolean): Pix {
+  const p = new Pix();
+  groundShadow(p, 16, 23, 9, 2.6);
+  layer(p, (q) => {
+    shape(q, (x, y) => Math.max(sdCircle(16, 19, 8)(x, y), y - 22), STEEL, { lo: 1, hi: 5, depth: 3 });
+    shape(q, sdCircle(16, 17.2, 4.2), IRON, { lo: 2, hi: 6, depth: 3, spec: IRON[6] });
+    const lamp = on ? ['#5c140e', '#ff4a3a', '#ffd0c4', '#fff4e8'] : ['#1a0c10', '#3a1818', '#5a2824', '#7a4038'];
+    shape(q, sdCircle(16, 16.4, 1.7), lamp, { lo: 1, hi: 3, depth: 1.2, spec: lamp[3] });
+  });
+  if (on) p.set(16, 14, '#ff9a8a88');
   return p;
 }

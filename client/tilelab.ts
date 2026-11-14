@@ -139,6 +139,10 @@ function drawSprites(px: PixelSet): void {
     figure(px.bomb_pierce, 'pierce bomb', grass),
     figure(px.antenna[1], 'remote (on)', px.bomb),
     figure(px.scorch, 'scorch', grass),
+    figure(px.rocket[1], 'rocket', grass),
+    figure(px.bolts[1], 'bolt', grass),
+    figure(px.mine[1], 'mine', grass),
+    figure(px.shield[1], 'shield', grass),
     ...(['center', 'arm', 'end'] as const).flatMap((part) => px.flames[part].map((c, i) => figure(c, `${part} ${i + 1}`, grass))),
   ]);
   const names = ['bomb', 'range', 'speed', 'kick', 'shield', 'pierce', 'full fire', 'secret box', 'remote', 'line', 'punch', 'ghost'];

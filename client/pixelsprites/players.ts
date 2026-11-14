@@ -194,3 +194,22 @@ export function hatPix([paint]: HatArt): Pix {
   layer(p, paint);
   return p;
 }
+
+const hex = (r: number): [number, number][] => Array.from({ length: 6 }, (_, i) => {
+  const a = (i * Math.PI) / 3;
+  return [16 + Math.cos(a) * r, 16 + Math.sin(a) * r];
+});
+
+/** A hexagonal shield bubble. `bright` is the shimmer frame. */
+export function shieldBubble(bright: boolean): Pix {
+  const p = new Pix();
+  const outer = sdPoly(hex(13.2)), inner = sdPoly(hex(10.2));
+  const ring = (x: number, y: number) => Math.max(outer(x, y), -inner(x, y));
+  const lit = bright ? '#e8fbff' : '#bff6ff';
+  const mid = bright ? '#7ff6ff' : '#3ad8ff';
+  const dim = bright ? '#1a8ab8' : '#146080';
+  fill(p, ring, (x, y) => (x + y < 30 ? (x + y < 22 ? lit : mid) : dim));
+  p.set(16, 3, '#ffffff');
+  p.set(15, 4, lit);
+  return p;
+}
