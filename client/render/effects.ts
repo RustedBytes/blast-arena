@@ -83,7 +83,14 @@ export class EffectsLayer {
     const [spark, spread] = bolt ? [C_BOLT + bolt, 1] : [0, 3];
     if (bolt) this.tints.set(x + y * 4096, [bolt, now + 1500]);
     p.burst(P_SPARK, x + 0.5, y + 0.5, 26, 7, 0.5, 0.09, spark, spread);
+    // Embers that hang after the flame sprites are gone.
+    p.burst(P_SPARK, x + 0.5, y + 0.5, 8, 2.2, 1.15, 0.06, spark, spread);
     p.burst(P_SMOKE, x + 0.5, y + 0.5, 6, 1.2, 1.1, 0.35, 4, 2);
+    // Wood and stone only for a bomb. A blaster bolt leaves light, not rubble.
+    if (!bolt) p.burst(P_DEBRIS, x + 0.5, y + 0.5, 6, 3.2, 0.7, 0.08, 6, 2);
+    const reach = Math.max(1, arms[0], arms[1], arms[2], arms[3]);
+    const color = bolt ? (BOLT_COLORS[bolt] ?? BOLT_COLORS[1])[1] : '#fff2b0';
+    this.effects.push({ kind: 'ring', x: x + 0.5, y: y + 0.5, start: now, duration: 340, reach, color });
     this.decal(x, y, now);
     for (let d = 0; d < 4; d++) {
       for (let r = 1; r <= arms[d]; r++) {
@@ -331,11 +338,13 @@ export class EffectsLayer {
   crateBroken(x: number, y: number) {
     this.s.particles.burst(P_DEBRIS, x + 0.5, y + 0.5, 10, 3.5, 0.8, 0.14, 6, 2);
     this.s.particles.burst(P_SMOKE, x + 0.5, y + 0.5, 3, 0.8, 0.8, 0.3, 5, 1);
+    this.s.particles.burst(P_SPARK, x + 0.5, y + 0.5, 6, 3, 0.35, 0.06, 1, 2);
   }
 
   /** Death animation: the victim's sprite spins, shrinks and floats away. */
   death(x: number, y: number, now: number, colors: PlayerColors, facing: number) {
     this.effects.push({ kind: 'die', x, y, start: now, duration: 900, colors, facing });
+    this.effects.push({ kind: 'ring', x, y, start: now, duration: 280, reach: 1.1, color: '#ffffff' });
     this.s.particles.burst(P_SMOKE, x, y, 10, 1.6, 1.2, 0.3, 4, 2);
     this.s.particles.burst(P_STAR, x, y, 8, 3, 0.6, 0.25, 9, 1);
   }
@@ -424,6 +433,24 @@ export class EffectsLayer {
         ctx.arc(cx, cy, T * (0.6 + t * (WARDEN_SLAM_RADIUS + 0.2)), 0, 6.2832);
         ctx.stroke();
         ctx.globalAlpha = 1;
+      } else if (e.kind === 'ring') {
+        // A blast's pressure ring: fast at first, then gone before the flames fade.
+        const rad = T * (0.35 + t * (e.reach + 0.55));
+        ctx.globalAlpha = (1 - t) * (1 - t);
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = Math.max(1, T * 0.16 * (1 - t));
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad, 0, 6.2832);
+        ctx.stroke();
+        if (t < 0.35) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.fillStyle = e.color;
+          ctx.globalAlpha = (0.35 - t) * 1.2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, T * (0.4 + t * 1.4), 0, 6.2832);
+          ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
       } else {
         // Spawn beam: a column of light that narrows.
         ctx.globalAlpha = 1 - t;
@@ -482,8 +509,16 @@ export class EffectsLayer {
       if (nuke) continue;
       const bolt = this.tints.get(ex + ey * 4096)?.[0] ?? 0;
       const glow = bolt ? this.tint(plainGlow, bolt) : plainGlow;
-      ctx.globalAlpha = Math.min(1, left / 10) * 0.8;
-      const g = T * 2.2;
+      ctx.globalAlpha = Math.min(1, left / 10) * 0.95;
+      const g = T * 2.6;
+      if (left > 7) {
+        ctx.fillStyle = bolt ? (BOLT_COLORS[bolt] ?? BOLT_COLORS[1])[0] : '#fffbe8';
+        ctx.globalAlpha = ((left - 7) / 3) * 0.85;
+        ctx.beginPath();
+        ctx.arc((ex + 0.5) * T - camX, (ey + 0.5) * T - camY, T * 0.32, 0, 6.2832);
+        ctx.fill();
+        ctx.globalAlpha = Math.min(1, left / 10) * 0.95;
+      }
       ctx.drawImage(glow, (ex + 0.5) * T - camX - g / 2, (ey + 0.5) * T - camY - g / 2, g, g);
       const ga = T * 1.4;
       for (let d = 0; d < 4; d++) {

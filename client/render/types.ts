@@ -40,7 +40,8 @@ export interface Frame {
 export interface Chunk { canvas: HTMLCanvasElement; key: number }
 export type Effect =
   | { kind: 'die'; x: number; y: number; start: number; duration: number; colors: PlayerColors; facing: number }
-  | { kind: 'shock' | 'beam'; x: number; y: number; start: number; duration: number };
+  | { kind: 'shock' | 'beam'; x: number; y: number; start: number; duration: number }
+  | { kind: 'ring'; x: number; y: number; start: number; duration: number; reach: number; color: string };
 export interface NukeShow { x: number; y: number; r: number; start: number; cells: number[] }
 export interface Meteor { x: number; y: number; at: number; hit: boolean }
 export interface LavaSurge { cells: number[]; warn: number; start: number; end: number }

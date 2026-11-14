@@ -185,6 +185,7 @@ export class Renderer {
     for (let i = 0; i < f.nPlayers; i++) this.players.drawName(f.players[i], camX, camY, T, state, now);
     this.objects.drawNukeCountdowns(f, camX, camY, T);
     if (inZone) this.objects.drawRunWarning(state, inZone, camX, camY, T, sec);
+    this.events.drawAmbience(state.mode, dt, W, H, sec);
     this.events.drawWeather(now, dt, W, H);
     if (s.replaying) this.events.drawReplayFrame(sec, W, H);
     this.effects.drawFlash(now, W, H);

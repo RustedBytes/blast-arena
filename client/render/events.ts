@@ -3,17 +3,33 @@
 
 import { t } from '../i18n.js';
 import { P_DEBRIS } from '../particles.js';
+import type { ArenaMode } from '../protocol.js';
 import type { Circle, GameMap, GameState, Vec, Zone } from '../state.js';
 import { biome, BIOME_VOLCANO, EVENT_BLIZZARD, EVENT_EARTHQUAKE, METEOR_WARN_MS, TEAM_COLORS } from './constants.js';
 import { drawFlag } from './shapes.js';
 import type { Stage } from './stage.js';
 import type { LavaSurge, Meteor, Weather } from './types.js';
 
+/** Screen-space drift for each arena. Velocities are fractions of the view per second. */
+const AMBIENCE: Record<ArenaMode, {
+  vx: number; vy: number; size: number; twinkle: number; additive: boolean; streak: boolean; colors: readonly string[];
+}> = {
+  ffa: { vx: 0.018, vy: -0.012, size: 1.5, twinkle: 0.8, additive: false, streak: false, colors: ['rgba(214,236,150,0.42)', 'rgba(255,214,110,0.32)'] },
+  teams: { vx: 0.012, vy: -0.016, size: 1.6, twinkle: 1.4, additive: true, streak: false, colors: ['rgba(255,90,74,0.42)', 'rgba(90,160,255,0.42)'] },
+  royale: { vx: 0.03, vy: 0.11, size: 1.7, twinkle: 0, additive: false, streak: false, colors: ['rgba(176,156,136,0.38)', 'rgba(255,130,50,0.26)'] },
+  worms: { vx: 0.028, vy: -0.008, size: 1.9, twinkle: 0, additive: false, streak: false, colors: ['rgba(168,116,68,0.4)', 'rgba(110,84,58,0.32)'] },
+  rockets: { vx: -0.04, vy: -0.09, size: 1.4, twinkle: 2.2, additive: true, streak: true, colors: ['rgba(255,186,70,0.55)', 'rgba(255,90,40,0.4)'] },
+  dungeon: { vx: 0.006, vy: -0.02, size: 1.7, twinkle: 1.6, additive: true, streak: false, colors: ['rgba(176,140,255,0.4)', 'rgba(255,186,90,0.28)'] },
+  cosmos: { vx: 0.01, vy: 0.004, size: 1.35, twinkle: 3.2, additive: true, streak: false, colors: ['rgba(255,255,255,0.72)', 'rgba(120,200,255,0.5)'] },
+};
+
 export class EventLayer {
   /** The current map event (read by the minimap, for the blizzard). */
   weather: Weather | null = null;
   /** Blizzard flakes (x, y in 0..1, speed). */
   private snow: Float32Array | null = null;
+  /** Arena air: x, y in 0..1, phase, speed. One pool for every mode. */
+  private motes: Float32Array | null = null;
   private readonly meteors: Meteor[] = [];
   private readonly lava: LavaSurge[] = [];
 
@@ -240,6 +256,64 @@ export class EventLayer {
       ctx.arc(px, y, T * 0.04, 0, 6.2832);
       ctx.fill();
     }
+  }
+
+  /**
+   * A light drift over the view, different in each arena: pollen, team
+   * sparks, ash, dirt, rocket embers, dungeon motes, or stars.
+   */
+  drawAmbience(mode: ArenaMode, dt: number, W: number, H: number, sec: number) {
+    const spec = AMBIENCE[mode];
+    const n = 64;
+    if (!this.motes) {
+      this.motes = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) {
+        const o = i * 4;
+        this.motes[o] = Math.random();
+        this.motes[o + 1] = Math.random();
+        this.motes[o + 2] = Math.random();
+        this.motes[o + 3] = 0.45 + Math.random() * 0.7;
+      }
+    }
+    const { ctx } = this.s;
+    const pix = this.s.tileStyle === 'pixel';
+    const u = Math.max(1, Math.round(this.s.dpr));
+    const s = this.motes;
+    ctx.save();
+    if (spec.additive) ctx.globalCompositeOperation = 'lighter';
+    for (let pass = 0; pass < spec.colors.length; pass++) {
+      ctx.fillStyle = spec.colors[pass];
+      ctx.strokeStyle = spec.colors[pass];
+      ctx.lineWidth = Math.max(1, u);
+      ctx.beginPath();
+      for (let i = pass; i < n; i += spec.colors.length) {
+        const o = i * 4;
+        let x = s[o] + spec.vx * dt * s[o + 3];
+        let y = s[o + 1] + spec.vy * dt * s[o + 3];
+        if (x < 0) x += 1;
+        else if (x > 1) x -= 1;
+        if (y < 0) y += 1;
+        else if (y > 1) y -= 1;
+        s[o] = x;
+        s[o + 1] = y;
+        const px = x * W, py = y * H;
+        const tw = spec.twinkle ? 0.45 + 0.55 * Math.sin(s[o + 2] * 6.2832 + sec * spec.twinkle) : 1;
+        const r = u * spec.size * (0.55 + s[o + 3] * 0.5) * tw;
+        if (spec.streak) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(px - spec.vx * W * 0.045 * s[o + 3], py - spec.vy * H * 0.045 * s[o + 3]);
+        } else if (pix) {
+          const q = Math.max(u, Math.round(r));
+          ctx.rect(Math.round(px / u) * u, Math.round(py / u) * u, q, q);
+        } else {
+          ctx.moveTo(px + r, py);
+          ctx.arc(px, py, Math.max(0.5, r), 0, 6.2832);
+        }
+      }
+      if (spec.streak) ctx.stroke();
+      else ctx.fill();
+    }
+    ctx.restore();
   }
 
   /** Blizzard: driving snow over the whole view. */
