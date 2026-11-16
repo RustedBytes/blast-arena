@@ -1,6 +1,8 @@
 //! Gas bombs: instead of fire, a cross-shaped cloud that slows everyone
 //! inside it. Fire touching a cloud ignites it, once: everyone in the cloud
 //! is hurt by a single simultaneous fire event, and the cloud is gone.
+//! Worms, monsters and the Warden caught in that flash take a hit of fire
+//! too. The flash is not left burning, so a bomb in the cloud does not chain.
 //!
 //! The cloud's cells are fixed when the gas is released (walls built or
 //! blown up later don't reshape it), which keeps every client's picture
@@ -163,10 +165,20 @@ impl World {
         }
         victims.clear();
         self.scratch.victims = victims;
+        // Same cells, for the creatures updated later this tick. Not stored
+        // as flame: a bomb standing here must not go off on the next fuse.
+        for &(x, y) in &c.cells {
+            self.scratch.scorch.push((x, y, c.owner));
+        }
         self.stats.gas_ignitions += 1;
         // Clients show the burst as a blast of the cloud's shape.
         self.explosions.push(Explosion { x: c.x, y: c.y, arms: c.arms, nuke: 0, until: self.tick + IGNITION_SHOW_TICKS });
         self.ability_event(ab::GAS_IGNITED, Audience::Near(c.x, c.y), &[i64::from(c.id), i64::from(c.x), i64::from(c.y)]);
+    }
+
+    /// Owner of the gas cloud that ignited on (x, y) this tick, if any.
+    pub(super) fn scorch_owner(&self, x: i32, y: i32) -> Option<u32> {
+        self.scratch.scorch.iter().find(|c| c.0 == x && c.1 == y).map(|c| c.2)
     }
 
     pub(super) fn clear_gas(&mut self) {

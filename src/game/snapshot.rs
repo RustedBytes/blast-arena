@@ -58,8 +58,19 @@ impl World {
                 })
             })?
         });
-        let (cx, cy) = p.look.unwrap_or_else(|| spectating.map_or(p.cell(), super::player::Player::cell));
-        let (x0, y0, x1, y1) = aoi_rect(cx, cy, p.aoi);
+        // The camera stops at the map border, so near an edge it shows tiles
+        // well past the player. Centre the view on that camera, not on the
+        // cell under their feet, or those players (and their bombs) never
+        // arrive and pop out of the picture. A look-point is already the
+        // camera cell the client asked for.
+        let (hw, hh) = p.aoi;
+        let (cx, cy) = if let Some(look) = p.look {
+            look
+        } else {
+            let (fx, fy) = spectating.map_or((p.x, p.y), |o| (o.x, o.y));
+            (camera_cell(fx, hw, self.map.w), camera_cell(fy, hh, self.map.h))
+        };
+        let (x0, y0, x1, y1) = aoi_rect(cx, cy, (hw.saturating_add(VIEW_PAD), hh.saturating_add(VIEW_PAD)));
         let (px, py) = p.cell();
         let me_outside = p.alive && !(px >= x0 && px <= x1 && py >= y0 && py <= y1);
 
@@ -589,10 +600,29 @@ fn me_state(p: &Player, tick: u64, spectating: Option<u32>, blizzard_until: u64,
     ]
 }
 
+/// Extra tiles past the requested view. A sprite stands in its cell but
+/// draws a little outside it; without this pad it vanishes while still
+/// on screen.
+const VIEW_PAD: i32 = 1;
+
 /// Inclusive tile rectangle a player at (cx, cy) receives updates for.
 #[must_use]
 pub fn aoi_rect(cx: i32, cy: i32, (hw, hh): (i32, i32)) -> (i32, i32, i32, i32) {
     (cx - hw, cy - hh, cx + hw, cy + hh)
+}
+
+/// Cell the camera is centred on, matching the client's `clampCam`.
+/// `half` is the view half-extent in tiles. Near a map edge the camera
+/// cannot follow, so the centre moves in until the view fits.
+#[must_use]
+pub fn camera_cell(focus: f32, half: i32, size: i32) -> i32 {
+    if size <= 0 {
+        return 0;
+    }
+    let size_f = size as f32;
+    let half_f = half.max(0) as f32;
+    let center = if size_f <= half_f * 2.0 { size_f * 0.5 } else { focus.clamp(half_f, size_f - half_f) };
+    (center.floor() as i32).clamp(0, size - 1)
 }
 
 #[cfg(test)]

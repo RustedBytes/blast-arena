@@ -111,7 +111,7 @@ export const net = new Net({
     seenBolts.clear();
     boltsAt.clear();
     // The cosmos arena has its own sounds and music.
-    audio.setTheme(m.mode === 'cosmos' ? 'cosmos' : 'classic');
+    audio.setTheme(m.mode);
     predictor.active = false;
     renderer.resetMap(state.map);
     applyVisualSettings();

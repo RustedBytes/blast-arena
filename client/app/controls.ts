@@ -24,7 +24,10 @@ export const input = new Input({
     setZoom((state?.zoomTarget ?? settings.get('zoom')) * factor);
   },
   onAction(name, down) {
-    if (name === 'board') ui.hud.leaderboard.classList.toggle('expanded', down);
+    if (name === 'board') {
+      ui.hud.leaderboard.classList.toggle('expanded', down);
+      ui.hud.side.classList.toggle('expanded', down);
+    }
     else if (name === 'mute') settings.set('muted', !settings.get('muted'));
     else if (name === 'fps') settings.set('showFps', !settings.get('showFps'));
     else if (name === 'minimap') settings.set('showMinimap', !settings.get('showMinimap'));

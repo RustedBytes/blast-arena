@@ -349,7 +349,20 @@ impl World {
     fn cell_blocks_slide(&self, x: i32, y: i32) -> bool {
         self.map.is_solid(x, y)
             || self.bomb_at(x, y).is_some()
+            || self.creature_blocks(x, y)
             || self.players_in_rect(x, y, x, y).any(|p| p.alive && p.cell() == (x, y))
+    }
+
+    /// Worms, monsters and the Warden stand in the way of a sliding bomb
+    /// the way a player does, so a kick can pin a bomb against them.
+    fn creature_blocks(&self, x: i32, y: i32) -> bool {
+        if !self.map.in_bounds(x, y) {
+            return false;
+        }
+        let i = self.map.idx(x, y);
+        self.worms.occupied.get(i).is_some_and(|n| *n > 0)
+            || self.monsters.occupied.get(i).is_some_and(|n| *n > 0)
+            || self.guard.warden.as_ref().is_some_and(|w| w.cell == (x, y))
     }
 
     /// Moves kicked bombs, and resting bombs that sit on conveyor belts.
@@ -420,6 +433,10 @@ impl World {
 
     /// Detonates every bomb whose fuse ran out or that sits in fire.
     pub fn update_fuses(&mut self) {
+        // Last tick's gas ignition has already hurt creatures. Drop it
+        // before bombs look for fire, so a bomb sitting in the cloud
+        // doesn't chain off a blast that never spread.
+        self.scratch.scorch.clear();
         let mut due = std::mem::take(&mut self.scratch.bomb_ids);
         due.clear();
         due.extend(self.bombs.values().filter(|b| b.explode_at <= self.tick || self.flame_active(b.x, b.y)).map(|b| b.id));

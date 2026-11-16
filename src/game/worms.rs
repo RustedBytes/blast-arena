@@ -391,7 +391,8 @@ impl World {
         while k < self.worms.list.len() {
             let mut hit = std::mem::take(&mut self.worms.hit);
             hit.clear();
-            hit.extend(self.worms.list[k].body.iter().map(|&(x, y)| self.flame_active(x, y)));
+            // Gas ignition scorches without leaving flame (see `ignite`).
+            hit.extend(self.worms.list[k].body.iter().map(|&(x, y)| self.flame_active(x, y) || self.scorch_owner(x, y).is_some()));
             let Some(first) = hit.iter().position(|&h| h) else {
                 self.worms.hit = hit;
                 k += 1;
@@ -403,7 +404,7 @@ impl World {
                 self.worms.occupied[i] = self.worms.occupied[i].saturating_sub(1);
             }
             let (fx, fy) = worm.body[first];
-            let owner = self.flame_owner[self.map.idx(fx, fy)];
+            let owner = if self.flame_active(fx, fy) { self.flame_owner[self.map.idx(fx, fy)] } else { self.scorch_owner(fx, fy).unwrap_or(0) };
             let killer = self.players.contains_key(&owner).then_some(owner);
             // Unburnt runs of segments, in head-to-tail order.
             let mut runs: Vec<VecDeque<(i32, i32)>> = Vec::new();

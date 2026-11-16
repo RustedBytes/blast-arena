@@ -248,6 +248,10 @@ struct Scratch {
     emotes: Vec<(u32, u8)>,
     gassed: Vec<u32>,
     sticky_ids: Vec<u32>,
+    /// Cells a gas cloud just ignited, with the owner of that cloud.
+    /// Cleared before the next tick's fuses, so the scorch hurts creatures
+    /// the way fire does without leaving flame that would chain bombs.
+    scorch: Vec<(i32, i32, u32)>,
     zone_spawns: events::ZoneSpawns,
     view: snapshot::ViewIndex,
 }

@@ -439,12 +439,14 @@ impl World {
                 self.remove_monster(k);
                 continue;
             }
-            let m = &self.monsters.list[k];
-            if !self.flame_active(x, y) || tick < m.hurt_until {
+            let hurt_until = self.monsters.list[k].hurt_until;
+            let on_fire = self.flame_active(x, y);
+            let scorched = self.scorch_owner(x, y);
+            if (!on_fire && scorched.is_none()) || tick < hurt_until {
                 k += 1;
                 continue;
             }
-            let owner = self.flame_owner[self.map.idx(x, y)];
+            let owner = if on_fire { self.flame_owner[self.map.idx(x, y)] } else { scorched.unwrap_or(0) };
             let hitter = if self.players.contains_key(&owner) { owner } else { 0 };
             let m = &mut self.monsters.list[k];
             m.hp = m.hp.saturating_sub(1);

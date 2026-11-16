@@ -1209,6 +1209,47 @@ fn earthquakes_shake_the_volcano() {
 
 
 #[test]
+fn players_beside_a_map_edge_stay_in_view() {
+    // The camera stops at the border, so standing in the first column still
+    // shows a long way into the map. Those players used to be outside the
+    // area of interest (centred on the player's own cell) and vanished.
+    let mut w = test_world(Map::empty(81, 81));
+    let me = w.spawn_test_player(1.5, 40.5);
+    let shown = w.spawn_test_player(28.5, 40.5);
+    let far = w.spawn_test_player(70.5, 40.5);
+    let ids = |w: &World, who: u32| -> Vec<u64> {
+        w.full_snapshot(who)["p"].as_array().unwrap().iter().map(|p| p[0].as_u64().unwrap()).collect()
+    };
+    let seen = ids(&w, me);
+    assert!(seen.contains(&u64::from(me)) && seen.contains(&u64::from(shown)), "on the screen past the left edge");
+    assert!(!seen.contains(&u64::from(far)), "still not the far side of the map");
+    let me_p = w.players.get_mut(&me).unwrap();
+    me_p.x = 40.5;
+    me_p.y = 1.5;
+    let below = w.spawn_test_player(40.5, 22.5);
+    let seen = ids(&w, me);
+    assert!(seen.contains(&u64::from(below)), "same thing along the top edge");
+}
+
+#[test]
+fn a_kicked_bomb_stops_short_of_a_worm() {
+    let mut w = test_world(Map::empty(15, 15));
+    w.worms.tuning.min_count = 0;
+    w.worms.tuning.max_count = 0;
+    w.add_worm((6, 1), 2);
+    let me = w.spawn_test_player(3.5, 1.5);
+    w.players.get_mut(&me).unwrap().kick = true;
+    w.place_bomb_at(me, (4, 1), bomb::BombKind::plain(2, 80));
+    w.hold(me, 2, 0);
+    w.step();
+    for _ in 0..24 {
+        w.step();
+    }
+    assert!(w.bomb_at(5, 1).is_some(), "the bomb stops in the cell before the worm");
+    assert!(w.bomb_at(6, 1).is_none(), "it does not pass through the worm");
+}
+
+#[test]
 fn watching_another_part_of_the_map_shows_whats_there() {
     let mut w = test_world(Map::empty(81, 81));
     let me = w.spawn_test_player(5.5, 5.5);

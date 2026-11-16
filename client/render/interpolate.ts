@@ -15,6 +15,9 @@ export class Interpolator {
   private readonly dronePrev = new Map<number, DroneEntry>();
   /** Bomb id -> carrier id (this frame). */
   private readonly stuckBy = new Map<number, number>();
+  /** Ids drawn from the newer snapshot, so the older one can still show whoever just left. */
+  private readonly playerSeen = new Set<number>();
+  private readonly cloneSeen = new Set<number>();
 
   constructor(private readonly s: Stage) {}
 
@@ -50,7 +53,10 @@ export class Interpolator {
     prev.clear();
     for (const e of a.p) prev.set(e[0], e);
     let n = 0;
+    const seen = this.playerSeen;
+    seen.clear();
     for (const q of b.p) {
+      seen.add(q[0]);
       if (n >= POOL - 1) break;
       if (q[0] === state.myId && !rp) continue;
       const p = prev.get(q[0]) ?? q;
@@ -59,18 +65,43 @@ export class Interpolator {
       const o = f.players[n++];
       setPlayer(o, q, (p[1] + (q[1] - p[1]) * t) / 100, (p[2] + (q[2] - p[2]) * t) / 100);
     }
+    // Someone in the earlier snapshot but not the later one (walked out of
+    // view, or died) is still there until the render time reaches that
+    // later snapshot. Dropping them at once made players blink out a tick
+    // early, which at the edge of the view reads as a flicker.
+    if (alpha < 1) {
+      for (const p of a.p) {
+        if (n >= POOL - 1) break;
+        if (seen.has(p[0]) || (p[0] === state.myId && !rp)) continue;
+        const o = f.players[n++];
+        setPlayer(o, p, p[1] / 100, p[2] / 100);
+      }
+    }
     // Clones look like their owners: they're drawn as players with the
     // owner's id (name, colours, hat), interpolated by the clone's own id.
     const cp = this.clonePrev;
     cp.clear();
     for (const c of a.x.clones) cp.set(c[0], c);
+    const clonesSeen = this.cloneSeen;
+    clonesSeen.clear();
     for (const c of b.x.clones) {
+      clonesSeen.add(c[0]);
       if (n >= POOL - 1) break;
       const p = cp.get(c[0]) ?? c;
       const o = f.players[n++];
       setPlayer(o, [c[1], 0, 0, c[4], c[5]], (p[2] + (c[2] - p[2]) * alpha) / 100, (p[3] + (c[3] - p[3]) * alpha) / 100);
       o.clone = c[1];
       o.anim = -c[0]; // walks apart from its owner
+    }
+    if (alpha < 1) {
+      for (const c of a.x.clones) {
+        if (n >= POOL - 1) break;
+        if (clonesSeen.has(c[0])) continue;
+        const o = f.players[n++];
+        setPlayer(o, [c[1], 0, 0, c[4], c[5]], c[2] / 100, c[3] / 100);
+        o.clone = c[1];
+        o.anim = -c[0];
+      }
     }
     if (state.me?.alive && state.mine) {
       const o = f.players[n++];

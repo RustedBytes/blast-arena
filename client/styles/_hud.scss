@@ -226,6 +226,21 @@ body.in-gas #gas-tint { display: block; }
   @include phone { display: none; }
 }
 
+// The stats and the leaderboard sit on the spawn. On a mouse they stay
+// invisible until the pointer is over that corner (opacity, not visibility,
+// so the corner still receives the hover). Tab forces the board open.
+// Touch has no hover, so those screens keep both corners shown.
+@media (hover: hover) and (pointer: fine) {
+  #stats,
+  #side {
+    opacity: 0;
+    transition: opacity 0.12s steps(4, end);
+    &:hover,
+    &.expanded { opacity: 1; }
+    @include reduced-motion { transition: none; }
+  }
+}
+
 .kill {
   @include pixel-frame(var(--panel));
   display: flex;

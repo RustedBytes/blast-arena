@@ -376,10 +376,14 @@ impl World {
     /// whether that killed it.
     fn hurt_warden(&mut self) -> bool {
         let (tick, t) = (self.tick, self.guard.tuning);
-        let w = self.guard.warden.as_ref().unwrap();
-        let (x, y) = w.cell;
-        let owner = self.flame_owner[self.map.idx(x, y)];
-        if !self.flame_active(x, y) || owner == 0 || tick < w.hurt_until || tick < w.skin_until {
+        let (x, y, hurt_until, skin_until) = {
+            let w = self.guard.warden.as_ref().unwrap();
+            (w.cell.0, w.cell.1, w.hurt_until, w.skin_until)
+        };
+        let on_fire = self.flame_active(x, y);
+        let scorched = self.scorch_owner(x, y);
+        let owner = if on_fire { self.flame_owner[self.map.idx(x, y)] } else { scorched.unwrap_or(0) };
+        if (!on_fire && scorched.is_none()) || owner == 0 || tick < hurt_until || tick < skin_until {
             return false;
         }
         let w = self.guard.warden.as_mut().unwrap();

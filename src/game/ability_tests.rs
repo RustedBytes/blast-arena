@@ -8,6 +8,7 @@ use super::abilities::{ab, reject};
 use super::bomb::BombKind;
 use super::items::Item;
 use super::map::{Map, Tile};
+use super::monsters::Kind;
 use super::player::Player;
 use super::*;
 use crate::protocol::{self, ev};
@@ -284,6 +285,34 @@ fn g06_g07_fire_ignites_the_gas_once_and_shields_hold() {
     assert!(w.players[&s].gassed_until > 0, "but not the slowdown");
     steps(&mut w, 5);
     assert_eq!(w.stats.gas_ignitions, 1, "only once");
+}
+
+#[test]
+fn gas_ignition_scorches_creatures_without_chaining_bombs() {
+    let (mut w, owner) = gas_world();
+    { let n = w.tuning.gas_fuse; steps(&mut w, n); }
+    assert!(w.gas[0].covers(3, 3) && w.gas[0].covers(2, 1) && w.gas[0].covers(1, 1));
+    w.worms.tuning.min_count = 0;
+    w.worms.tuning.max_count = 0;
+    w.worms.enabled = true;
+    w.monsters.tuning.min_count = 0;
+    w.monsters.tuning.max_count = 0;
+    w.monsters.enabled = true;
+    let worm = w.add_worm((3, 3), 3);
+    let slime = w.add_monster(Kind::Slime, (2, 1));
+    // Sitting in the cloud, but outside the blast that lights it.
+    w.place_bomb_at(0, (1, 1), BombKind::plain(2, 80));
+    let resting = w.bomb_at(1, 1).unwrap();
+    w.place_bomb_at(owner, (7, 1), BombKind::plain(2, 0));
+    w.step();
+    assert!(w.gas.is_empty(), "the cloud ignites");
+    assert!(w.worms.list.iter().all(|c| c.id != worm), "a worm in the cloud burns");
+    assert_eq!(w.stats.worms_killed, 1);
+    assert!(w.monsters.list.iter().all(|m| m.id != slime), "a monster in the cloud takes the hit");
+    assert!(w.bombs.contains_key(&resting), "the flash does not set off bombs in the cloud");
+    steps(&mut w, 4);
+    assert!(w.bombs.contains_key(&resting), "and it still doesn't, a few ticks later");
+    assert!(w.players[&owner].score > 0, "the gas's owner is credited");
 }
 
 #[test]

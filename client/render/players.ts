@@ -242,9 +242,10 @@ export class PlayerLayer {
       }
     }
     py -= p.lift;
-    if (p.ghost) ctx.globalAlpha = 0.45 + 0.15 * Math.sin(sec * 6);
+    // Translucent, but never so faint that the sprite reads as gone.
+    if (p.ghost) ctx.globalAlpha = 0.62 + 0.12 * Math.sin(sec * 6);
     // Just bitten: blinks while the bite immunity lasts.
-    else if (p.hurt) ctx.globalAlpha = Math.floor(sec * 12) % 2 ? 0.3 : 1;
+    else if (p.hurt) ctx.globalAlpha = Math.floor(sec * 12) % 2 ? 0.55 : 1;
     this.drawSprite(colors, p.facing, px, py + T * 0.42 + bob, T, sxs, sys, step, look.sprites, lean);
     ctx.globalAlpha = 1;
     if (pixel) this.drawPixelHat(info?.hat ?? 0, px, py - T * 0.5 + bob, T, p.facing);

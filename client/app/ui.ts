@@ -40,6 +40,7 @@ export const ui = {
     roundTime: byId('round-time'),
     teamScores: byId('team-scores'),
     ctfCaptures: byId('ctf-caps'),
+    side: byId('side'),
     leaderboard: byId('leaderboard'),
     leaderboardList: byId('lb-list'),
     leaderboardHint: byId('lb-hint'),
