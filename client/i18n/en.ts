@@ -97,7 +97,7 @@ export const en = {
   shieldHold: 'Shield (hold V)',
   abilityNames: { 21: 'Builder', 22: 'Gas bombs', 23: 'Clone', 24: 'Sticky bombs', 25: 'Portals', 26: 'Dash' },
   abilityRejected: ['', 'Recharging…', 'No room there', 'Too many out already', 'Not now', 'Too soon: move around first', 'Switched off'],
-  stuckOn: 'A sticky bomb is on you! Hold C to shake it off — {n}s', stuckTouch: 'A sticky bomb is on you! Hold ✋ — {n}s',
+  stuckOn: 'A sticky bomb is on you! Hold C to shake it off — {n}s', stuckTouch: 'A sticky bomb is on you! Hold the hand button — {n}s',
   inGas: 'Gas! You are slowed down', portalWaiting: 'Place the second portal (R) — {n}s', gasIgnited: 'The gas ignites!',
   yourClone: 'your clone',
   items: {

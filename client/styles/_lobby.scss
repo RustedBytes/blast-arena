@@ -31,7 +31,15 @@
 }
 
 .side-card { width: min(340px, 100%); gap: 8px; }
-.section-title { font-weight: 800; color: var(--accent); font-size: 14px; margin-top: 4px; }
+.section-title {
+  font-weight: 800;
+  color: var(--accent);
+  font-size: 13px;
+  margin-top: 4px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 #000;
+}
 
 #join-form { width: min(460px, 100%); }
 
@@ -40,6 +48,7 @@
   height: auto;
   max-height: 120px;
   object-fit: contain;
+  filter: drop-shadow(4px 4px 0 #000);
   @include landscape { max-height: 22vh; width: auto; align-self: center; }
 }
 
@@ -89,13 +98,15 @@
   text-align: left;
   min-width: 0;
 
-  &:hover { border-color: rgba($accent, 0.5); }
-  &.selected { border-color: var(--accent); background: rgba($accent, 0.12); }
-  .a-icon { grid-row: span 2; font-size: 20px; line-height: 1; }
+  &:hover { box-shadow: inset 0 0 0 2px rgba($accent, 0.7), 3px 3px 0 #000; }
+  &.selected { background: #3a280e; box-shadow: inset 0 0 0 2px var(--accent), 3px 3px 0 #000; }
+  .a-icon { grid-row: span 2; line-height: 0; img.px { width: 24px; height: 24px; } }
   .a-name { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .a-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
   .a-humans.live { color: var(--good); font-weight: 700; }
-  @include landscape { padding: 4px 6px; .a-icon { font-size: 16px; } }
+  .a-count { display: flex; align-items: center; gap: 3px; }
+  .a-count img.px { width: 12px; height: 12px; }
+  @include landscape { padding: 4px 6px; .a-icon img.px { width: 18px; height: 18px; } }
 }
 
 // The selected arena's mode, size and players, under the grid.
@@ -129,8 +140,8 @@
   b { font-size: 18px; color: var(--self); }
 }
 
-.xpbar { height: 8px; border-radius: 4px; background: $kbd-bg; overflow: hidden; margin: 4px 0; }
-#pf-xpbar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--self)); }
+.xpbar { height: 10px; background: $kbd-bg; border: 2px solid $px-ink; overflow: hidden; margin: 4px 0; }
+#pf-xpbar { height: 100%; width: 0; background: var(--accent); box-shadow: inset 0 -3px 0 #8a3a00; }
 
 .picker {
   display: flex;
@@ -138,11 +149,15 @@
   gap: 6px;
 
   button {
-    @include field(8px);
+    @include field;
     padding: 5px 9px;
     font-size: 13px;
     cursor: pointer;
-    &.selected { border-color: var(--accent); }
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    img.px { width: 12px; height: 12px; }
+    &.selected { background: #3a280e; box-shadow: inset 0 0 0 2px var(--accent); }
     &:disabled { opacity: 0.35; cursor: not-allowed; }
   }
 }

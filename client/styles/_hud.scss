@@ -66,10 +66,13 @@ body.in-gas #gas-tint { display: block; }
     position: absolute;
     left: -3px;
     top: -3px;
-    border-radius: 50%;
+    width: 32px;
+    height: 32px;
     background: conic-gradient(var(--ring-color, #7ff6ff) calc(var(--p, 1) * 360deg), transparent 0);
-    @include ring(32px, 13px);
-    @include phone { @include ring(26px, 10px); }
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    padding: 3px;
+    @include phone { width: 26px; height: 26px; }
   }
   &.curse { --ring-color: var(--curse); color: var(--curse); }
 
@@ -77,20 +80,18 @@ body.in-gas #gas-tint { display: block; }
   // The cosmos blaster: a glowing bolt in its colour.
   &.blaster i {
     display: inline-block;
-    width: 24px;
-    height: 7px;
-    border-radius: 4px;
+    width: 22px;
+    height: 6px;
     background: var(--bolt-core, #7dff7a);
-    box-shadow: 0 0 6px 2px var(--bolt, #2bd94a);
+    box-shadow: 0 0 0 2px #100c08, 3px 0 0 var(--bolt, #2bd94a);
   }
   &.hearts {
-    color: #ff4a5a;
-    font-size: 22px;
-    letter-spacing: 1px;
+    display: flex;
+    gap: 2px;
     line-height: 1;
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
-    @include phone { font-size: 18px; }
-    &.low { animation: hearts-low 0.6s ease-in-out infinite alternate; }
+    img.px { width: 18px; height: 18px; }
+    @include phone { img.px { width: 15px; height: 15px; } }
+    &.low { animation: hearts-low 0.6s steps(2) infinite alternate; }
   }
 
   &.score {
@@ -147,8 +148,15 @@ body.in-gas #gas-tint { display: block; }
   @include phone { font-size: 13px; padding: 3px 10px; gap: 10px; }
 }
 
+#round-clock { display: inline-flex; align-items: center; gap: 6px; }
+#round-clock img.px,
+#ctf-caps img.px { width: 16px; height: 16px; }
+
 #ctf-caps {
   margin-left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   .red { color: $team-red; }
   .blue { color: $team-blue; }
 }
@@ -219,11 +227,14 @@ body.in-gas #gas-tint { display: block; }
 }
 
 .kill {
-  background: var(--panel);
-  border-radius: 6px;
+  @include pixel-frame(var(--panel));
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 3px 8px;
   font-size: 13px;
-  animation: slide-in 0.2s ease-out;
+  animation: slide-in 0.2s steps(4);
+  img.px { width: 14px; height: 14px; }
   b { color: var(--accent); }
   &.mine b.v,
   &.mine b.k { color: var(--self); }
@@ -260,7 +271,6 @@ body.in-gas #gas-tint { display: block; }
   gap: 10px;
   align-items: baseline;
   padding: 7px 16px;
-  border-radius: 999px;
   color: var(--text);
   font: inherit;
   font-size: 14px;
@@ -315,7 +325,11 @@ body.in-gas #gas-tint { display: block; }
     font-size: 22px;
     color: var(--text);
     cursor: pointer;
-    @include phone { width: 40px; height: 40px; font-size: 19px; }
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    img.px { width: 22px; height: 22px; }
+    @include phone { width: 40px; height: 40px; img.px { width: 20px; height: 20px; } }
   }
 
   @include touch { bottom: auto; top: calc(var(--top) + 148px); right: auto; left: var(--left); flex-direction: column; }
@@ -341,13 +355,15 @@ body.in-gas #gas-tint { display: block; }
   button {
     min-width: 56px;
     height: 44px;
-    border: 0;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
+    border: 3px solid $px-ink;
+    border-radius: 0;
+    background: #241c16;
+    box-shadow: inset 0 0 0 2px #5c5348;
     color: var(--text);
     font-size: 18px;
     cursor: pointer;
-    &:hover { background: rgba(255, 176, 46, 0.4); }
+    img.px { width: 20px; height: 20px; }
+    &:hover { background: #4a3414; }
   }
   kbd { font-size: 10px; display: block; }
 
@@ -377,8 +393,7 @@ body.in-gas #gas-tint { display: block; }
     transform: none;
     text-align: right;
     padding: 8px 14px;
-    border-radius: 10px;
-    background: var(--panel);
+    @include pixel-frame(var(--panel));
     text-shadow: none;
     max-width: min(320px, calc(100vw - 24px));
 

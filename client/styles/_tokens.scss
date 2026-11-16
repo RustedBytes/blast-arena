@@ -13,10 +13,13 @@ $self: #ffd34a;
 $curse: #b06bff;
 
 // Form fields and list items: a dark well with a slate border.
-$field-bg: #0b1018;
-$field-border: #33415a;
-$kbd-bg: #263247;
-$card-bg: rgba(14, 20, 30, 0.94);
+$field-bg: #120e0c;
+$field-border: #3a3228;
+$kbd-bg: #2a241c;
+$card-bg: #16110e;
+// Pixel-art frame: hard edge, a light inner line, a black drop.
+$px-ink: #100c08;
+$px-line: #6e6558;
 $team-red: #ff8a80;
 $team-blue: #8ab8ff;
 $backdrop: rgb(5, 10, 5);
@@ -58,14 +61,23 @@ $tones: (
 /// Pinned to the horizontal centre of the screen.
 @mixin center-x { left: 50%; transform: translateX(-50%); }
 
-/// Round, fixed on-screen button.
-@mixin round($size) { width: $size; height: $size; border-radius: 50%; }
+/// Square, fixed on-screen control (pixel frames are never round).
+@mixin round($size) { width: $size; height: $size; border-radius: 0; }
+
+/// Hard pixel frame: dark fill, ink border, inner highlight, black drop.
+@mixin pixel-frame($fill) {
+  background: $fill;
+  border: 3px solid $px-ink;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px $px-line, 3px 3px 0 #000;
+}
 
 /// A dark input-like well (text fields, selects, arena and hat buttons).
-@mixin field($radius: 10px) {
+@mixin field($radius: 0) {
   background: $field-bg;
-  border: 2px solid $field-border;
+  border: 3px solid $px-ink;
   border-radius: $radius;
+  box-shadow: inset 0 0 0 2px #4a4034;
   color: var(--text);
 }
 
@@ -76,13 +88,6 @@ $tones: (
   pointer-events: none;
   display: none;
   box-shadow: inset 0 0 $blur $spread $color;
-}
-
-/// Countdown ring around a HUD stat: a conic sweep masked to a ring.
-@mixin ring($size, $inner) {
-  width: $size;
-  height: $size;
-  mask: radial-gradient(circle, transparent $inner, #000 ($inner + 1px));
 }
 
 /// Shrinks the element by the HUD scale, so it grows with large screens

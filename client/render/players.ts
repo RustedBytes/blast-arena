@@ -7,6 +7,7 @@ import { context2d } from '../dom.js';
 import { N as ART_PX } from '../pixelkit.js';
 import { P_CURSE, P_SMOKE, P_SPARK, P_STAR } from '../particles.js';
 import { hopHeight } from '../prediction.js';
+import { iconCanvas } from '../pixelui.js';
 import { C_DASH, C_DUST, C_GAS_DARK, EMOTES, PIXEL_VIEWS, PLAYER_VIEWS, STRIDE, TEAM_COLORS, TRAIL_COLORS } from './constants.js';
 import { artPx, drawPixelFlag, pixelOval, pixelRing } from './pixeldraw.js';
 import { drawFlag, roundRect, star } from './shapes.js';
@@ -464,22 +465,29 @@ export class PlayerLayer {
     ctx.drawImage(l.canvas, Math.round(x - l.ax), Math.round(y - l.ay));
     // Emote bubble above the name.
     const em = state.emotes.get(p.id);
-    if (em && em.until > now) {
+    const emote = em && em.until > now ? EMOTES[em.e] : undefined;
+    if (emote) {
       const by = y - fs * 1.6;
-      const text = EMOTES[em.e] ?? '?';
-      const efs = Math.round(fs * 1.5);
-      ctx.font = this.s.font(efs, 700);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      const w = Math.max(efs * 1.6, ctx.measureText(text).width + efs * 0.6);
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      roundRect(ctx, x - w / 2, by - efs * 1.3, w, efs * 1.4, efs * 0.4);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(x - efs * 0.2, by + efs * 0.08); ctx.lineTo(x, by + efs * 0.4); ctx.lineTo(x + efs * 0.2, by + efs * 0.08);
-      ctx.fill();
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillText(text, x, by);
+      const size = Math.max(18, Math.round(fs * 1.2));
+      const pad = Math.max(4, Math.round(fs * 0.28));
+      const bw = size + pad * 2;
+      const bh = size + pad * 2;
+      const left = Math.round(x - bw / 2);
+      const top = Math.round(by - bh);
+      ctx.fillStyle = '#f6f1e6';
+      ctx.fillRect(left, top, bw, bh);
+      ctx.fillStyle = '#1a120c';
+      ctx.fillRect(left, top, bw, 2);
+      ctx.fillRect(left, top + bh - 2, bw, 2);
+      ctx.fillRect(left, top, 2, bh);
+      ctx.fillRect(left + bw - 2, top, 2, bh);
+      const tx = Math.round(x);
+      ctx.fillRect(tx - 3, top + bh, 6, 2);
+      ctx.fillRect(tx - 1, top + bh + 2, 3, 2);
+      const smooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(iconCanvas(emote), left + pad, top + pad, size, size);
+      ctx.imageSmoothingEnabled = smooth;
     }
   }
 }

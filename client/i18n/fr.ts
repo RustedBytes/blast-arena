@@ -98,7 +98,7 @@ export const fr: Strings = {
   shieldHold: 'Bouclier (maintenir V)',
   abilityNames: { 21: 'Bâtisseur', 22: 'Bombes à gaz', 23: 'Clone', 24: 'Bombes collantes', 25: 'Portails', 26: 'Ruée' },
   abilityRejected: ['', 'Recharge…', 'Pas de place ici', 'Déjà trop en jeu', 'Pas maintenant', 'Trop tôt : bouge d’abord', 'Désactivé'],
-  stuckOn: 'Une bombe collante est sur toi ! Maintiens C pour t’en débarrasser — {n} s', stuckTouch: 'Une bombe collante est sur toi ! Maintiens ✋ — {n} s',
+  stuckOn: 'Une bombe collante est sur toi ! Maintiens C pour t’en débarrasser — {n} s', stuckTouch: 'Une bombe collante est sur toi ! Maintiens le bouton main — {n} s',
   inGas: 'Du gaz ! Tu es ralenti', portalWaiting: 'Pose le second portail (R) — {n} s', gasIgnited: 'Le gaz s’enflamme !',
   yourClone: 'ton clone',
   items: {

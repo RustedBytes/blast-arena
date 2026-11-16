@@ -98,7 +98,7 @@ export const es: Strings = {
   shieldHold: 'Escudo (mantén V)',
   abilityNames: { 21: 'Constructor', 22: 'Bombas de gas', 23: 'Clon', 24: 'Bombas pegajosas', 25: 'Portales', 26: 'Embestida' },
   abilityRejected: ['', 'Recargando…', 'No hay sitio ahí', 'Ya hay demasiados', 'Ahora no', 'Demasiado pronto: muévete primero', 'Desactivado'],
-  stuckOn: '¡Tienes una bomba pegajosa! Mantén C para quitártela — {n} s', stuckTouch: '¡Tienes una bomba pegajosa! Mantén ✋ — {n} s',
+  stuckOn: '¡Tienes una bomba pegajosa! Mantén C para quitártela — {n} s', stuckTouch: '¡Tienes una bomba pegajosa! Mantén el botón de la mano — {n} s',
   inGas: '¡Gas! Vas más lento', portalWaiting: 'Pon el segundo portal (R) — {n} s', gasIgnited: '¡El gas se incendia!',
   yourClone: 'tu clon',
   items: {

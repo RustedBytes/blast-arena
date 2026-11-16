@@ -66,7 +66,7 @@ for (let dy = -NUKE_RADIUS; dy <= NUKE_RADIUS; dy++) {
     if (!inNukeDisc(dx + 1, dy)) NUKE_OUTLINE.push(dx + 1, dy, dx + 1, dy + 1);
   }
 }
-export const EMOTES = ['👋', '😂', '😡', '👍', '💣', '😱', 'GG', '😎'];
+export { EMOTE_IDS as EMOTES } from '../pixelui.js';
 export const TRAIL_COLORS = [0, 10, 8, 9];
 export const PLAYER_VIEWS = ['player_up', 'player_down', 'player_side'] as const;
 export const PIXEL_VIEWS = ['up', 'down', 'side'] as const;

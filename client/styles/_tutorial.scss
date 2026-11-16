@@ -24,12 +24,16 @@
   top: 10px;
   right: 10px;
   @include round(34px);
-  border: 1px solid var(--panel-border);
-  background: rgba(255, 255, 255, 0.06);
+  border: 3px solid $px-ink;
+  background: #241c16;
+  box-shadow: inset 0 0 0 2px #5c5348;
   color: var(--muted);
-  font-size: 16px;
   cursor: pointer;
-  &:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); }
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  img.px { width: 14px; height: 14px; }
+  &:hover { background: #3a2a18; }
 }
 
 // ---------------------------------------------------------------- the slide
@@ -66,21 +70,20 @@
   align-items: center;
   justify-content: center;
   padding: 10px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid var(--panel-border);
+  background: #0c0a08;
+  border: 3px solid $px-ink;
+  box-shadow: inset 0 0 0 2px #3a3228;
 
   @include narrow { height: 240px; padding: 8px 6px; }
   @include narrow-short { height: 196px; }
   @include landscape { grid-column: 1; grid-row: 1 / 3; height: calc(100vh - 160px); max-height: 230px; padding: 6px; }
 }
 
-.tut-scene { max-width: 100%; max-height: 100%; width: auto; height: auto; image-rendering: pixelated; border-radius: 6px; }
+.tut-scene { max-width: 100%; max-height: 100%; width: auto; height: auto; image-rendering: pixelated; }
 
-/// Icon size in the power-up grids, with the emoji sized to match.
-@mixin icon-size($size, $emoji) {
-  canvas { width: $size; height: $size; }
-  .tut-emoji { font-size: $emoji; line-height: $size; }
+/// Icon size in the power-up grids.
+@mixin icon-size($size) {
+  canvas, img.tut-px { width: $size; height: $size; image-rendering: pixelated; }
 }
 
 .tut-icons {
@@ -92,20 +95,20 @@
   figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
   canvas { image-rendering: pixelated; }
   figcaption { font-size: 12.5px; line-height: 1.25; color: var(--muted); }
-  @include icon-size(48px, 38px);
+  @include icon-size(48px);
 
   @include narrow {
     grid-template-columns: repeat(3, 1fr);
     gap: 6px 4px;
-    @include icon-size(34px, 28px);
+    @include icon-size(34px);
     figcaption { font-size: 11.5px; }
   }
-  @include narrow-short { @include icon-size(28px, 22px); }
+  @include narrow-short { @include icon-size(28px); }
   @include tiny { figcaption { font-size: 11px; } }
   @include landscape {
     grid-template-columns: repeat(3, 1fr);
     gap: 4px;
-    @include icon-size(30px, 24px);
+    @include icon-size(30px);
     figcaption { font-size: 11px; }
   }
 }

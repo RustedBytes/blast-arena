@@ -7,6 +7,7 @@ import type { Assets } from './assets.js';
 import { query, setChildren } from './dom.js';
 import { t } from './i18n.js';
 import { bombLabel, jumpLabel } from './keymap.js';
+import { iconUrl } from './pixelui.js';
 import { drawIcon, drawMonsterIcon, drawScene, hasFire } from './tutorial/scene.js';
 import { SLIDES } from './tutorial/slides.js';
 import type { Icon, Slide } from './tutorial/slides.js';
@@ -175,12 +176,13 @@ export class Tutorial {
 
   private iconFigure(icon: Icon, labels: readonly string[]): HTMLElement {
     const fig = document.createElement('figure');
-    if ('emoji' in icon) {
-      const span = document.createElement('span');
-      span.className = 'tut-emoji';
-      span.textContent = icon.emoji;
-      span.setAttribute('aria-hidden', 'true');
-      fig.append(span);
+    if ('px' in icon) {
+      const img = document.createElement('img');
+      img.className = 'px tut-px';
+      img.src = iconUrl(icon.px);
+      img.alt = '';
+      img.draggable = false;
+      fig.append(img);
     } else if ('monster' in icon) {
       const canvas = document.createElement('canvas');
       drawMonsterIcon(canvas, icon.monster, this.assets);

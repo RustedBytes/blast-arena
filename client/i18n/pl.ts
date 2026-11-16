@@ -98,7 +98,7 @@ export const pl: Strings = {
   shieldHold: 'Tarcza (przytrzymaj V)',
   abilityNames: { 21: 'Budowniczy', 22: 'Bomby gazowe', 23: 'Klon', 24: 'Lepkie bomby', 25: 'Portale', 26: 'Zryw' },
   abilityRejected: ['', 'Ładowanie…', 'Brak tam miejsca', 'Już za dużo', 'Nie teraz', 'Za wcześnie: najpierw się rusz', 'Wyłączone'],
-  stuckOn: 'Masz na sobie lepką bombę! Przytrzymaj C, aby ją strząsnąć — {n} s', stuckTouch: 'Masz na sobie lepką bombę! Przytrzymaj ✋ — {n} s',
+  stuckOn: 'Masz na sobie lepką bombę! Przytrzymaj C, aby ją strząsnąć — {n} s', stuckTouch: 'Masz na sobie lepką bombę! Przytrzymaj przycisk dłoni — {n} s',
   inGas: 'Gaz! Jesteś spowolniony', portalWaiting: 'Postaw drugi portal (R) — {n} s', gasIgnited: 'Gaz się zapala!',
   yourClone: 'twój klon',
   items: {

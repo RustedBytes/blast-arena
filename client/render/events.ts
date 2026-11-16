@@ -2,6 +2,7 @@
 // bases, the battle royale zone, king-of-the-hill zones and the replay frame.
 
 import { t } from '../i18n.js';
+import { iconCanvas } from '../pixelui.js';
 import { P_DEBRIS } from '../particles.js';
 import type { ArenaMode } from '../protocol.js';
 import type { Circle, GameMap, GameState, Vec, Zone } from '../state.js';
@@ -411,12 +412,12 @@ export class EventLayer {
         ctx.lineDashOffset = -sec * T;
         ctx.strokeRect(px + 2, py + 2, T * 3 - 4, T * 3 - 4);
         ctx.setLineDash([]);
-        ctx.font = this.s.font(Math.round(T * 0.5), '');
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.globalAlpha = 0.55;
-        ctx.fillText('👑', px + T * 1.5, py + T * 1.5);
+        const smooth = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(iconCanvas('crown'), px + T, py + T, T, T);
         ctx.globalAlpha = 1;
+        ctx.imageSmoothingEnabled = smooth;
       }
     }
   }

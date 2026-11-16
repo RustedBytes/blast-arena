@@ -2,6 +2,8 @@
 // battle royale, abilities, worms and the Warden.
 
 import type { Tone } from '../alerts.js';
+import { px } from '../pixelui.js';
+import type { IconName } from '../pixelui.js';
 import { ITEM_SPRITES } from '../assets.js';
 import { t } from '../i18n.js';
 import { AB, EV, GUARD_NEWS, MONSTER_NEWS, WORM_NEWS } from '../protocol.js';
@@ -11,7 +13,7 @@ import { alerts, audio, renderer } from './services.js';
 import { newsworthy, state } from './session.js';
 
 // How each map event is announced: icon and tone, by kind.
-const EVENT_LOOK: ([string, Tone] | null)[] = [null, ['☄️', 'danger'], ['❄️', 'info'], ['🌋', 'danger'], ['⚙️', 'warn'], ['🌍', 'danger']];
+const EVENT_LOOK: ([IconName, Tone] | null)[] = [null, ['comet', 'danger'], ['snow', 'info'], ['volcano', 'danger'], ['gear', 'warn'], ['earth', 'danger']];
 
 /** Game events: sudden death, map events, capture the flag, swaps. */
 export function gameEvent(m: EventMsg): void {
@@ -23,15 +25,15 @@ export function gameEvent(m: EventMsg): void {
       const was = state.sd;
       state.sd = v[4] ? { cx: v[0], cy: v[1], r: v[2], nextAt: now + v[3] * state.tickMs } : null;
       if (state.sd && !was) {
-        alerts.announce({ text: t('suddenDeath'), sub: t('suddenDeathHint'), icon: '⏳', tone: 'danger', priority: 3, duration: 4000 });
+        alerts.announce({ text: t('suddenDeath'), sub: t('suddenDeathHint'), icon: px('hourglass'), tone: 'danger', priority: 3, duration: 4000 });
         audio.curse();
       }
       break;
     }
     case EV.ANNOUNCE:
       {
-        const [icon, tone] = EVENT_LOOK[v[0]] ?? ['❗', 'warn'];
-        alerts.announce({ text: t('mapEvents')[v[0]] ?? '!', sub: t('mapEventHints')[v[0]], icon, tone, priority: 2, duration: 3800 });
+        const [icon, tone] = EVENT_LOOK[v[0]] ?? ['bang', 'warn'];
+        alerts.announce({ text: t('mapEvents')[v[0]] ?? '!', sub: t('mapEventHints')[v[0]], icon: px(icon), tone, priority: 2, duration: 3800 });
       }
       renderer.events.mapEvent(v[0], now, v[1] * 1000);
       if (v[0] === 5) audio.nuke(22, 0); // an earthquake: a deep rumble
@@ -57,10 +59,10 @@ export function gameEvent(m: EventMsg): void {
       const flag = team === 1 ? t('red') : t('blue');
       const news = t('flagNews')[what]?.replace('{name}', name).replace('{flag}', flag) ?? '';
       if (what === 4) {
-        alerts.announce({ text: news, icon: '🚩', tone: 'epic', priority: 2, duration: 3500 });
+        alerts.announce({ text: news, icon: px('flag'), tone: 'epic', priority: 2, duration: 3500 });
         audio.mystery();
       } else {
-        alerts.toast(news, { icon: '🚩', tone: what === 1 ? 'warn' : 'info' });
+        alerts.toast(news, { icon: px('flag'), tone: what === 1 ? 'warn' : 'info' });
         audio.pickup();
       }
       break;
@@ -70,7 +72,7 @@ export function gameEvent(m: EventMsg): void {
       const was = state.zone?.state;
       state.zone = { state: v[0], start: now, end: now + v[1] * state.tickMs, from: c(2), to: c(5), phase: v[8] };
       if (v[0] === 1 && was !== 1) {
-        alerts.announce({ text: t('zoneClosing'), sub: t('zoneHint'), icon: '🌀', tone: 'warn', priority: 2, duration: 3500 });
+        alerts.announce({ text: t('zoneClosing'), sub: t('zoneHint'), icon: px('storm'), tone: 'warn', priority: 2, duration: 3500 });
         audio.curse();
       }
       break;
@@ -83,7 +85,7 @@ export function gameEvent(m: EventMsg): void {
       const name = state.rosterInfo.get(id)?.name ?? '?';
       alerts.announce({
         text: id < 0 ? t('nobodyWins') : id === state.myId ? t('youWin') : t('winnerIs', { name }),
-        icon: id < 0 ? '💀' : '🏆', tone: id === state.myId ? 'good' : 'epic', priority: 4, duration: 4500,
+        icon: id < 0 ? px('skull') : px('trophy'), tone: id === state.myId ? 'good' : 'epic', priority: 4, duration: 4500,
       });
       audio.mystery();
       renderer.effects.confetti();
@@ -135,24 +137,24 @@ function guardEvent([what, x, y, who]: number[]): void {
     case GUARD_NEWS.KILLED:
       renderer.effects.wardenDown(x, y, now);
       if (dist < 20) audio.nuke(dist, pan);
-      if (id === state.myId) alerts.announce({ text: t('wardenSlainByYou'), icon: '🗿', tone: 'epic', priority: 2 });
-      else if (newsworthy(x, y, 12)) alerts.toast(id >= 0 ? t('wardenSlain', { name: name(id) }) : t('wardenFell'), { icon: '🗿', tone: 'warn', key: 'warden' });
+      if (id === state.myId) alerts.announce({ text: t('wardenSlainByYou'), icon: px('moai'), tone: 'epic', priority: 2 });
+      else if (newsworthy(x, y, 12)) alerts.toast(id >= 0 ? t('wardenSlain', { name: name(id) }) : t('wardenFell'), { icon: px('moai'), tone: 'warn', key: 'warden' });
       break;
     case GUARD_NEWS.BACK:
-      if (newsworthy(x, y, 12)) alerts.toast(t('wardenBack'), { icon: '🗿', tone: 'info', key: 'warden' });
+      if (newsworthy(x, y, 12)) alerts.toast(t('wardenBack'), { icon: px('moai'), tone: 'info', key: 'warden' });
       break;
   }
 }
 
 /** Icons of the monster kinds (slime, skeleton, bat), for the kill feed and notices. */
-export const MONSTER_ICONS = ['🟢', '💀', '🦇'] as const;
+export const MONSTER_ICONS = ['slime', 'skull', 'bat'] as const;
 
 /** Dungeon monster news (EV.MONSTER): effects, sounds and notices. */
 function monsterEvent([what, x, y, who, kind, v5]: number[]): void {
   if (!state) return;
   const id = who - 1;
   const near = Math.hypot(x + 0.5 - state.focus.x, y + 0.5 - state.focus.y) < 14;
-  const icon = MONSTER_ICONS[kind - 1] ?? '👹';
+  const icon = px(MONSTER_ICONS[kind - 1] ?? 'ogre');
   switch (what) {
     case MONSTER_NEWS.BIT:
       state.monsterMeals.set(id, kind);
@@ -196,12 +198,12 @@ function wormEvent([what, x, y, who]: number[]): void {
     case WORM_NEWS.KILLED:
       renderer.effects.wormSplat(x, y, true);
       if (near) audio.kick();
-      if (id === state.myId) alerts.toast(t('wormKilled'), { icon: '🪱', tone: 'good', key: 'worm-news' });
+      if (id === state.myId) alerts.toast(t('wormKilled'), { icon: px('worm'), tone: 'good', key: 'worm-news' });
       break;
     case WORM_NEWS.CUT:
       renderer.effects.wormSplat(x, y, false);
       if (near) audio.kick();
-      if (id === state.myId) alerts.toast(t('wormCut'), { icon: '✂️', tone: 'info', key: 'worm-news' });
+      if (id === state.myId) alerts.toast(t('wormCut'), { icon: px('cut'), tone: 'info', key: 'worm-news' });
       break;
   }
 }
@@ -241,7 +243,7 @@ function abilityEvent(v: number[]): void {
     case AB.GAS_IGNITED: {
       const [, x, y] = a;
       audio.explosion(dist(x, y), pan(x));
-      if (dist(x, y) < 4) alerts.toast(t('gasIgnited'), { icon: '🔥', tone: 'danger', key: 'gas-ignited' });
+      if (dist(x, y) < 4) alerts.toast(t('gasIgnited'), { icon: px('fire'), tone: 'danger', key: 'gas-ignited' });
       break;
     }
     case AB.CLONE_SPAWNED: {

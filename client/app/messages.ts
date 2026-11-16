@@ -10,7 +10,8 @@ import { NUKE_SHOW_TICKS } from '../render.js';
 import type { BombView, GameSnapshot, GameState, RosterInfo } from '../state.js';
 import { input } from './controls.js';
 import { gameEvent, MONSTER_ICONS } from './events.js';
-import { toast, updateHud } from './hud.js';
+import { setRoundIcon, toast, updateHud } from './hud.js';
+import { iconHtml, px } from '../pixelui.js';
 import { refreshLobbyLater } from './lobby.js';
 import { alerts, audio, predictor, renderer, settings } from './services.js';
 import { connection, CROWDED_MAP_CELLS, CROWDED_PLAYERS, findSnapshot, newsworthy, rebuildItems, setState, SnapRing, state } from './session.js';
@@ -312,22 +313,23 @@ export const net = new Net({
     const el = document.createElement('div');
     el.className = 'kill';
     if (m.k === state.myId || m.v === state.myId) el.classList.add('mine');
+    const feedIcon = (id: typeof MONSTER_ICONS[number] | 'moai' | 'worm' | 'boom' | 'target'): string => iconHtml(id);
     el.innerHTML = crushed
-      ? `🗿 ${t('wasCrushed', { v: `<b class="v">${name(m.v)}</b>` })}`
+      ? `${feedIcon('moai')} ${t('wasCrushed', { v: `<b class="v">${name(m.v)}</b>` })}`
       : bitten
-      ? `${MONSTER_ICONS[bitten - 1] ?? '👹'} ${(t('monsterBitFeed')[bitten - 1] ?? '{v}').replace('{v}', `<b class="v">${name(m.v)}</b>`)}`
+      ? `${feedIcon(MONSTER_ICONS[bitten - 1] ?? 'ogre')} ${(t('monsterBitFeed')[bitten - 1] ?? '{v}').replace('{v}', `<b class="v">${name(m.v)}</b>`)}`
       : eaten
-      ? `🪱 ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
+      ? `${feedIcon('worm')} ${t('wasEaten', { v: `<b class="v">${name(m.v)}</b>` })}`
       : m.k === null
       ? t('wasBlasted', { v: `<b class="v">${name(m.v)}</b>` })
       : m.k === m.v
         ? t('blewUp', { v: `<b class="v">${name(m.v)}</b>` })
-        : `<b class="k">${name(m.k)}</b> 💥 <b class="v">${name(m.v)}</b>${m.b ? ' 🎯' : ''}`;
+        : `<b class="k">${name(m.k)}</b> ${feedIcon('boom')} <b class="v">${name(m.v)}</b>${m.b ? ` ${feedIcon('target')}` : ''}`;
     const feed = ui.hud.killfeed;
     feed.prepend(el);
     while (feed.children.length > KILLFEED_SIZE) feed.lastElementChild?.remove();
     setTimeout(() => el.remove(), 6000);
-    if (m.b && m.k === state.myId) alerts.announce({ text: t('bountyKill'), icon: '🎯', tone: 'epic', priority: 2 });
+    if (m.b && m.k === state.myId) alerts.announce({ text: t('bountyKill'), icon: px('target'), tone: 'epic', priority: 2 });
   },
 
   lb(m) {
@@ -335,7 +337,10 @@ export const net = new Net({
     ui.hud.online.textContent = t('online', { n: m.n });
     state.roundSecs = m.r;
     state.crowded = m.n >= CROWDED_PLAYERS || state.map.w * state.map.h >= CROWDED_MAP_CELLS;
-    if (state.mode !== 'royale') ui.hud.roundTime.textContent = `⏱ ${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
+    if (state.mode !== 'royale') {
+      setRoundIcon('clock');
+      ui.hud.roundTime.textContent = `${Math.floor(m.r / 60)}:${String(m.r % 60).padStart(2, '0')}`;
+    }
     const ts = ui.hud.teamScores;
     query(ts, '.red').textContent = String(m.teams[0]);
     query(ts, '.blue').textContent = String(m.teams[1]);
@@ -367,7 +372,7 @@ export const net = new Net({
       if (!near) return;
     }
     const name = state.rosterInfo.get(m.id)?.name ?? '?';
-    alerts.announce({ text: t('streak', { name, n: m.n }), icon: '🔥', tone: m.id === state.myId ? 'epic' : 'warn', key: `streak${m.id}` });
+    alerts.announce({ text: t('streak', { name, n: m.n }), icon: px('fire'), tone: m.id === state.myId ? 'epic' : 'warn', key: `streak${m.id}` });
   },
 
   hills(m) {

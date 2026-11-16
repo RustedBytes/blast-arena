@@ -2,6 +2,8 @@
 // leaderboard and the join form.
 
 import { closest, escapeHtml, fireAndForget } from '../dom.js';
+import { iconHtml } from '../pixelui.js';
+import type { IconName } from '../pixelui.js';
 import { t } from '../i18n.js';
 import { net } from './messages.js';
 import { audio, params, settings, token } from './services.js';
@@ -81,22 +83,22 @@ async function refreshLobby(): Promise<void> {
   try {
     const top = await fetchJson('/api/leaderboard', listOf(isLeaderRow));
     ui.join.allTime.innerHTML = top.length
-      ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${t('xpPoints', { n: r.xp })} · ${r.kills}K ${r.wins}★</span></li>`).join('')
+      ? top.slice(0, 10).map((r) => `<li><span>${escapeHtml(r.name)} · ${t('level', { n: r.level })}</span><span>${t('xpPoints', { n: r.xp })} · ${r.kills}K ${r.wins}${iconHtml('star')}</span></li>`).join('')
       : `<li class="muted">${t('noRecords')}</li>`;
   } catch { /* ignore */ }
 }
 
 /** Each arena mode's icon and name in the lobby. */
-const MODES: Readonly<Record<string, readonly [string, () => string]>> = {
-  ffa: ['💣', () => t('modeFfa')],
-  teams: ['🚩', () => t('modeTeams')],
-  royale: ['🌀', () => t('modeRoyale')],
-  worms: ['🪱', () => t('modeWorms')],
-  rockets: ['🚀', () => t('modeRockets')],
-  dungeon: ['🗝️', () => t('modeDungeon')],
-  cosmos: ['🪐', () => t('modeCosmos')],
+const MODES: Readonly<Record<string, readonly [IconName, () => string]>> = {
+  ffa: ['bomb', () => t('modeFfa')],
+  teams: ['flag', () => t('modeTeams')],
+  royale: ['storm', () => t('modeRoyale')],
+  worms: ['worm', () => t('modeWorms')],
+  rockets: ['rocket', () => t('modeRockets')],
+  dungeon: ['key', () => t('modeDungeon')],
+  cosmos: ['planet', () => t('modeCosmos')],
 };
-const modeOf = (mode: string): readonly [string, () => string] => MODES[mode] ?? MODES.ffa;
+const modeOf = (mode: string): readonly [IconName, () => string] => MODES[mode] ?? MODES.ffa;
 
 /**
  * The arena picker: a compact grid of tiles (icon, name, who's playing)
@@ -110,9 +112,9 @@ function renderArenas() {
     const title = `${a.name} · ${name()} · ${a.map}×${a.map}`;
     return `<button type="button" class="arena ${a.id === selectedArena ? 'selected' : ''}" data-id="${a.id}" ` +
       `aria-pressed="${a.id === selectedArena}" title="${escapeHtml(title)}">` +
-      `<span class="a-icon" aria-hidden="true">${icon}</span>` +
+      `<span class="a-icon" aria-hidden="true">${iconHtml(icon)}</span>` +
       `<span class="a-name">${escapeHtml(a.name)}</span>` +
-      `<span class="a-count"><span class="a-humans${a.humans ? ' live' : ''}">👤${a.humans}</span> 🤖${a.bots}</span></button>`;
+      `<span class="a-count"><span class="a-humans${a.humans ? ' live' : ''}">${iconHtml('user')}${a.humans}</span>${iconHtml('bot')}${a.bots}</span></button>`;
   }).join('');
   const sel = arenas.find((a) => a.id === selectedArena);
   ui.join.arenaInfo.textContent = sel
@@ -136,7 +138,7 @@ function picker(el: HTMLElement, pf: Profile, names: readonly string[], levels: 
   el.innerHTML = names.map((n, i) => {
     const locked = pf.level < levels[i];
     const title = locked ? t('lockedAt', { n: levels[i] }) : n;
-    return `<button type="button" data-v="${i}" class="${i === current && !locked ? 'selected' : ''}" ${locked ? 'disabled' : ''} title="${escapeHtml(title)}">${escapeHtml(n)}${locked ? ' 🔒' : ''}</button>`;
+    return `<button type="button" data-v="${i}" class="${i === current && !locked ? 'selected' : ''}" ${locked ? 'disabled' : ''} title="${escapeHtml(title)}">${escapeHtml(n)}${locked ? iconHtml('lock') : ''}</button>`;
   }).join('');
   el.onclick = (e) => {
     const b = closest(e.target, 'button', HTMLButtonElement);

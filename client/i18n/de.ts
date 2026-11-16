@@ -98,7 +98,7 @@ export const de: Strings = {
   shieldHold: 'Schild (V halten)',
   abilityNames: { 21: 'Baumeister', 22: 'Gasbomben', 23: 'Klon', 24: 'Klebebomben', 25: 'Portale', 26: 'Sprint' },
   abilityRejected: ['', 'Lädt auf…', 'Dort ist kein Platz', 'Schon zu viele draußen', 'Nicht jetzt', 'Zu früh: Beweg dich erst', 'Abgeschaltet'],
-  stuckOn: 'Eine Klebebombe hängt an dir! Halte C zum Abschütteln — {n} s', stuckTouch: 'Eine Klebebombe hängt an dir! Halte ✋ — {n} s',
+  stuckOn: 'Eine Klebebombe hängt an dir! Halte C zum Abschütteln — {n} s', stuckTouch: 'Eine Klebebombe hängt an dir! Halte die Hand-Taste — {n} s',
   inGas: 'Gas! Du wirst verlangsamt', portalWaiting: 'Setze das zweite Portal (R) — {n} s', gasIgnited: 'Das Gas entzündet sich!',
   yourClone: 'dein Klon',
   items: {

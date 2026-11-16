@@ -10,7 +10,9 @@ import { state } from './app/session.js';
 import { applyLanguage, setupSettingsUi } from './app/settings-ui.js';
 import { setupView } from './app/view.js';
 import { applyI18n, detectLanguage, getLanguage, setLanguage } from './i18n.js';
+import { mountPixelIcons } from './pixelui.js';
 
+mountPixelIcons();
 setLanguage(detectLanguage(settings.get('lang')));
 setupView();
 setupHud();

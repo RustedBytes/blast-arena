@@ -2,13 +2,14 @@
 // (`guide` in client/i18n/), keyed by the same slide ids.
 
 import type { SpriteName } from '../assets.js';
+import type { IconName } from '../pixelui.js';
 import type { Scene } from './scene.js';
 
-/** One picture in an icon grid: a sprite or an emoji, with its label. */
+/** One picture in an icon grid: a sprite or a pixel icon, with its label. */
 export type Icon =
   | { sprite: SpriteName; item: number }      // a power-up, labelled with its in-game name
   | { sprite: SpriteName; label: number }     // labelled with the slide's labels[label]
-  | { emoji: string; label: number }
+  | { px: IconName; label: number }
   | { monster: number; label: number };       // a dungeon monster by kind (1 slime, 2 skeleton, 3 bat)
 
 export type Visual = { scene: Scene } | { icons: readonly Icon[] };
@@ -112,26 +113,26 @@ export const SLIDES: readonly Slide[] = [
   {
     id: 'dangers',
     visual: {
-      icons: [{ emoji: '☄️', label: 0 }, { emoji: '❄️', label: 1 }, { emoji: '🌋', label: 2 }, { emoji: '⏳', label: 3 }],
+      icons: [{ px: 'comet', label: 0 }, { px: 'snow', label: 1 }, { px: 'volcano', label: 2 }, { px: 'hourglass', label: 3 }],
     },
   },
   {
     id: 'modes',
     visual: {
-      icons: [{ emoji: '🚩', label: 0 }, { emoji: '🌀', label: 1 }, { emoji: '🪱', label: 2 }, { emoji: '🗿', label: 3 },
-        { emoji: '🚀', label: 4 }, { emoji: '🤖', label: 5 }],
+      icons: [{ px: 'flag', label: 0 }, { px: 'storm', label: 1 }, { px: 'worm', label: 2 }, { px: 'moai', label: 3 },
+        { px: 'rocket', label: 4 }, { px: 'bot', label: 5 }],
     },
   },
   {
     id: 'dungeon',
     visual: {
-      icons: [{ monster: 1, label: 0 }, { monster: 2, label: 1 }, { monster: 3, label: 2 }, { emoji: '🗝️', label: 3 }],
+      icons: [{ monster: 1, label: 0 }, { monster: 2, label: 1 }, { monster: 3, label: 2 }, { px: 'key', label: 3 }],
     },
   },
   {
     id: 'hearts',
     visual: {
-      icons: [{ emoji: '❤️', label: 0 }, { emoji: '💨', label: 1 }, { emoji: '🩸', label: 2 }, item('pu_heart', 27)],
+      icons: [{ px: 'heart', label: 0 }, { px: 'wind', label: 1 }, { px: 'blood', label: 2 }, item('pu_heart', 27)],
     },
   },
   {
@@ -144,7 +145,7 @@ export const SLIDES: readonly Slide[] = [
   {
     id: 'scoring',
     visual: {
-      icons: [{ emoji: '💥', label: 0 }, { emoji: '⭐', label: 1 }, { emoji: '🎯', label: 2 }, { emoji: '😵', label: 3 }],
+      icons: [{ px: 'boom', label: 0 }, { px: 'star', label: 1 }, { px: 'target', label: 2 }, { px: 'dizzy', label: 3 }],
     },
     keys: ['Tab', 'Esc'],
   },

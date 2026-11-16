@@ -4,10 +4,12 @@
 import type { StatusOpts } from '../alerts.js';
 import { itemSprite } from '../assets.js';
 import type { SpriteName } from '../assets.js';
-import { escapeHtml, closest, fireAndForget, query, setTrailingText } from '../dom.js';
+import { escapeHtml, closest, fireAndForget, query, setChildren, setTrailingText } from '../dom.js';
 import { getLanguage, t } from '../i18n.js';
 import { BOLT_COLORS } from '../protocol.js';
 import type { Me } from '../protocol.js';
+import { iconEl, iconUrl, px } from '../pixelui.js';
+import type { IconName } from '../pixelui.js';
 import { EMOTES } from '../render.js';
 import { sendEmote } from './controls.js';
 import { alerts, renderer } from './services.js';
@@ -31,18 +33,18 @@ export function updateStatusAlerts(now: number): void {
   const alive = me.alive;
   const show = (key: string, on: boolean, text: string, opts: StatusOpts): void => (on ? alerts.status(key, text, opts) : alerts.clear(key));
   show('storm', alive && me.storm > 0, t('inStorm'),
-    { icon: '🌀', tone: 'danger', progress: 1 - me.storm / Math.max(1, me.storm_max) });
+    { icon: px('storm'), tone: 'danger', progress: 1 - me.storm / Math.max(1, me.storm_max) });
   const nuke = alive ? renderer.inNukeZone : null;
   show('nuke', !!nuke, t('nukeRun', { n: Math.ceil((nuke?.fuse ?? 0) * 0.05) }),
-    { icon: '☢️', tone: 'danger', progress: (nuke?.fuse ?? 0) / 70 });
+    { icon: px('rad'), tone: 'danger', progress: (nuke?.fuse ?? 0) / 70 });
   const sd = st.sd;
   let edge = false;
   if (alive && sd) {
     const ring = Math.max(Math.abs(Math.floor(st.self.x) - sd.cx), Math.abs(Math.floor(st.self.y) - sd.cy));
     edge = ring >= sd.r - 1;
   }
-  show('sd', edge, t('moveInward'), { icon: '⏳', tone: 'danger', progress: Math.max(0, (sd?.nextAt ?? now) - now) / 2000 });
-  show('stun', alive && me.stun > 0, t('stunned'), { icon: '💫', tone: 'warn' });
+  show('sd', edge, t('moveInward'), { icon: px('hourglass'), tone: 'danger', progress: Math.max(0, (sd?.nextAt ?? now) - now) / 2000 });
+  show('stun', alive && me.stun > 0, t('stunned'), { icon: px('stun'), tone: 'warn' });
   // A sticky bomb on you: how long it has, and how far the shake-off got.
   const touch = document.body.classList.contains('touch');
   const stuck = alive && me.stuck > 0;
@@ -55,7 +57,7 @@ export function updateStatusAlerts(now: number): void {
   const wait = alive ? me.portal_wait : 0;
   show('portal', wait > 0, t('portalWaiting', { n: Math.ceil(wait * st.tickMs / 1000) }),
     { icon: 'img:pu_portal', tone: 'info', progress: wait / (st.abilities?.portal_wait ?? 100) });
-  show('flag', alive && !!me.carrying, t('carryFlag'), { icon: '🚩', tone: 'info' });
+  show('flag', alive && !!me.carrying, t('carryFlag'), { icon: px('flag'), tone: 'info' });
   document.body.classList.toggle('in-storm', alive && me.storm > 0);
 }
 
@@ -71,7 +73,7 @@ export function updateHud(me: Me): void {
   // A heart came back (healing over time, or a heart power-up): sparkle.
   if (me.alive && me.hp_max && lastHp > 0 && me.hp > lastHp) {
     renderer.effects.sparkle(state.self.x, state.self.y, me.hp - lastHp > 1);
-    if (me.hp - lastHp === 1) alerts.toast(t('healed'), { icon: '❤️', tone: 'good', key: 'heal' });
+    if (me.hp - lastHp === 1) alerts.toast(t('healed'), { icon: px('heart'), tone: 'good', key: 'heal' });
   }
   lastHp = me.alive ? me.hp : 0;
   const key = [me.bombs, me.active, me.range, me.speed, me.kick, me.pierce, me.remote, me.line, me.punch, me.score, me.alive,
@@ -90,7 +92,9 @@ export function updateHud(me: Me): void {
   const hearts = ui.stats.hearts;
   hearts.classList.toggle('hidden', !me.hp_max || !me.alive);
   if (me.hp_max) {
-    hearts.textContent = '♥'.repeat(Math.max(0, me.hp)) + '♡'.repeat(Math.max(0, me.hp_max - me.hp));
+    const full = Math.max(0, me.hp), empty = Math.max(0, me.hp_max - me.hp);
+    setChildren(hearts, ...Array.from({ length: full }, () => iconEl('heart', 'px px-heart')),
+      ...Array.from({ length: empty }, () => iconEl('heartEmpty', 'px px-heart')));
     hearts.classList.toggle('low', me.hp <= 1);
   }
   // The blaster's colour (cosmos arena only).
@@ -171,7 +175,8 @@ export function updateRoyaleHud(now: number): void {
   if (r && !r.on) text = t('nextMatch', { n: Math.max(0, Math.ceil((r.nextAt - now) / 1000)) });
   else if (z?.state === 0) text = t('zoneNext', { n: Math.max(0, Math.ceil((z.end - now) / 1000)) });
   else if (z?.state === 1) text = t('zoneClosingShort');
-  ui.hud.roundTime.textContent = `👤 ${r?.alive ?? '?'} · ${text}`;
+  setRoundIcon('user');
+  ui.hud.roundTime.textContent = `${r?.alive ?? '?'} · ${text}`;
 }
 
 /** Capture-the-flag captures next to the team scores. */
@@ -200,7 +205,7 @@ function timer(el: HTMLElement, on: boolean, seconds: number, total: number): vo
 export function buildEmoteWheel() {
   const labels = t('emotes');
   ui.hud.emoteWheel.innerHTML = EMOTES.map((e, i) =>
-    `<button data-e="${i}" title="${escapeHtml(labels[i])}">${e}<kbd>${i + 1}</kbd></button>`).join('');
+    `<button data-e="${i}" title="${escapeHtml(labels[i])}"><img class="px" src="${iconUrl(e)}" alt="" draggable="false"><kbd>${i + 1}</kbd></button>`).join('');
 }
 
 /** Copies a link that joins this arena near us (or shows it, if copying isn't allowed). */
@@ -213,7 +218,15 @@ async function invite(): Promise<void> {
     prompt(t('invite'), url);
     return;
   }
-  alerts.toast(t('inviteCopied'), { icon: '🔗', tone: 'info' });
+  alerts.toast(t('inviteCopied'), { icon: px('link'), tone: 'info' });
+}
+
+/** Clock in a normal round, a person while a battle royale match is on screen. */
+export function setRoundIcon(name: IconName): void {
+  const img = document.getElementById('round-icon');
+  if (!(img instanceof HTMLImageElement) || img.dataset.px === name) return;
+  img.dataset.px = name;
+  img.src = iconUrl(name);
 }
 
 /** Wires the emote wheel and the invite button. */

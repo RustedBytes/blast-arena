@@ -110,9 +110,9 @@
       <div class="stat score"><span data-i18n="score">Score</span> <b id="st-score">0</b></div>
     </div>
     <div id="roundbar" class="panel">
-      <span id="round-time">5:00</span>
+      <span id="round-clock"><img data-px="clock" alt="" id="round-icon"><span id="round-time">5:00</span></span>
       <span id="team-scores" class="hidden"><b class="red">0</b> : <b class="blue">0</b></span>
-      <span id="ctf-caps" class="hidden" title="Flags captured">🚩 <b class="red">0</b> : <b class="blue">0</b></span>
+      <span id="ctf-caps" class="hidden" title="Flags captured"><img data-px="flag" alt=""> <b class="red">0</b> : <b class="blue">0</b></span>
     </div>
     <div id="side">
       <div id="leaderboard" class="panel">
@@ -135,9 +135,9 @@
       <div id="netinfo"></div>
     </div>
     <div id="hud-buttons">
-      <button id="invite" class="panel" data-i18n-title="invite" title="Invite a friend">🔗</button>
-      <button id="emote-toggle" class="panel" data-i18n-title="ctlEmote" title="Emotes">😀</button>
-      <button id="gear" class="panel" data-i18n-title="settings" title="Settings (Esc)">⚙</button>
+      <button id="invite" class="panel" data-i18n-title="invite" title="Invite a friend"><img data-px="link" alt=""></button>
+      <button id="emote-toggle" class="panel" data-i18n-title="ctlEmote" title="Emotes"><img data-px="smile" alt=""></button>
+      <button id="gear" class="panel" data-i18n-title="settings" title="Settings (Esc)"><img data-px="gear" alt=""></button>
     </div>
     <div id="emote-wheel" class="panel hidden"></div>
     <div id="dead" class="hidden">
@@ -148,12 +148,12 @@
       <div id="joy-zone"></div>
       <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
       <button id="act-btn" aria-label="Action">E</button>
-      <button id="jump-btn" aria-label="Jump">⤒</button>
+      <button id="jump-btn" aria-label="Jump"><img data-px="jump" alt=""></button>
       <button id="gadget-btn" aria-label="Gadget">Q</button>
       <button id="ability-btn" aria-label="Ability">R</button>
       <button id="shield-btn" class="hidden" data-i18n-title="ctlShield" aria-label="Shield">V</button>
-      <button id="detach-btn" class="hidden" aria-label="Shake off the sticky bomb">✋</button>
-      <button id="emote-btn" aria-label="Emote">😀</button>
+      <button id="detach-btn" class="hidden" aria-label="Shake off the sticky bomb"><img data-px="hand" alt=""></button>
+      <button id="emote-btn" aria-label="Emote"><img data-px="smile" alt=""></button>
       <button id="bomb-btn" aria-label="Drop bomb"><img src="assets/bomb.svg" alt=""></button>
     </div>
   </div>
@@ -169,7 +169,7 @@
 
   <div id="tutorial" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tut-title" aria-describedby="tut-body">
     <div class="card tut-card">
-      <button type="button" class="tut-close" aria-label="Close">✕</button>
+      <button type="button" class="tut-close" aria-label="Close"><img data-px="close" alt=""></button>
       <div class="tut-slide">
         <div class="tut-visual"></div>
         <div class="tut-keys"></div>
@@ -230,8 +230,8 @@
         <span><kbd>1</kbd>–<kbd>8</kbd></span><span data-i18n="ctlEmote"></span>
         <span><kbd>Tab</kbd></span><span data-i18n="ctlBoard"></span>
         <span><kbd>Esc</kbd></span><span data-i18n="ctlMenu"></span>
-        <span>🎮</span><span data-i18n="ctlPad"></span>
-        <span>📱</span><span data-i18n="ctlTouch"></span>
+        <span><img data-px="pad" alt=""></span><span data-i18n="ctlPad"></span>
+        <span><img data-px="phone" alt=""></span><span data-i18n="ctlTouch"></span>
       </div>
       <h3 data-i18n="powerups">Power-ups</h3>
       <div class="legend" id="legend"></div>
@@ -252,7 +252,7 @@
         <div id="arena-list" role="group" aria-label="Choose an arena"></div>
         <p id="arena-info" class="arena-info"></p>
         <button type="submit" id="play" class="primary" data-i18n="play">Play</button>
-        <button type="button" id="how-to-play" class="secondary">📖 <span data-i18n="howToPlay">How to play</span></button>
+        <button type="button" id="how-to-play" class="secondary"><img data-px="book" alt=""> <span data-i18n="howToPlay">How to play</span></button>
         <p id="join-error" class="error"></p>
         <div class="help">
           <span><kbd>WASD</kbd> <span data-i18n="helpMove">move</span></span>

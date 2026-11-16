@@ -2,6 +2,7 @@
 // gas clouds, portals and atomic bomb danger zones.
 
 import { ITEM_SPRITES } from '../assets.js';
+import { iconCanvas } from '../pixelui.js';
 import { context2d, makeCanvas } from '../dom.js';
 import { P_SMOKE, P_SPARK } from '../particles.js';
 import type { GameState } from '../state.js';
@@ -503,13 +504,18 @@ export class ObjectLayer {
       ctx.font = this.s.font(fs, 800);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      const label = `☢ ${Math.ceil(b.fuse * 0.05)}`;
+      const label = String(Math.ceil(b.fuse * 0.05));
+      const size = Math.round(fs * 0.95);
+      const smooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(iconCanvas('rad'), px - ctx.measureText(label).width / 2 - size - 2, py - size, size, size);
+      ctx.imageSmoothingEnabled = smooth;
       ctx.lineWidth = Math.max(3, fs * 0.22);
       ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(label, px, py);
+      ctx.strokeText(label, px + size * 0.35, py);
       ctx.fillStyle = b.fuse < 20 ? '#ff5a3a' : '#ffd23f';
-      ctx.fillText(label, px, py);
+      ctx.fillText(label, px + size * 0.35, py);
     }
   }
 

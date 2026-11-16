@@ -98,7 +98,7 @@ export const it: Strings = {
   shieldHold: 'Scudo (tieni V)',
   abilityNames: { 21: 'Costruttore', 22: 'Bombe a gas', 23: 'Clone', 24: 'Bombe adesive', 25: 'Portali', 26: 'Scatto' },
   abilityRejected: ['', 'In ricarica…', 'Non c’è spazio lì', 'Già troppi in campo', 'Non ora', 'Troppo presto: prima muoviti', 'Disattivato'],
-  stuckOn: 'Hai addosso una bomba adesiva! Tieni premuto C per scrollartela — {n} s', stuckTouch: 'Hai addosso una bomba adesiva! Tieni premuto ✋ — {n} s',
+  stuckOn: 'Hai addosso una bomba adesiva! Tieni premuto C per scrollartela — {n} s', stuckTouch: 'Hai addosso una bomba adesiva! Tieni premuto il pulsante della mano — {n} s',
   inGas: 'Gas! Sei rallentato', portalWaiting: 'Piazza il secondo portale (R) — {n} s', gasIgnited: 'Il gas prende fuoco!',
   yourClone: 'il tuo clone',
   items: {

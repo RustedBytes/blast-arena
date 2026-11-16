@@ -11,6 +11,7 @@
 // Tones colour them: info, good, warn, danger, epic.
 
 import { query, setChildren } from './dom.js';
+import { iconEl, isIconName } from './pixelui.js';
 
 const QUEUE_MAX = 4;
 const TOASTS_MAX = 4;
@@ -21,7 +22,7 @@ export interface AnnounceOpts {
   text: string;
   /** A hint line. */
   sub?: string;
-  /** Emoji, or an `assets/` sprite name prefixed with `img:`. */
+  /** A pixel icon (`px:name`) or an `assets/` sprite (`img:name`). */
   icon?: string;
   tone?: Tone;
   /** Milliseconds. */
@@ -221,7 +222,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
   return el;
 }
 
-/** The icon node(s) for an alert: none, an `assets/` sprite (`img:name`) or an emoji. */
+/** The icon node for an alert: none, an `assets/` sprite (`img:name`) or a pixel icon (`px:name`). */
 function icon(name: string | null | undefined): HTMLElement[] {
   if (!name) return [];
   if (name.startsWith('img:')) {
@@ -230,7 +231,10 @@ function icon(name: string | null | undefined): HTMLElement[] {
     img.alt = '';
     return [img];
   }
-  const span = element('span', 'alert-icon', name);
-  span.setAttribute('aria-hidden', 'true');
-  return [span];
+  if (name.startsWith('px:')) {
+    const id = name.slice(3);
+    if (!isIconName(id)) return [];
+    return [iconEl(id, 'alert-icon px')];
+  }
+  return [];
 }
